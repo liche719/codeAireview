@@ -2,14 +2,15 @@ package com.codepilot.module.git.client;
 
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.module.git.dto.GithubChangedFile;
+import com.codepilot.module.git.dto.GithubIssueComment;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -66,11 +67,7 @@ public class GithubClient {
         try {
             restClient.post()
                     .uri("/repos/{owner}/{repo}/issues/{issueNumber}/comments", owner, repo, pullNumber)
-                    .headers(headers -> {
-                        if (StringUtils.hasText(token)) {
-                            headers.setBearerAuth(token);
-                        }
-                    })
+                    .headers(this::setAuthorization)
                     .body(Map.of("body", body))
                     .retrieve()
                     .toBodilessEntity();
@@ -80,6 +77,51 @@ public class GithubClient {
 
         log.info("GitHub PR comment created, owner={}, repo={}, pullNumber={}, bodyLength={}",
                 owner, repo, pullNumber, body.length());
+    }
+
+    public List<GithubIssueComment> listPullRequestComments(String owner, String repo, Integer pullNumber) {
+        try {
+            List<GithubIssueComment> allComments = new ArrayList<>();
+            int page = 1;
+
+            while (true) {
+                List<GithubIssueComment> pageComments = requestPullRequestCommentsPage(owner, repo, pullNumber, page);
+                allComments.addAll(pageComments);
+
+                if (pageComments.size() < PER_PAGE) {
+                    break;
+                }
+                page++;
+            }
+
+            log.info("GitHub PR comments fetched, owner={}, repo={}, pullNumber={}, totalComments={}",
+                    owner, repo, pullNumber, allComments.size());
+            return allComments;
+        } catch (RestClientException exception) {
+            throw new BusinessException("failed to list GitHub PR comments: " + exception.getMessage());
+        }
+    }
+
+    public void updateIssueComment(String owner, String repo, Long commentId, String body) {
+        if (!StringUtils.hasText(body)) {
+            log.info("Skip GitHub PR comment update because body is empty, owner={}, repo={}, commentId={}",
+                    owner, repo, commentId);
+            return;
+        }
+
+        try {
+            restClient.patch()
+                    .uri("/repos/{owner}/{repo}/issues/comments/{commentId}", owner, repo, commentId)
+                    .headers(this::setAuthorization)
+                    .body(Map.of("body", body))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException exception) {
+            throw new BusinessException("failed to update GitHub PR comment: " + exception.getMessage());
+        }
+
+        log.info("GitHub PR comment updated, owner={}, repo={}, commentId={}, bodyLength={}",
+                owner, repo, commentId, body.length());
     }
 
     private List<GithubChangedFile> requestPullRequestFilesPage(
@@ -94,14 +136,35 @@ public class GithubClient {
                         .queryParam("per_page", PER_PAGE)
                         .queryParam("page", page)
                         .build(owner, repo, pullNumber))
-                .headers(headers -> {
-                    if (token != null && !token.isBlank()) {
-                        headers.setBearerAuth(token);
-                    }
-                })
+                .headers(this::setAuthorization)
                 .retrieve()
                 .body(new ParameterizedTypeReference<List<GithubChangedFile>>() {
                 });
         return files == null ? List.of() : files;
+    }
+
+    private List<GithubIssueComment> requestPullRequestCommentsPage(
+            String owner,
+            String repo,
+            Integer pullNumber,
+            int page
+    ) {
+        List<GithubIssueComment> comments = restClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/repos/{owner}/{repo}/issues/{issueNumber}/comments")
+                        .queryParam("per_page", PER_PAGE)
+                        .queryParam("page", page)
+                        .build(owner, repo, pullNumber))
+                .headers(this::setAuthorization)
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<GithubIssueComment>>() {
+                });
+        return comments == null ? List.of() : comments;
+    }
+
+    private void setAuthorization(HttpHeaders headers) {
+        if (StringUtils.hasText(token)) {
+            headers.setBearerAuth(token);
+        }
     }
 }

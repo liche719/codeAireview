@@ -2,6 +2,7 @@ package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
@@ -31,13 +32,16 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
 
     private final String githubToken;
 
+    private final String commentMarker;
+
     public GitHubCommentServiceImpl(
             ReviewTaskMapper reviewTaskMapper,
             ReviewIssueService reviewIssueService,
             GithubClient githubClient,
             ReviewReportFormatter reviewReportFormatter,
             @Value("${codepilot.github.comment-enabled:true}") boolean commentEnabled,
-            @Value("${codepilot.github.token:}") String githubToken
+            @Value("${codepilot.github.token:}") String githubToken,
+            @Value("${codepilot.github.comment-marker:<!-- codepilot-ai-review -->}") String commentMarker
     ) {
         this.reviewTaskMapper = reviewTaskMapper;
         this.reviewIssueService = reviewIssueService;
@@ -45,6 +49,7 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
         this.reviewReportFormatter = reviewReportFormatter;
         this.commentEnabled = commentEnabled;
         this.githubToken = githubToken;
+        this.commentMarker = StringUtils.hasText(commentMarker) ? commentMarker : "<!-- codepilot-ai-review -->";
     }
 
     @Override
@@ -68,14 +73,49 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
             List<ReviewIssue> issues = reviewIssueService.list(new LambdaQueryWrapper<ReviewIssue>()
                     .eq(ReviewIssue::getTaskId, taskId));
             String body = reviewReportFormatter.formatMarkdown(task, issues);
+            upsertReviewComment(task, body);
+        } catch (Exception exception) {
+            log.warn("GitHub PR comment failed but ignored, taskId={}, message={}", taskId, exception.getMessage());
+        }
+    }
+
+    private void upsertReviewComment(ReviewTask task, String body) {
+        List<GithubIssueComment> comments = githubClient.listPullRequestComments(
+                task.getRepoOwner(),
+                task.getRepoName(),
+                task.getPrNumber()
+        );
+        GithubIssueComment existingComment = findExistingCodePilotComment(comments);
+        if (existingComment == null) {
             githubClient.createPullRequestComment(
                     task.getRepoOwner(),
                     task.getRepoName(),
                     task.getPrNumber(),
                     body
             );
-        } catch (Exception exception) {
-            log.warn("GitHub PR comment failed, taskId={}, message={}", taskId, exception.getMessage());
+            log.info("Created new CodePilot GitHub PR comment, taskId={}, owner={}, repo={}, pullNumber={}",
+                    task.getId(), task.getRepoOwner(), task.getRepoName(), task.getPrNumber());
+            return;
         }
+
+        githubClient.updateIssueComment(
+                task.getRepoOwner(),
+                task.getRepoName(),
+                existingComment.getId(),
+                body
+        );
+        log.info("Updated existing CodePilot GitHub PR comment, taskId={}, owner={}, repo={}, commentId={}",
+                task.getId(), task.getRepoOwner(), task.getRepoName(), existingComment.getId());
+    }
+
+    private GithubIssueComment findExistingCodePilotComment(List<GithubIssueComment> comments) {
+        if (comments == null || comments.isEmpty()) {
+            return null;
+        }
+        return comments.stream()
+                .filter(comment -> comment != null && StringUtils.hasText(comment.getBody()))
+                .filter(comment -> comment.getBody().contains(commentMarker))
+                .findFirst()
+                .orElse(null);
     }
 }
