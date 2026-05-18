@@ -51,7 +51,9 @@ logging:
 codepilot:
   github:
     api-base-url: https://api.github.com
-    token:
+    token: ${CODEPILOT_GITHUB_TOKEN:}
+    comment-enabled: true
+    comment-marker: "<!-- codepilot-ai-review -->"
   llm:
     enabled: true
     provider: openai-compatible

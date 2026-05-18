@@ -16,6 +16,7 @@ import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.service.ReviewFileService;
+import com.codepilot.module.review.service.GitHubCommentService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import com.codepilot.module.review.service.ReviewTaskService;
 import com.codepilot.task.ReviewTaskProducer;
@@ -47,6 +48,8 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     private final ReviewIssueService reviewIssueService;
 
     private final AiReviewService aiReviewService;
+
+    private final GitHubCommentService githubCommentService;
 
     private final ReviewTaskProducer reviewTaskProducer;
 
@@ -118,6 +121,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             updateById(task);
             log.info("Review task processed successfully, taskId={}, totalFiles={}, totalIssues={}",
                     taskId, changedFiles.size(), reviewIssues.size());
+            commentReviewResult(taskId);
         } catch (Exception exception) {
             task.setStatus(ReviewTaskStatus.FAILED.name());
             task.setErrorMessage(exception.getMessage());
@@ -125,6 +129,14 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             task.setUpdatedAt(LocalDateTime.now());
             updateById(task);
             log.error("Review task failed, taskId={}", taskId, exception);
+        }
+    }
+
+    private void commentReviewResult(Long taskId) {
+        try {
+            githubCommentService.commentReviewResult(taskId);
+        } catch (Exception exception) {
+            log.warn("GitHub PR comment failed unexpectedly, taskId={}", taskId, exception);
         }
     }
 
