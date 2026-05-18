@@ -8,4 +8,6 @@ Thumbs.db
 
 logs/
 docker-data/
-
+.env
+.env.*
+!.env.example

@@ -177,3 +177,27 @@ Webhook 支持 `opened`、`synchronize`、`reopened` 三类 PR 事件。
 - 支持更细粒度的 diff 位置定位。
 - 支持审查历史对比和趋势分析。
 - 支持更多语言和更多扫描工具。
+
+## 本地启动
+
+1. 复制模板。
+```bash
+copy .env.example .env
+```
+
+2. 编辑 `.env`，至少填写这些值。
+- `CODEPILOT_GITHUB_TOKEN`
+- `CODEPILOT_LLM_API_KEY`
+- `CODEPILOT_EMBEDDING_API_KEY`
+- `CODEPILOT_GITHUB_WEBHOOK_SECRET`
+
+3. 启动本地环境。
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1
+```
+
+4. 说明。
+- `.env` 不要提交。
+- `.env.example` 可以提交。
+- GitHub Webhook Secret 必须和 `CODEPILOT_GITHUB_WEBHOOK_SECRET` 一致。
+- `CODEPILOT_GITHUB_COMMENT_ENABLED` 和 `CODEPILOT_GITHUB_WEBHOOK_ENABLED` 默认都是 `false`，需要时手动改成 `true`。

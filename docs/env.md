@@ -78,3 +78,7 @@
 - 没有配置 `CODEPILOT_GITHUB_WEBHOOK_SECRET` 且未显式开启跳过验签时，Webhook 验签会失败。
 - 没有配置 LLM 或 Embedding Key 时，应用仍可启动，相关能力会降级为跳过。
 - `codepilot123` 是本地开发默认密码，生产或公开环境必须通过环境变量覆盖。
+
+补充说明：
+- `.env` 不要提交，`.env.example` 是可提交的本地模板。
+- 本地推荐使用 `scripts/start-local.ps1` 启动，它会先加载 `.env`，再启动 Docker、打包和运行应用。
