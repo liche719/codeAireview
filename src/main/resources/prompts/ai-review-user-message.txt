@@ -16,6 +16,14 @@ Output format:
 }
 
 If no issue is found, return an empty issues array and a short summary.
+For ruleReference:
+- If an issue is related to a team rule, set ruleReference to the rule type and a short reason.
+- If no team rule applies, set ruleReference to null.
+- Do not copy the full rule text into ruleReference.
+- Keep ruleReference within 200 characters.
+
+Relevant team coding rules:
+{{rules}}
 
 File path:
 {{filePath}}

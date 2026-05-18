@@ -68,3 +68,8 @@ codepilot:
     model: ${CODEPILOT_EMBEDDING_MODEL:text-embedding-3-small}
     dimension: 1536
     timeout-seconds: 60
+  rag:
+    enabled: true
+    top-k: 3
+    max-context-chars: 2000
+    min-content-length: 20

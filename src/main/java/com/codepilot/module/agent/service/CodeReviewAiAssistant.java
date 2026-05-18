@@ -11,5 +11,9 @@ public interface CodeReviewAiAssistant {
 
     @SystemMessage(fromResource = "prompts/ai-review-system-message.txt")
     @UserMessage(fromResource = "prompts/ai-review-user-message.txt")
-    Result<String> review(@V("filePath") String filePath, @V("patch") String patch);
+    Result<String> review(
+            @V("filePath") String filePath,
+            @V("patch") String patch,
+            @V("rules") String rules
+    );
 }

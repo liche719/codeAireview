@@ -2,9 +2,12 @@ package com.codepilot.module.agent.service.impl;
 
 import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.module.agent.dto.AiReviewResult;
+import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.parser.AiReviewResultParser;
+import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.agent.service.CodeReviewAiAssistant;
+import com.codepilot.module.agent.service.ReviewRagService;
 import com.codepilot.module.audit.entity.LlmCallLog;
 import com.codepilot.module.audit.service.LlmCallLogService;
 import dev.langchain4j.service.Result;
@@ -15,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -28,6 +32,10 @@ public class AiReviewServiceImpl implements AiReviewService {
     private final ObjectProvider<CodeReviewAiAssistant> codeReviewAiAssistantProvider;
 
     private final AiReviewResultParser aiReviewResultParser;
+
+    private final ReviewRagService reviewRagService;
+
+    private final ReviewPromptBuilder reviewPromptBuilder;
 
     private final LlmCallLogService llmCallLogService;
 
@@ -52,13 +60,18 @@ public class AiReviewServiceImpl implements AiReviewService {
             return AiReviewResult.empty();
         }
 
+        List<ReviewRuleContext> rules = reviewRagService.retrieveRelevantRules(filePath, patch);
+        String rulesContext = reviewPromptBuilder.buildRulesContext(rules);
+        log.info("AI review RAG context prepared, filePath={}, ruleCount={}, contextChars={}",
+                filePath, rules.size(), rulesContext == null ? 0 : rulesContext.length());
+
         String responseText = null;
         String errorMessage = null;
         boolean success = false;
         long startTime = System.currentTimeMillis();
 
         try {
-            Result<String> result = codeReviewAiAssistant.review(filePath, patch);
+            Result<String> result = codeReviewAiAssistant.review(filePath, patch, rulesContext);
             responseText = result == null ? null : result.content();
             if (!StringUtils.hasText(responseText)) {
                 errorMessage = "empty model response";
@@ -74,7 +87,7 @@ public class AiReviewServiceImpl implements AiReviewService {
             return AiReviewResult.empty();
         } finally {
             long costTimeMs = System.currentTimeMillis() - startTime;
-            saveCallLog(taskId, filePath, patch, costTimeMs, success, errorMessage, responseText);
+            saveCallLog(taskId, filePath, patch, rules.size(), costTimeMs, success, errorMessage, responseText);
         }
     }
 
@@ -82,6 +95,7 @@ public class AiReviewServiceImpl implements AiReviewService {
             Long taskId,
             String filePath,
             String patch,
+            int ruleCount,
             long costTimeMs,
             boolean success,
             String errorMessage,
@@ -92,7 +106,7 @@ public class AiReviewServiceImpl implements AiReviewService {
             logRecord.setTaskId(taskId);
             logRecord.setModelName(llmProperties.getModel());
             logRecord.setCostTimeMs(costTimeMs);
-            logRecord.setRequestSummary(buildRequestSummary(filePath, patch));
+            logRecord.setRequestSummary(buildRequestSummary(filePath, patch, ruleCount));
             logRecord.setResponseSummary(truncate(responseText, RESPONSE_SUMMARY_LIMIT));
             logRecord.setSuccess(success);
             logRecord.setErrorMessage(errorMessage);
@@ -103,9 +117,9 @@ public class AiReviewServiceImpl implements AiReviewService {
         }
     }
 
-    private String buildRequestSummary(String filePath, String patch) {
+    private String buildRequestSummary(String filePath, String patch, int ruleCount) {
         int patchLength = patch == null ? 0 : patch.length();
-        return "filePath=" + filePath + ", patchLength=" + patchLength;
+        return "filePath=" + filePath + ", patchLength=" + patchLength + ", ragRuleCount=" + ruleCount;
     }
 
     private String truncate(String content, int maxLength) {

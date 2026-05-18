@@ -19,7 +19,9 @@ class CodeReviewAiAssistantPromptResourceTest {
         assertThat(systemMessage).contains("Return valid JSON only");
         assertThat(userMessage).contains("{{filePath}}");
         assertThat(userMessage).contains("{{patch}}");
+        assertThat(userMessage).contains("{{rules}}");
         assertThat(userMessage).contains("\"issues\"");
         assertThat(userMessage).contains("\"summary\"");
+        assertThat(userMessage).contains("ruleReference");
     }
 }
