@@ -14,6 +14,7 @@ public interface CodeReviewAiAssistant {
     Result<String> review(
             @V("filePath") String filePath,
             @V("patch") String patch,
-            @V("rules") String rules
+            @V("rules") String rules,
+            @V("allChangedFilesText") String allChangedFilesText
     );
 }

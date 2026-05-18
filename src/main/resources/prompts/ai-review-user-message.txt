@@ -25,6 +25,9 @@ For ruleReference:
 Relevant team coding rules:
 {{rules}}
 
+All changed files in this PR:
+{{allChangedFilesText}}
+
 File path:
 {{filePath}}
 

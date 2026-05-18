@@ -95,9 +95,13 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
                     .eq(ReviewIssue::getTaskId, taskId));
             reviewFileService.saveBatch(reviewFiles);
 
+            List<String> allChangedFiles = reviewFiles.stream()
+                    .map(ReviewFile::getFilePath)
+                    .filter(StringUtils::hasText)
+                    .toList();
             List<ReviewIssue> reviewIssues = reviewFiles.stream()
                     .filter(reviewFile -> !shouldSkipAiReview(reviewFile))
-                    .flatMap(reviewFile -> reviewFileWithAi(taskId, reviewFile).stream())
+                    .flatMap(reviewFile -> reviewFileWithAi(taskId, reviewFile, allChangedFiles).stream())
                     .toList();
 
             if (!reviewIssues.isEmpty()) {
@@ -193,9 +197,14 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
                 || normalizedPath.contains("/build/");
     }
 
-    private List<ReviewIssue> reviewFileWithAi(Long taskId, ReviewFile reviewFile) {
+    private List<ReviewIssue> reviewFileWithAi(Long taskId, ReviewFile reviewFile, List<String> allChangedFiles) {
         try {
-            AiReviewResult aiReviewResult = aiReviewService.reviewFile(taskId, reviewFile.getFilePath(), reviewFile.getPatch());
+            AiReviewResult aiReviewResult = aiReviewService.reviewFile(
+                    taskId,
+                    reviewFile.getFilePath(),
+                    reviewFile.getPatch(),
+                    allChangedFiles
+            );
             return mapToReviewIssues(taskId, reviewFile.getFilePath(), aiReviewResult);
         } catch (Exception exception) {
             log.warn("Ai review failed unexpectedly, taskId={}, filePath={}", taskId, reviewFile.getFilePath(), exception);

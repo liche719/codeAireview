@@ -73,3 +73,8 @@ codepilot:
     top-k: 3
     max-context-chars: 2000
     min-content-length: 20
+  tools:
+    enabled: true
+    sql-risk-enabled: true
+    secret-scan-enabled: true
+    test-suggestion-enabled: true

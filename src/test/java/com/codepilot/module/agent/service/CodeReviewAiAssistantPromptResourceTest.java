@@ -17,9 +17,13 @@ class CodeReviewAiAssistantPromptResourceTest {
                 .getContentAsString(StandardCharsets.UTF_8);
 
         assertThat(systemMessage).contains("Return valid JSON only");
+        assertThat(systemMessage).contains("SQL risk detection tool");
+        assertThat(systemMessage).contains("Secret scan tool");
+        assertThat(systemMessage).contains("Test suggestion tool");
         assertThat(userMessage).contains("{{filePath}}");
         assertThat(userMessage).contains("{{patch}}");
         assertThat(userMessage).contains("{{rules}}");
+        assertThat(userMessage).contains("{{allChangedFilesText}}");
         assertThat(userMessage).contains("\"issues\"");
         assertThat(userMessage).contains("\"summary\"");
         assertThat(userMessage).contains("ruleReference");

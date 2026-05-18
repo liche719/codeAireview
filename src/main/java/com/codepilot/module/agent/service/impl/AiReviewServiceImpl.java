@@ -40,7 +40,7 @@ public class AiReviewServiceImpl implements AiReviewService {
     private final LlmCallLogService llmCallLogService;
 
     @Override
-    public AiReviewResult reviewFile(Long taskId, String filePath, String patch) {
+    public AiReviewResult reviewFile(Long taskId, String filePath, String patch, List<String> allChangedFiles) {
         if (!llmProperties.isEnabled()) {
             log.info("Skip ai review because llm is disabled, filePath={}", filePath);
             return AiReviewResult.empty();
@@ -64,6 +64,7 @@ public class AiReviewServiceImpl implements AiReviewService {
         String rulesContext = reviewPromptBuilder.buildRulesContext(rules);
         log.info("AI review RAG context prepared, filePath={}, ruleCount={}, contextChars={}",
                 filePath, rules.size(), rulesContext == null ? 0 : rulesContext.length());
+        String allChangedFilesText = buildAllChangedFilesText(allChangedFiles);
 
         String responseText = null;
         String errorMessage = null;
@@ -71,7 +72,7 @@ public class AiReviewServiceImpl implements AiReviewService {
         long startTime = System.currentTimeMillis();
 
         try {
-            Result<String> result = codeReviewAiAssistant.review(filePath, patch, rulesContext);
+            Result<String> result = codeReviewAiAssistant.review(filePath, patch, rulesContext, allChangedFilesText);
             responseText = result == null ? null : result.content();
             if (!StringUtils.hasText(responseText)) {
                 errorMessage = "empty model response";
@@ -120,6 +121,13 @@ public class AiReviewServiceImpl implements AiReviewService {
     private String buildRequestSummary(String filePath, String patch, int ruleCount) {
         int patchLength = patch == null ? 0 : patch.length();
         return "filePath=" + filePath + ", patchLength=" + patchLength + ", ragRuleCount=" + ruleCount;
+    }
+
+    private String buildAllChangedFilesText(List<String> allChangedFiles) {
+        if (allChangedFiles == null || allChangedFiles.isEmpty()) {
+            return "No changed file list was provided.";
+        }
+        return String.join("\n", allChangedFiles);
     }
 
     private String truncate(String content, int maxLength) {
