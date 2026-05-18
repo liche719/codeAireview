@@ -54,6 +54,8 @@ codepilot:
     token: ${CODEPILOT_GITHUB_TOKEN:}
     comment-enabled: true
     comment-marker: "<!-- codepilot-ai-review -->"
+    webhook-enabled: true
+    webhook-secret: ${CODEPILOT_GITHUB_WEBHOOK_SECRET:}
   llm:
     enabled: true
     provider: openai-compatible

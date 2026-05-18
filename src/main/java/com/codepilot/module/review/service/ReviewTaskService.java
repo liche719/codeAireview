@@ -8,5 +8,7 @@ public interface ReviewTaskService extends IService<ReviewTask> {
 
     ReviewCreateResponse createTask(String prUrl);
 
+    ReviewCreateResponse createTask(String prUrl, String title);
+
     void processTask(Long taskId);
 }

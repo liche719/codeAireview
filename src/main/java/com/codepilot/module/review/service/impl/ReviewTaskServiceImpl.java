@@ -56,6 +56,12 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ReviewCreateResponse createTask(String prUrl) {
+        return createTask(prUrl, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ReviewCreateResponse createTask(String prUrl, String title) {
         GithubPrInfo prInfo = githubPrUrlParser.parse(prUrl);
 
         ReviewTask task = new ReviewTask();
@@ -63,6 +69,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         task.setRepoName(prInfo.getRepo());
         task.setPrNumber(prInfo.getPullNumber());
         task.setPrUrl(prUrl.trim());
+        task.setTitle(title);
         task.setStatus(ReviewTaskStatus.PENDING.name());
         task.setTotalFiles(0);
         task.setTotalIssues(0);
