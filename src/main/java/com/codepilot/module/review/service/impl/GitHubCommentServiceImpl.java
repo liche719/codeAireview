@@ -39,7 +39,7 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
             ReviewIssueService reviewIssueService,
             GithubClient githubClient,
             ReviewReportFormatter reviewReportFormatter,
-            @Value("${codepilot.github.comment-enabled:true}") boolean commentEnabled,
+            @Value("${codepilot.github.comment-enabled:false}") boolean commentEnabled,
             @Value("${codepilot.github.token:}") String githubToken,
             @Value("${codepilot.github.comment-marker:<!-- codepilot-ai-review -->}") String commentMarker
     ) {

@@ -44,6 +44,11 @@ class GitHubWebhookServiceTest {
                 "https://github.com/liche719/codeAireview/pull/12",
                 "Add webhook support"
         );
+        verify(context.valueOperations).setIfAbsent(
+                eq("codepilot:webhook:pr-head:liche719:codeaireview:12:abc123"),
+                eq("1"),
+                any(Duration.class)
+        );
     }
 
     @Test
@@ -100,7 +105,10 @@ class GitHubWebhookServiceTest {
                   "pull_request": {
                     "number": 12,
                     "html_url": "https://github.com/liche719/codeAireview/pull/12",
-                    "title": "Add webhook support"
+                    "title": "Add webhook support",
+                    "head": {
+                      "sha": "abc123"
+                    }
                   }
                 }
                 """.formatted(action);
@@ -112,12 +120,13 @@ class GitHubWebhookServiceTest {
 
         private final ReviewTaskService reviewTaskService = mock(ReviewTaskService.class);
 
+        @SuppressWarnings("unchecked")
+        private final ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
+
         private final GitHubWebhookService service;
 
-        @SuppressWarnings("unchecked")
         private TestContext(boolean redisLockAcquired, boolean signatureValid) {
             StringRedisTemplate stringRedisTemplate = mock(StringRedisTemplate.class);
-            ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
             when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
             when(valueOperations.setIfAbsent(anyString(), eq("1"), any(Duration.class))).thenReturn(redisLockAcquired);
             when(signatureVerifier.verify(anyString(), any())).thenReturn(signatureValid);

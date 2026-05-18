@@ -12,6 +12,15 @@ docker compose up -d
 mvn spring-boot:run
 ```
 
+如果要演示 GitHub 评论回写和 Webhook 自动触发，请先配置：
+
+```bash
+set CODEPILOT_GITHUB_COMMENT_ENABLED=true
+set CODEPILOT_GITHUB_WEBHOOK_ENABLED=true
+set CODEPILOT_GITHUB_TOKEN=你的 GitHub Token
+set CODEPILOT_GITHUB_WEBHOOK_SECRET=你的 Webhook Secret
+```
+
 3. 创建一份 SQL 规范。
 
 ```bash

@@ -20,6 +20,7 @@ class GitHubWebhookPayloadParserTest {
         assertThat(payload.getPullNumber()).isEqualTo(12);
         assertThat(payload.getPrUrl()).isEqualTo("https://github.com/liche719/codeAireview/pull/12");
         assertThat(payload.getTitle()).isEqualTo("Add webhook support");
+        assertThat(payload.getHeadSha()).isEqualTo("abc123");
     }
 
     @Test
@@ -60,7 +61,10 @@ class GitHubWebhookPayloadParserTest {
                   "pull_request": {
                     "number": 12,
                     "html_url": "https://github.com/liche719/codeAireview/pull/12",
-                    "title": "Add webhook support"
+                    "title": "Add webhook support",
+                    "head": {
+                      "sha": "abc123"
+                    }
                   }
                 }
                 """.formatted(action);

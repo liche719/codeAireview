@@ -9,6 +9,7 @@ Output format:
       "title": "issue title",
       "description": "issue description",
       "suggestion": "fix suggestion",
+      "source": "LLM | TOOL",
       "ruleReference": null
     }
   ],
@@ -21,6 +22,10 @@ For ruleReference:
 - If no team rule applies, set ruleReference to null.
 - Do not copy the full rule text into ruleReference.
 - Keep ruleReference within 200 characters.
+For source:
+- If the issue mainly comes from a tool result, set source to "TOOL".
+- If the issue comes from your own review judgment, set source to "LLM".
+- If uncertain, set source to "LLM".
 
 Relevant team coding rules:
 {{rules}}

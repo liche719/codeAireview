@@ -15,21 +15,28 @@ class GitHubWebhookSignatureVerifierTest {
     void shouldPassWhenSignatureIsCorrect() throws Exception {
         String secret = "test-secret";
         String payload = "{\"action\":\"opened\"}";
-        GitHubWebhookSignatureVerifier verifier = new GitHubWebhookSignatureVerifier(secret);
+        GitHubWebhookSignatureVerifier verifier = new GitHubWebhookSignatureVerifier(secret, false);
 
         assertThat(verifier.verify(payload, "sha256=" + hmacSha256Hex(secret, payload))).isTrue();
     }
 
     @Test
     void shouldFailWhenSignatureIsWrong() {
-        GitHubWebhookSignatureVerifier verifier = new GitHubWebhookSignatureVerifier("test-secret");
+        GitHubWebhookSignatureVerifier verifier = new GitHubWebhookSignatureVerifier("test-secret", false);
 
         assertThat(verifier.verify("{\"action\":\"opened\"}", "sha256=wrong")).isFalse();
     }
 
     @Test
-    void shouldPassWhenSecretIsEmptyForLocalDevelopment() {
-        GitHubWebhookSignatureVerifier verifier = new GitHubWebhookSignatureVerifier("");
+    void shouldFailWhenSecretIsEmptyByDefault() {
+        GitHubWebhookSignatureVerifier verifier = new GitHubWebhookSignatureVerifier("", false);
+
+        assertThat(verifier.verify("{\"action\":\"opened\"}", null)).isFalse();
+    }
+
+    @Test
+    void shouldPassWhenSecretIsEmptyAndLocalSkipIsEnabled() {
+        GitHubWebhookSignatureVerifier verifier = new GitHubWebhookSignatureVerifier("", true);
 
         assertThat(verifier.verify("{\"action\":\"opened\"}", null)).isTrue();
     }

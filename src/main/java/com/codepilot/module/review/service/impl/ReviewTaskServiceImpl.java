@@ -10,6 +10,7 @@ import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubPrInfo;
 import com.codepilot.module.git.parser.GithubPrUrlParser;
+import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
@@ -52,6 +53,8 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     private final GitHubCommentService githubCommentService;
 
     private final ReviewTaskProducer reviewTaskProducer;
+
+    private final ReviewProperties reviewProperties;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -98,6 +101,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
                     task.getPrNumber()
             );
             List<ReviewFile> reviewFiles = toReviewFiles(taskId, changedFiles);
+            applyReviewLimits(reviewFiles);
 
             reviewFileService.remove(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ReviewFile>()
                     .eq(ReviewFile::getTaskId, taskId));
@@ -110,7 +114,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
                     .filter(StringUtils::hasText)
                     .toList();
             List<ReviewIssue> reviewIssues = reviewFiles.stream()
-                    .filter(reviewFile -> !shouldSkipAiReview(reviewFile))
+                    .filter(reviewFile -> !Boolean.TRUE.equals(reviewFile.getSkipped()))
                     .flatMap(reviewFile -> reviewFileWithAi(taskId, reviewFile, allChangedFiles).stream())
                     .toList();
 
@@ -189,18 +193,81 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         return reviewFile;
     }
 
-    private boolean shouldSkipAiReview(ReviewFile reviewFile) {
-        if (Boolean.TRUE.equals(reviewFile.getSkipped())) {
-            return true;
-        }
-        if (!StringUtils.hasText(reviewFile.getPatch())) {
-            return true;
-        }
-        if (!StringUtils.hasText(reviewFile.getFilePath())) {
-            return true;
+    private void applyReviewLimits(List<ReviewFile> reviewFiles) {
+        int reviewedFiles = 0;
+        int totalPatchChars = 0;
+
+        for (ReviewFile reviewFile : reviewFiles) {
+            String basicSkipReason = getBasicSkipReason(reviewFile);
+            if (basicSkipReason != null) {
+                markSkipped(reviewFile, basicSkipReason);
+                continue;
+            }
+
+            int patchLength = reviewFile.getPatch().length();
+            if (isPositive(reviewProperties.getMaxPatchCharsPerFile())
+                    && patchLength > reviewProperties.getMaxPatchCharsPerFile()) {
+                markSkipped(reviewFile, "patch exceeds per-file review limit");
+                continue;
+            }
+
+            if (isPositive(reviewProperties.getMaxFilesPerTask())
+                    && reviewedFiles >= reviewProperties.getMaxFilesPerTask()) {
+                markSkipped(reviewFile, "review file count limit exceeded");
+                continue;
+            }
+
+            if (isPositive(reviewProperties.getMaxTotalPatchChars())
+                    && totalPatchChars + patchLength > reviewProperties.getMaxTotalPatchChars()) {
+                markSkipped(reviewFile, "review total patch length limit exceeded");
+                continue;
+            }
+
+            reviewFile.setSkipped(false);
+            reviewFile.setSkipReason(null);
+            reviewedFiles++;
+            totalPatchChars += patchLength;
         }
 
-        String normalizedPath = reviewFile.getFilePath()
+        long skippedCount = reviewFiles.stream()
+                .filter(reviewFile -> Boolean.TRUE.equals(reviewFile.getSkipped()))
+                .count();
+        log.info("Review file limits applied, totalFiles={}, reviewedFiles={}, skippedFiles={}, maxFiles={}, maxPatchCharsPerFile={}, maxTotalPatchChars={}",
+                reviewFiles.size(),
+                reviewedFiles,
+                skippedCount,
+                reviewProperties.getMaxFilesPerTask(),
+                reviewProperties.getMaxPatchCharsPerFile(),
+                reviewProperties.getMaxTotalPatchChars());
+    }
+
+    private String getBasicSkipReason(ReviewFile reviewFile) {
+        if (Boolean.TRUE.equals(reviewFile.getSkipped())) {
+            return StringUtils.hasText(reviewFile.getSkipReason()) ? reviewFile.getSkipReason() : "file is already marked skipped";
+        }
+        if (!StringUtils.hasText(reviewFile.getPatch())) {
+            return "patch is empty or file is binary/too large";
+        }
+        if (!StringUtils.hasText(reviewFile.getFilePath())) {
+            return "file path is empty";
+        }
+        if (shouldSkipPath(reviewFile.getFilePath())) {
+            return "file type or generated path skipped";
+        }
+        return null;
+    }
+
+    private void markSkipped(ReviewFile reviewFile, String reason) {
+        reviewFile.setSkipped(true);
+        reviewFile.setSkipReason(reason);
+    }
+
+    private boolean isPositive(int value) {
+        return value > 0;
+    }
+
+    private boolean shouldSkipPath(String filePath) {
+        String normalizedPath = filePath
                 .replace('\\', '/')
                 .toLowerCase(Locale.ROOT);
 
@@ -247,12 +314,20 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             reviewIssue.setTitle(issue.getTitle());
             reviewIssue.setDescription(issue.getDescription());
             reviewIssue.setSuggestion(issue.getSuggestion());
-            reviewIssue.setSource("LLM");
+            reviewIssue.setSource(normalizeSource(issue.getSource()));
             reviewIssue.setRuleReference(issue.getRuleReference());
             reviewIssue.setCreatedAt(LocalDateTime.now());
             reviewIssues.add(reviewIssue);
         }
         return reviewIssues;
+    }
+
+    private String normalizeSource(String source) {
+        if (!StringUtils.hasText(source)) {
+            return "LLM";
+        }
+        String normalizedSource = source.trim().toUpperCase(Locale.ROOT);
+        return "TOOL".equals(normalizedSource) ? "TOOL" : "LLM";
     }
 
     private String calculateRiskLevel(List<ReviewIssue> reviewIssues) {

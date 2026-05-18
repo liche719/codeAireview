@@ -19,16 +19,24 @@ public class GitHubWebhookSignatureVerifier {
 
     private final String webhookSecret;
 
+    private final boolean skipSignatureWhenSecretEmpty;
+
     public GitHubWebhookSignatureVerifier(
-            @Value("${codepilot.github.webhook-secret:}") String webhookSecret
+            @Value("${codepilot.github.webhook-secret:}") String webhookSecret,
+            @Value("${codepilot.github.webhook-skip-signature-when-secret-empty:false}") boolean skipSignatureWhenSecretEmpty
     ) {
         this.webhookSecret = webhookSecret;
+        this.skipSignatureWhenSecretEmpty = skipSignatureWhenSecretEmpty;
     }
 
     public boolean verify(String payload, String signatureHeader) {
         if (!StringUtils.hasText(webhookSecret)) {
-            log.warn("GitHub webhook signature verification skipped because webhook secret is empty");
-            return true;
+            if (skipSignatureWhenSecretEmpty) {
+                log.warn("GitHub webhook signature verification skipped because webhook secret is empty");
+                return true;
+            }
+            log.warn("GitHub webhook signature verification failed because webhook secret is empty");
+            return false;
         }
         if (!StringUtils.hasText(signatureHeader) || !signatureHeader.startsWith(SIGNATURE_PREFIX)) {
             return false;

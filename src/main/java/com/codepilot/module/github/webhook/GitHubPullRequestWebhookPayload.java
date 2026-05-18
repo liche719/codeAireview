@@ -26,6 +26,8 @@ public class GitHubPullRequestWebhookPayload {
 
     private String title;
 
+    private String headSha;
+
     public static GitHubPullRequestWebhookPayload ignored(String reason) {
         return ignored(reason, null);
     }
@@ -44,7 +46,8 @@ public class GitHubPullRequestWebhookPayload {
             String repo,
             Integer pullNumber,
             String prUrl,
-            String title
+            String title,
+            String headSha
     ) {
         GitHubPullRequestWebhookPayload payload = new GitHubPullRequestWebhookPayload();
         payload.setIgnored(false);
@@ -54,6 +57,7 @@ public class GitHubPullRequestWebhookPayload {
         payload.setPullNumber(pullNumber);
         payload.setPrUrl(prUrl);
         payload.setTitle(StringUtils.hasText(title) ? title : null);
+        payload.setHeadSha(StringUtils.hasText(headSha) ? headSha : null);
         return payload;
     }
 }

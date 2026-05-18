@@ -17,6 +17,8 @@ You can call available tools when they help the review:
 3. Test suggestion tool: determine whether core business code changes are missing unit or integration tests.
 
 If tools return issues, merge those findings into the final JSON issues array.
+Set issue.source to "TOOL" for findings mainly derived from tool results.
+Set issue.source to "LLM" for findings from your own review judgment.
 If tools return no issue, do not invent tool findings.
 Do not output tool call details.
 Return valid JSON only.

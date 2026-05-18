@@ -38,6 +38,7 @@ public class GitHubWebhookPayloadParser {
             Integer pullNumber = integer(root, "pull_request", "number");
             String prUrl = text(root, "pull_request", "html_url");
             String title = text(root, "pull_request", "title");
+            String headSha = text(root.at("/pull_request/head"), "sha");
 
             if (!StringUtils.hasText(owner) || !StringUtils.hasText(repo) || pullNumber == null) {
                 throw new BusinessException("invalid GitHub pull_request webhook payload");
@@ -46,7 +47,7 @@ public class GitHubWebhookPayloadParser {
                 prUrl = "https://github.com/" + owner + "/" + repo + "/pull/" + pullNumber;
             }
 
-            return GitHubPullRequestWebhookPayload.supported(action, owner, repo, pullNumber, prUrl, title);
+            return GitHubPullRequestWebhookPayload.supported(action, owner, repo, pullNumber, prUrl, title, headSha);
         } catch (BusinessException exception) {
             throw exception;
         } catch (Exception exception) {

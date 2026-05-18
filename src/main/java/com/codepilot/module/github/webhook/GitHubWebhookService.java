@@ -32,7 +32,7 @@ public class GitHubWebhookService {
             GitHubWebhookPayloadParser payloadParser,
             ReviewTaskService reviewTaskService,
             StringRedisTemplate stringRedisTemplate,
-            @Value("${codepilot.github.webhook-enabled:true}") boolean webhookEnabled
+            @Value("${codepilot.github.webhook-enabled:false}") boolean webhookEnabled
     ) {
         this.signatureVerifier = signatureVerifier;
         this.payloadParser = payloadParser;
@@ -57,9 +57,9 @@ public class GitHubWebhookService {
                     event, parsedPayload.getAction(), parsedPayload.getReason(), delivery);
             return GitHubWebhookResponse.ignored(parsedPayload.getReason(), parsedPayload.getAction());
         }
-        if (isDuplicate(parsedPayload)) {
-            log.info("GitHub webhook ignored because duplicate event was detected, owner={}, repo={}, pullNumber={}, delivery={}",
-                    parsedPayload.getOwner(), parsedPayload.getRepo(), parsedPayload.getPullNumber(), delivery);
+        if (isDuplicate(parsedPayload, delivery)) {
+            log.info("GitHub webhook ignored because duplicate event was detected, owner={}, repo={}, pullNumber={}, headSha={}, delivery={}",
+                    parsedPayload.getOwner(), parsedPayload.getRepo(), parsedPayload.getPullNumber(), parsedPayload.getHeadSha(), delivery);
             return GitHubWebhookResponse.ignored("duplicate event", parsedPayload.getAction());
         }
 
@@ -77,9 +77,9 @@ public class GitHubWebhookService {
         return GitHubWebhookResponse.processed(response.getTaskId(), parsedPayload.getAction());
     }
 
-    private boolean isDuplicate(GitHubPullRequestWebhookPayload payload) {
+    private boolean isDuplicate(GitHubPullRequestWebhookPayload payload, String delivery) {
         try {
-            String key = buildDedupKey(payload);
+            String key = buildDedupKey(payload, delivery);
             Boolean acquired = stringRedisTemplate.opsForValue().setIfAbsent(key, "1", DEDUP_TTL);
             return Boolean.FALSE.equals(acquired);
         } catch (Exception exception) {
@@ -89,8 +89,21 @@ public class GitHubWebhookService {
         }
     }
 
-    private String buildDedupKey(GitHubPullRequestWebhookPayload payload) {
-        return "codepilot:webhook:"
+    private String buildDedupKey(GitHubPullRequestWebhookPayload payload, String delivery) {
+        if (StringUtils.hasText(payload.getHeadSha())) {
+            return "codepilot:webhook:pr-head:"
+                    + safePart(payload.getOwner())
+                    + ":"
+                    + safePart(payload.getRepo())
+                    + ":"
+                    + payload.getPullNumber()
+                    + ":"
+                    + safePart(payload.getHeadSha());
+        }
+        if (StringUtils.hasText(delivery)) {
+            return "codepilot:webhook:delivery:" + safePart(delivery);
+        }
+        return "codepilot:webhook:pr:"
                 + safePart(payload.getOwner())
                 + ":"
                 + safePart(payload.getRepo())
@@ -99,6 +112,9 @@ public class GitHubWebhookService {
     }
 
     private String safePart(String value) {
-        return StringUtils.hasText(value) ? value.trim().toLowerCase() : "unknown";
+        if (!StringUtils.hasText(value)) {
+            return "unknown";
+        }
+        return value.trim().toLowerCase().replaceAll("[^a-z0-9._-]", "_");
     }
 }

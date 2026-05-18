@@ -22,6 +22,7 @@ class AiReviewResultParserTest {
                       "title": "Potential null pointer",
                       "description": "Object may be null before invocation.",
                       "suggestion": "Add a null check.",
+                      "source": "TOOL",
                       "ruleReference": null
                     }
                   ],
@@ -33,6 +34,7 @@ class AiReviewResultParserTest {
 
         assertThat(result.getIssues()).hasSize(1);
         assertThat(result.getIssues().getFirst().getSeverity()).isEqualTo("HIGH");
+        assertThat(result.getIssues().getFirst().getSource()).isEqualTo("TOOL");
         assertThat(result.getSummary()).isEqualTo("Found one issue");
     }
 
@@ -65,4 +67,3 @@ class AiReviewResultParserTest {
         assertThat(result.getSummary()).isNull();
     }
 }
-

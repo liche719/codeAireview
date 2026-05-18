@@ -26,6 +26,8 @@ class CodeReviewAiAssistantPromptResourceTest {
         assertThat(userMessage).contains("{{allChangedFilesText}}");
         assertThat(userMessage).contains("\"issues\"");
         assertThat(userMessage).contains("\"summary\"");
+        assertThat(userMessage).contains("\"source\"");
+        assertThat(userMessage).contains("LLM | TOOL");
         assertThat(userMessage).contains("ruleReference");
     }
 }

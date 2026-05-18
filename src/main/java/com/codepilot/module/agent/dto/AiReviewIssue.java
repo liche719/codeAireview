@@ -21,5 +21,7 @@ public class AiReviewIssue {
 
     private String suggestion;
 
+    private String source;
+
     private String ruleReference;
 }

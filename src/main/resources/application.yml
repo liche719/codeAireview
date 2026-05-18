@@ -52,10 +52,15 @@ codepilot:
   github:
     api-base-url: https://api.github.com
     token: ${CODEPILOT_GITHUB_TOKEN:}
-    comment-enabled: true
+    comment-enabled: ${CODEPILOT_GITHUB_COMMENT_ENABLED:false}
     comment-marker: "<!-- codepilot-ai-review -->"
-    webhook-enabled: true
+    webhook-enabled: ${CODEPILOT_GITHUB_WEBHOOK_ENABLED:false}
     webhook-secret: ${CODEPILOT_GITHUB_WEBHOOK_SECRET:}
+    webhook-skip-signature-when-secret-empty: ${CODEPILOT_GITHUB_WEBHOOK_SKIP_SIGNATURE_WHEN_SECRET_EMPTY:false}
+  review:
+    max-files-per-task: ${CODEPILOT_REVIEW_MAX_FILES_PER_TASK:30}
+    max-patch-chars-per-file: ${CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE:12000}
+    max-total-patch-chars: ${CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS:80000}
   llm:
     enabled: true
     provider: openai-compatible
