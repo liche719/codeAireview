@@ -6,7 +6,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @MapperScan({
         "com.codepilot.module.review.mapper",
-        "com.codepilot.module.audit.mapper"
+        "com.codepilot.module.audit.mapper",
+        "com.codepilot.module.rag.mapper"
 })
 @SpringBootApplication
 public class CodePilotApplication {

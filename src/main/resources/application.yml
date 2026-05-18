@@ -60,3 +60,11 @@ codepilot:
     model: ${CODEPILOT_LLM_MODEL:gpt-4o-mini}
     temperature: 0.2
     timeout-seconds: 60
+  embedding:
+    enabled: true
+    provider: openai-compatible
+    base-url: ${CODEPILOT_EMBEDDING_BASE_URL:${CODEPILOT_LLM_BASE_URL:https://api.openai.com/v1}}
+    api-key: ${CODEPILOT_EMBEDDING_API_KEY:${CODEPILOT_LLM_API_KEY:}}
+    model: ${CODEPILOT_EMBEDDING_MODEL:text-embedding-3-small}
+    dimension: 1536
+    timeout-seconds: 60
