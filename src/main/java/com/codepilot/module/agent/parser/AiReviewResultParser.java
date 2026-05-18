@@ -43,7 +43,11 @@ public class AiReviewResultParser {
         if (matcher.matches()) {
             return matcher.group(1).trim();
         }
+        int jsonStart = trimmed.indexOf('{');
+        int jsonEnd = trimmed.lastIndexOf('}');
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+            return trimmed.substring(jsonStart, jsonEnd + 1).trim();
+        }
         return trimmed;
     }
 }
-

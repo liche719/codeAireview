@@ -1,8 +1,10 @@
 package com.codepilot.module.agent.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class AiReviewIssue {
 
     private String filePath;
@@ -21,4 +23,3 @@ public class AiReviewIssue {
 
     private String ruleReference;
 }
-

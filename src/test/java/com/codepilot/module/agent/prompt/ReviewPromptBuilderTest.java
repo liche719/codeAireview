@@ -17,7 +17,8 @@ class ReviewPromptBuilderTest {
 
         assertThat(prompt).contains(filePath);
         assertThat(prompt).contains(patch);
-        assertThat(prompt).contains("JSON");
+        assertThat(prompt).contains("请严格按照 JSON 格式输出");
+        assertThat(prompt).contains("\"issues\"");
+        assertThat(prompt).contains("\"severity\"");
     }
 }
-
