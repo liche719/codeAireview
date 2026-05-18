@@ -1,76 +1,165 @@
-# CodePilot AI Review
+# CodePilot AI
 
-CodePilot AI Review 是一个基于 Spring Boot 的 GitHub PR 智能代码评审后端项目。
+CodePilot AI 是一个基于 Spring Boot、LangChain4j 和 GitHub API 的 PR 智能代码审查后端，支持 Webhook 自动触发、手动创建审查、RAG 编码规范检索、Agent 工具调用、评论回写和幂等更新。
 
-当前第一阶段已经跑通主线：
+## 项目背景
 
-1. 提交 GitHub PR 链接。
-2. 解析 `owner`、`repo` 和 `pull request number`。
-3. 创建 `review_task` 记录。
-4. 发送任务 ID 到 RabbitMQ。
-5. 消费消息并拉取 PR changed files。
-6. 保存 `review_file`。
-7. 通过基础 AI Review 生成结构化问题并保存到 `review_issue`。
-8. 更新任务状态和风险等级。
+这个项目面向 Java 后端工程场景，目标不是做一个“会聊天的模型壳子”，而是把 GitHub PR 审查、团队规范、确定性规则检测和结果回写串成一条可落地的工程闭环。它适合作为简历主项目，因为它同时覆盖了消息队列、数据库、向量检索、Webhook、AI Agent 和 GitHub 集成。
+
+## 核心功能
+
+- GitHub Webhook 自动触发 PR 审查。
+- 手动提交 PR 链接创建审查任务。
+- RabbitMQ 异步消费审查任务。
+- GitHub API 拉取 PR changed files。
+- PostgreSQL + pgvector 规范库检索。
+- LangChain4j `@AiService` 做语义审查。
+- LangChain4j `@Tool` 做 SQL 风险、敏感信息、单测建议检测。
+- 审查结果入库到 `review_issue`。
+- PR 顶部评论回写与幂等更新。
 
 ## 技术栈
 
-- Spring Boot 3.x
+- Spring Boot 3.5.x
+- Spring Web / Spring Validation
 - MyBatis Plus
-- PostgreSQL
-- pgvector
+- PostgreSQL + pgvector
 - Redis
 - RabbitMQ
-- Knife4j / OpenAPI
-- Lombok
+- LangChain4j 1.15.0
+- GitHub REST API
+- Springdoc OpenAPI
+- Docker Compose
 
-## 快速开始
+## 系统架构
 
-启动前请先确认 Docker Desktop 已经运行。
+```text
+GitHub PR / Webhook / 手动请求
+        ↓
+ReviewTask 创建
+        ↓
+RabbitMQ 异步消费
+        ↓
+GitHub API 拉取 changed files
+        ↓
+RAG 检索团队规范
+        ↓
+LangChain4j AI Review + Tool 调用
+        ↓
+review_issue 入库
+        ↓
+PR 顶部评论回写
+```
+
+## 核心流程
+
+```text
+Webhook opened/synchronize/reopened
+        ↓
+签名校验 + Redis 去重
+        ↓
+createTask(prUrl, title)
+        ↓
+发送 taskId 到 RabbitMQ
+        ↓
+消费者拉取 PR Diff
+        ↓
+RAG 召回规范 + Tool 检测
+        ↓
+LLM 输出 JSON
+        ↓
+保存 review_issue
+        ↓
+生成 Markdown 报告
+        ↓
+GitHub PR 评论更新或创建
+```
+
+## 本地启动
+
+1. 启动依赖服务：
 
 ```bash
 docker compose up -d
+```
+
+2. 启动应用：
+
+```bash
 mvn spring-boot:run
 ```
 
-Swagger UI：
+3. 打开接口文档：
 
 ```text
 http://localhost:8080/doc.html
+http://localhost:8080/swagger-ui/index.html
 ```
 
-创建审查任务：
+## 环境变量
+
+- `CODEPILOT_GITHUB_TOKEN`：GitHub API Token，用于拉取 PR 文件、评论回写和评论更新。
+- `CODEPILOT_GITHUB_WEBHOOK_SECRET`：GitHub Webhook 签名密钥。
+- `CODEPILOT_LLM_API_KEY`：LLM API Key。
+- `CODEPILOT_LLM_BASE_URL`：LLM OpenAI-compatible 接口地址。
+- `CODEPILOT_LLM_MODEL`：LLM 模型名。
+- `CODEPILOT_EMBEDDING_API_KEY`：Embedding API Key。
+- `CODEPILOT_EMBEDDING_BASE_URL`：Embedding 接口地址。
+- `CODEPILOT_EMBEDDING_MODEL`：Embedding 模型名。
+
+## API 示例
+
+创建手动审查任务：
 
 ```bash
-curl -X POST http://localhost:8080/api/reviews \
-  -H "Content-Type: application/json" \
+curl -X POST http://localhost:8080/api/reviews ^
+  -H "Content-Type: application/json" ^
   -d "{\"prUrl\":\"https://github.com/owner/repo/pull/123\"}"
 ```
 
-消费者会通过 GitHub REST API 拉取 PR changed files，并保存到 `review_file`。
-
-如果是私有仓库，或者你需要更高的 GitHub API 限流额度，可以配置：
+查看任务详情：
 
 ```bash
-# PowerShell
-$env:CODEPILOT_GITHUB_TOKEN="your_github_token"
-
-# cmd
-set CODEPILOT_GITHUB_TOKEN=your_github_token
+curl http://localhost:8080/api/reviews/123
 ```
 
-## 可用接口
+查看审查问题：
 
-```text
-POST /api/reviews
-GET  /api/reviews/{taskId}
-GET  /api/reviews/{taskId}/files
-GET  /api/reviews/{taskId}/issues
-GET  /api/github/pulls/files?owner=owner&repo=repo&pullNumber=123
+```bash
+curl http://localhost:8080/api/reviews/123/issues
 ```
 
-## 说明
+## Webhook 配置
 
-- 当没有配置 LLM API Key 时，系统仍可正常启动和处理任务，只是会跳过 AI Review。
-- 当前项目重点是后端主线，不包含前端页面。
-- 后续可继续扩展 RAG、Tool Calling 和更完整的审查能力。
+在 GitHub 仓库 `Settings -> Webhooks` 中新增 Webhook：
+
+- Payload URL: `https://xxx.ngrok-free.app/api/github/webhook`
+- Content type: `application/json`
+- Secret: 与 `CODEPILOT_GITHUB_WEBHOOK_SECRET` 保持一致
+- Events: `Pull requests`
+
+Webhook 支持 `opened`、`synchronize`、`reopened` 三类 PR 事件。
+
+## RAG 使用
+
+规范文档通过 `POST /api/rules` 创建，随后通过 `POST /api/rules/{id}/index` 切片并向量化，存入 `rule_chunk`。审查时会根据 PR Diff 召回相关规范片段，并注入 AI Review Prompt。
+
+## 评论回写
+
+审查成功后，系统会生成 Markdown 报告并回写到 PR 顶部评论。评论带有 marker `<!-- codepilot-ai-review -->`，后续同一 PR 再次审查时会更新已有评论，不会重复刷屏。
+
+## 项目亮点
+
+- 把 GitHub PR 审查做成了完整工程闭环，而不是单点 LLM 调用。
+- 通过 RabbitMQ 把耗时操作异步化，避免接口阻塞。
+- 用 pgvector 支撑 RAG 编码规范库，适合后续持续扩展。
+- 用 `@AiService` + `@Tool` 形成可解释、可扩展的审查能力。
+- PR 评论支持幂等更新，适合真实协作场景。
+
+## 后续规划
+
+- 支持 inline review comment。
+- 支持更丰富的规则库和分层规范。
+- 支持更细粒度的 diff 位置定位。
+- 支持审查历史对比和趋势分析。
+- 支持更多语言和更多扫描工具。
