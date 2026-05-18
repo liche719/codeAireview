@@ -22,8 +22,9 @@ public class LangChain4jConfig {
     private final LlmProperties llmProperties;
 
     @Bean
+    @SuppressWarnings("deprecation")
     @ConditionalOnProperty(prefix = "codepilot.llm", name = "enabled", havingValue = "true", matchIfMissing = true)
-    public ChatModel chatModel() {
+    public ChatModel codeReviewChatModel() {
         if (!StringUtils.hasText(llmProperties.getApiKey())) {
             log.info("LangChain4j ChatModel bean was not created because codepilot.llm.api-key is empty");
             return null;

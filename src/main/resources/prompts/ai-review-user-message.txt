@@ -1,0 +1,24 @@
+Output format:
+{
+  "issues": [
+    {
+      "filePath": "file path",
+      "lineNumber": 123,
+      "issueType": "BUG_RISK | SECURITY | PERFORMANCE | STYLE | SQL_RISK | EXCEPTION_HANDLING | LOGGING | TEST_MISSING",
+      "severity": "HIGH | MEDIUM | LOW",
+      "title": "issue title",
+      "description": "issue description",
+      "suggestion": "fix suggestion",
+      "ruleReference": null
+    }
+  ],
+  "summary": "file review summary"
+}
+
+If no issue is found, return an empty issues array and a short summary.
+
+File path:
+{{filePath}}
+
+Code diff:
+{{patch}}

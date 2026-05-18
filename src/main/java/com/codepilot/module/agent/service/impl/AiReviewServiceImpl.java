@@ -3,14 +3,11 @@ package com.codepilot.module.agent.service.impl;
 import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.parser.AiReviewResultParser;
-import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
 import com.codepilot.module.agent.service.AiReviewService;
+import com.codepilot.module.agent.service.CodeReviewAiAssistant;
 import com.codepilot.module.audit.entity.LlmCallLog;
 import com.codepilot.module.audit.service.LlmCallLogService;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.ChatModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.service.Result;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -28,9 +25,7 @@ public class AiReviewServiceImpl implements AiReviewService {
 
     private final LlmProperties llmProperties;
 
-    private final ObjectProvider<ChatModel> chatModelProvider;
-
-    private final ReviewPromptBuilder reviewPromptBuilder;
+    private final ObjectProvider<CodeReviewAiAssistant> codeReviewAiAssistantProvider;
 
     private final AiReviewResultParser aiReviewResultParser;
 
@@ -51,21 +46,20 @@ public class AiReviewServiceImpl implements AiReviewService {
             return AiReviewResult.empty();
         }
 
-        ChatModel chatModel = chatModelProvider.getIfAvailable();
-        if (chatModel == null) {
-            log.warn("Skip ai review because LangChain4j ChatModel bean is unavailable, filePath={}", filePath);
+        CodeReviewAiAssistant codeReviewAiAssistant = codeReviewAiAssistantProvider.getIfAvailable();
+        if (codeReviewAiAssistant == null) {
+            log.warn("Skip ai review because CodeReviewAiAssistant bean is unavailable, filePath={}", filePath);
             return AiReviewResult.empty();
         }
 
-        String prompt = reviewPromptBuilder.buildReviewPrompt(filePath, patch);
         String responseText = null;
         String errorMessage = null;
         boolean success = false;
         long startTime = System.currentTimeMillis();
 
         try {
-            ChatResponse chatResponse = chatModel.chat(UserMessage.from(prompt));
-            responseText = extractContent(chatResponse);
+            Result<String> result = codeReviewAiAssistant.review(filePath, patch);
+            responseText = result == null ? null : result.content();
             if (!StringUtils.hasText(responseText)) {
                 errorMessage = "empty model response";
                 log.warn("LangChain4j review returned empty content, filePath={}", filePath);
@@ -82,14 +76,6 @@ public class AiReviewServiceImpl implements AiReviewService {
             long costTimeMs = System.currentTimeMillis() - startTime;
             saveCallLog(taskId, filePath, patch, costTimeMs, success, errorMessage, responseText);
         }
-    }
-
-    private String extractContent(ChatResponse chatResponse) {
-        if (chatResponse == null || chatResponse.aiMessage() == null) {
-            return null;
-        }
-        AiMessage aiMessage = chatResponse.aiMessage();
-        return aiMessage.text();
     }
 
     private void saveCallLog(
