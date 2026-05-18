@@ -6,21 +6,21 @@ spring:
     name: codepilot-ai-review
   datasource:
     driver-class-name: org.postgresql.Driver
-    url: jdbc:postgresql://localhost:5432/codepilot
-    username: codepilot
-    password: codepilot123
+    url: ${CODEPILOT_DB_URL:jdbc:postgresql://localhost:5432/codepilot}
+    username: ${CODEPILOT_DB_USERNAME:codepilot}
+    password: ${CODEPILOT_DB_PASSWORD:codepilot123}
   data:
     redis:
-      host: localhost
-      port: 6379
-      database: 0
-      timeout: 3s
+      host: ${CODEPILOT_REDIS_HOST:localhost}
+      port: ${CODEPILOT_REDIS_PORT:6379}
+      database: ${CODEPILOT_REDIS_DATABASE:0}
+      timeout: ${CODEPILOT_REDIS_TIMEOUT:3s}
   rabbitmq:
-    host: localhost
-    port: 5672
-    username: codepilot
-    password: codepilot123
-    virtual-host: /
+    host: ${CODEPILOT_RABBITMQ_HOST:localhost}
+    port: ${CODEPILOT_RABBITMQ_PORT:5672}
+    username: ${CODEPILOT_RABBITMQ_USERNAME:codepilot}
+    password: ${CODEPILOT_RABBITMQ_PASSWORD:codepilot123}
+    virtual-host: ${CODEPILOT_RABBITMQ_VIRTUAL_HOST:/}
     listener:
       simple:
         acknowledge-mode: auto
@@ -53,7 +53,7 @@ codepilot:
     api-base-url: https://api.github.com
     token: ${CODEPILOT_GITHUB_TOKEN:}
     comment-enabled: ${CODEPILOT_GITHUB_COMMENT_ENABLED:false}
-    comment-marker: "<!-- codepilot-ai-review -->"
+    comment-marker: "${CODEPILOT_GITHUB_COMMENT_MARKER:<!-- codepilot-ai-review:liche719/codeAireview -->}"
     webhook-enabled: ${CODEPILOT_GITHUB_WEBHOOK_ENABLED:false}
     webhook-secret: ${CODEPILOT_GITHUB_WEBHOOK_SECRET:}
     webhook-skip-signature-when-secret-empty: ${CODEPILOT_GITHUB_WEBHOOK_SKIP_SIGNATURE_WHEN_SECRET_EMPTY:false}

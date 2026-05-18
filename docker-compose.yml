@@ -4,9 +4,9 @@ services:
     container_name: codepilot-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: codepilot
-      POSTGRES_USER: codepilot
-      POSTGRES_PASSWORD: codepilot123
+      POSTGRES_DB: ${CODEPILOT_DB_NAME:-codepilot}
+      POSTGRES_USER: ${CODEPILOT_DB_USERNAME:-codepilot}
+      POSTGRES_PASSWORD: ${CODEPILOT_DB_PASSWORD:-codepilot123}
     ports:
       - "5432:5432"
     volumes:
@@ -25,8 +25,8 @@ services:
     container_name: codepilot-rabbitmq
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: codepilot
-      RABBITMQ_DEFAULT_PASS: codepilot123
+      RABBITMQ_DEFAULT_USER: ${CODEPILOT_RABBITMQ_USERNAME:-codepilot}
+      RABBITMQ_DEFAULT_PASS: ${CODEPILOT_RABBITMQ_PASSWORD:-codepilot123}
     ports:
       - "5672:5672"
       - "15672:15672"

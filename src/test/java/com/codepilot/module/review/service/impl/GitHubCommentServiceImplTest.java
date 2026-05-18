@@ -24,7 +24,9 @@ import static org.mockito.Mockito.when;
 
 class GitHubCommentServiceImplTest {
 
-    private static final String COMMENT_MARKER = "<!-- codepilot-ai-review -->";
+    private static final String COMMENT_MARKER = "<!-- codepilot-ai-review:liche719/codeAireview -->";
+
+    private static final String LEGACY_COMMENT_MARKER = "<!-- codepilot-ai-review -->";
 
     @Test
     void shouldNotCallGithubClientWhenCommentDisabled() {
@@ -65,6 +67,20 @@ class GitHubCommentServiceImplTest {
         verify(context.githubClient, never()).createPullRequestComment(any(), any(), any(), any());
         assertThat(bodyCaptor.getValue()).contains(COMMENT_MARKER);
         assertThat(bodyCaptor.getValue()).contains("No issues found");
+    }
+
+    @Test
+    void shouldUpdateExistingCommentWhenLegacyMarkerExists() {
+        TestContext context = new TestContext(true, "token");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(any(Wrapper.class))).thenReturn(List.of());
+        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123))
+                .thenReturn(List.of(issueComment(99L, LEGACY_COMMENT_MARKER + "\nold report")));
+
+        context.service.commentReviewResult(1L);
+
+        verify(context.githubClient).updateIssueComment(eq("liche719"), eq("codeAireview"), eq(99L), any());
+        verify(context.githubClient, never()).createPullRequestComment(any(), any(), any(), any());
     }
 
     @Test

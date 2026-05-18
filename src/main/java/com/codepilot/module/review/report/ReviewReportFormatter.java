@@ -13,6 +13,8 @@ import java.util.Locale;
 @Component
 public class ReviewReportFormatter {
 
+    public static final String DEFAULT_COMMENT_MARKER = "<!-- codepilot-ai-review:liche719/codeAireview -->";
+
     private static final int MAX_VISIBLE_ISSUES = 20;
 
     private static final int MAX_TEXT_LENGTH = 500;
@@ -20,11 +22,11 @@ public class ReviewReportFormatter {
     private final String commentMarker;
 
     public ReviewReportFormatter(
-            @Value("${codepilot.github.comment-marker:<!-- codepilot-ai-review -->}") String commentMarker
+            @Value("${codepilot.github.comment-marker:}") String commentMarker
     ) {
         this.commentMarker = StringUtils.hasText(commentMarker)
                 ? commentMarker
-                : "<!-- codepilot-ai-review -->";
+                : DEFAULT_COMMENT_MARKER;
     }
 
     public String formatMarkdown(ReviewTask task, List<ReviewIssue> issues) {

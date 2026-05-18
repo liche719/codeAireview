@@ -4,7 +4,6 @@ import com.codepilot.module.agent.config.RagProperties;
 import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.service.ReviewRagService;
 import com.codepilot.module.rag.dto.RuleSearchRecord;
-import com.codepilot.module.rag.dto.RuleSearchRequest;
 import com.codepilot.module.rag.dto.RuleSearchResponse;
 import com.codepilot.module.rag.service.RuleSearchService;
 import lombok.RequiredArgsConstructor;
@@ -13,8 +12,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -47,14 +49,12 @@ public class ReviewRagServiceImpl implements ReviewRagService {
                 return List.of();
             }
 
-            RuleSearchRequest request = new RuleSearchRequest();
-            request.setQuery(query);
-            request.setTopK(Math.max(1, ragProperties.getTopK()));
-
-            RuleSearchResponse response = ruleSearchService.search(request);
-            List<ReviewRuleContext> contexts = limitContext(response == null ? null : response.getRecords());
-            log.info("RAG retrieved rules, filePath={}, ruleCount={}, contextChars={}",
-                    filePath, contexts.size(), totalContentLength(contexts));
+            int topK = Math.max(1, ragProperties.getTopK());
+            List<String> ruleTypes = inferRuleTypes(filePath, patch);
+            List<RuleSearchRecord> records = searchByRuleTypes(query, topK, ruleTypes);
+            List<ReviewRuleContext> contexts = limitContext(records);
+            log.info("RAG retrieved rules, filePath={}, ruleTypes={}, ruleCount={}, contextChars={}",
+                    filePath, ruleTypes, contexts.size(), totalContentLength(contexts));
             return contexts;
         } catch (Exception exception) {
             log.warn("RAG retrieval failed, fallback to plain ai review, filePath={}, message={}",
@@ -95,6 +95,84 @@ public class ReviewRagServiceImpl implements ReviewRagService {
         }
 
         return truncate(query.toString().trim(), MAX_QUERY_CHARS);
+    }
+
+    public List<String> inferRuleTypes(String filePath, String patch) {
+        String normalizedPath = StringUtils.hasText(filePath)
+                ? filePath.replace('\\', '/').toLowerCase(Locale.ROOT)
+                : "";
+        String normalizedPatch = StringUtils.hasText(patch) ? patch.toLowerCase(Locale.ROOT) : "";
+
+        List<String> types = new ArrayList<>();
+        if (containsAny(normalizedPatch, "select", "update", "delete", "insert", "mybatis", "mapper.xml", "${")) {
+            types.add("SQL_RULE");
+        }
+        if (containsAny(normalizedPatch, "password", "passwd", "token", "secret", "accesskey", "apikey", "privatekey")) {
+            types.add("SECURITY_RULE");
+        }
+        if (containsAny(normalizedPatch, "redis", "cache")) {
+            types.add("REDIS_RULE");
+        }
+        if (normalizedPath.endsWith(".java")) {
+            types.add("JAVA_STYLE");
+            types.add("LOG_EXCEPTION_RULE");
+            types.add("TEST_RULE");
+        }
+        return types.stream().distinct().toList();
+    }
+
+    private List<RuleSearchRecord> searchByRuleTypes(String query, int topK, List<String> ruleTypes) {
+        RuleSearchResponse response = ruleSearchService.searchByTypes(query, topK, ruleTypes);
+        List<RuleSearchRecord> mergedRecords = mergeTopK(response == null ? null : response.getRecords(), topK);
+        if (!mergedRecords.isEmpty() || ruleTypes == null || ruleTypes.isEmpty()) {
+            return mergedRecords;
+        }
+
+        log.info("RAG typed search returned no rule, fallback to unfiltered search, ruleTypes={}", ruleTypes);
+        RuleSearchResponse fallbackResponse = ruleSearchService.searchByTypes(query, topK, List.of());
+        return mergeTopK(fallbackResponse == null ? null : fallbackResponse.getRecords(), topK);
+    }
+
+    private List<RuleSearchRecord> mergeTopK(List<RuleSearchRecord> records, int topK) {
+        if (records == null || records.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, RuleSearchRecord> deduplicatedRecords = new LinkedHashMap<>();
+        for (RuleSearchRecord record : records) {
+            if (record == null || !StringUtils.hasText(record.getContent())) {
+                continue;
+            }
+            String key = dedupeKey(record);
+            deduplicatedRecords.merge(key, record, this::nearestRecord);
+        }
+
+        return deduplicatedRecords.values().stream()
+                .sorted(Comparator.comparing(
+                        RuleSearchRecord::getDistance,
+                        Comparator.nullsLast(Double::compareTo)
+                ))
+                .limit(topK)
+                .toList();
+    }
+
+    private String dedupeKey(RuleSearchRecord record) {
+        if (record.getChunkId() != null) {
+            return "chunk:" + record.getChunkId();
+        }
+        return "content:" + record.getDocumentId() + ":" + record.getContent();
+    }
+
+    private RuleSearchRecord nearestRecord(RuleSearchRecord left, RuleSearchRecord right) {
+        Double leftDistance = left.getDistance();
+        Double rightDistance = right.getDistance();
+        if (leftDistance == null) {
+            return right;
+        }
+        if (rightDistance == null) {
+            return left;
+        }
+        return leftDistance <= rightDistance ? left : right;
     }
 
     private String extractAddedLines(String patch) {

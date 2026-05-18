@@ -11,13 +11,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ReviewReportFormatterTest {
 
-    private final ReviewReportFormatter formatter = new ReviewReportFormatter("<!-- codepilot-ai-review -->");
+    private static final String COMMENT_MARKER = "<!-- codepilot-ai-review:liche719/codeAireview -->";
+
+    private final ReviewReportFormatter formatter = new ReviewReportFormatter(COMMENT_MARKER);
 
     @Test
     void shouldGeneratePassReportWhenIssuesAreEmpty() {
         String markdown = formatter.formatMarkdown(reviewTask("PASS"), List.of());
 
-        assertThat(markdown).contains("<!-- codepilot-ai-review -->");
+        assertThat(markdown).contains(COMMENT_MARKER);
         assertThat(markdown).contains("CodePilot AI Review Report");
         assertThat(markdown).contains("**Risk Level**: PASS");
         assertThat(markdown).contains("No issues found");

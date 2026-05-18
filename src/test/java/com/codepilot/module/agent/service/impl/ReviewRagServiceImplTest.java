@@ -7,6 +7,7 @@ import com.codepilot.module.rag.dto.RuleSearchResponse;
 import com.codepilot.module.rag.service.RuleSearchService;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -77,6 +78,8 @@ class ReviewRagServiceImplTest {
         assertThat(query).contains("SQL 规范 参数绑定 SQL 注入");
         assertThat(query).contains("Redis 缓存规范");
         assertThat(query).contains("安全规范 敏感信息");
+        assertThat(service.inferRuleTypes("src/main/java/DemoMapper.java", patch))
+                .contains("SQL_RULE", "SECURITY_RULE", "REDIS_RULE", "JAVA_STYLE", "LOG_EXCEPTION_RULE", "TEST_RULE");
     }
 
     @Test
@@ -97,6 +100,70 @@ class ReviewRagServiceImplTest {
 
         assertThat(contexts).hasSize(1);
         assertThat(contexts.getFirst().getContent()).hasSize(10);
+    }
+
+    @Test
+    void shouldSearchByInferredRuleTypesAndMergeTopK() {
+        RagProperties properties = defaultProperties();
+        properties.setTopK(2);
+        List<String> requestedTypes = new ArrayList<>();
+        RuleSearchService ruleSearchService = request -> {
+            requestedTypes.add(request.getType());
+            if ("SQL_RULE".equals(request.getType())) {
+                return new RuleSearchResponse(List.of(ruleRecord(1L, "SQL_RULE", "SQL rule", 0.10D)));
+            }
+            if ("SECURITY_RULE".equals(request.getType())) {
+                return new RuleSearchResponse(List.of(ruleRecord(2L, "SECURITY_RULE", "Security rule", 0.20D)));
+            }
+            if ("REDIS_RULE".equals(request.getType())) {
+                return new RuleSearchResponse(List.of(ruleRecord(3L, "REDIS_RULE", "Redis rule", 0.30D)));
+            }
+            return new RuleSearchResponse(List.of());
+        };
+
+        ReviewRagServiceImpl service = new ReviewRagServiceImpl(properties, ruleSearchService);
+        var contexts = service.retrieveRelevantRules(
+                "src/main/java/DemoMapper.java",
+                "+String sql = \"select * from user where token = 'abc'\";\n+redisTemplate.opsForValue().get(\"k\");"
+        );
+
+        assertThat(requestedTypes)
+                .containsExactly("SQL_RULE", "SECURITY_RULE", "REDIS_RULE", "JAVA_STYLE", "LOG_EXCEPTION_RULE", "TEST_RULE");
+        assertThat(contexts).hasSize(2);
+        assertThat(contexts).extracting("type").containsExactly("SQL_RULE", "SECURITY_RULE");
+    }
+
+    @Test
+    void shouldFallbackToUnfilteredSearchWhenTypedSearchHasNoResult() {
+        RagProperties properties = defaultProperties();
+        List<String> requestedTypes = new ArrayList<>();
+        RuleSearchService ruleSearchService = request -> {
+            requestedTypes.add(request.getType());
+            if (request.getType() == null) {
+                return new RuleSearchResponse(List.of(ruleRecord(9L, "GENERAL_RULE", "General rule", 0.50D)));
+            }
+            return new RuleSearchResponse(List.of());
+        };
+
+        ReviewRagServiceImpl service = new ReviewRagServiceImpl(properties, ruleSearchService);
+        var contexts = service.retrieveRelevantRules(
+                "src/main/java/DemoMapper.java",
+                "+String sql = \"select * from user\";"
+        );
+
+        assertThat(requestedTypes).contains("SQL_RULE", "JAVA_STYLE", "LOG_EXCEPTION_RULE", "TEST_RULE", null);
+        assertThat(contexts).hasSize(1);
+        assertThat(contexts.getFirst().getType()).isEqualTo("GENERAL_RULE");
+    }
+
+    private RuleSearchRecord ruleRecord(Long chunkId, String type, String content, Double distance) {
+        RuleSearchRecord record = new RuleSearchRecord();
+        record.setChunkId(chunkId);
+        record.setDocumentId(chunkId + 100);
+        record.setType(type);
+        record.setContent(content);
+        record.setDistance(distance);
+        return record;
     }
 
     private RagProperties defaultProperties() {

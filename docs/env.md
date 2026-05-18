@@ -6,6 +6,8 @@
   - GitHub Token，用于拉取 PR 文件、查询/创建/更新 PR 评论。
 - `CODEPILOT_GITHUB_COMMENT_ENABLED`
   - 是否开启 GitHub PR 评论回写，默认 `false`。
+- `CODEPILOT_GITHUB_COMMENT_MARKER`
+  - CodePilot PR 评论识别标记，默认 `<!-- codepilot-ai-review:liche719/codeAireview -->`。
 - `CODEPILOT_GITHUB_WEBHOOK_ENABLED`
   - 是否开启 GitHub Webhook 入口，默认 `false`。
 - `CODEPILOT_GITHUB_WEBHOOK_SECRET`
@@ -21,6 +23,35 @@
   - OpenAI-compatible Chat Completions 接口地址。
 - `CODEPILOT_LLM_MODEL`
   - Chat Model 名称。
+
+## Database / Middleware
+
+- `CODEPILOT_DB_URL`
+  - PostgreSQL JDBC 地址，默认 `jdbc:postgresql://localhost:5432/codepilot`。
+- `CODEPILOT_DB_NAME`
+  - Docker Compose 初始化 PostgreSQL 数据库名，默认 `codepilot`。
+- `CODEPILOT_DB_USERNAME`
+  - PostgreSQL 用户名，默认 `codepilot`。
+- `CODEPILOT_DB_PASSWORD`
+  - PostgreSQL 密码，默认 `codepilot123`，仅建议本地开发使用。
+- `CODEPILOT_REDIS_HOST`
+  - Redis 主机，默认 `localhost`。
+- `CODEPILOT_REDIS_PORT`
+  - Redis 端口，默认 `6379`。
+- `CODEPILOT_REDIS_DATABASE`
+  - Redis database，默认 `0`。
+- `CODEPILOT_REDIS_TIMEOUT`
+  - Redis 连接超时，默认 `3s`。
+- `CODEPILOT_RABBITMQ_HOST`
+  - RabbitMQ 主机，默认 `localhost`。
+- `CODEPILOT_RABBITMQ_PORT`
+  - RabbitMQ AMQP 端口，默认 `5672`。
+- `CODEPILOT_RABBITMQ_USERNAME`
+  - RabbitMQ 用户名，默认 `codepilot`。
+- `CODEPILOT_RABBITMQ_PASSWORD`
+  - RabbitMQ 密码，默认 `codepilot123`，仅建议本地开发使用。
+- `CODEPILOT_RABBITMQ_VIRTUAL_HOST`
+  - RabbitMQ virtual host，默认 `/`。
 
 ## Embedding
 
@@ -46,3 +77,4 @@
 - Webhook 默认关闭，开启时建议同时配置 `CODEPILOT_GITHUB_WEBHOOK_SECRET`。
 - 没有配置 `CODEPILOT_GITHUB_WEBHOOK_SECRET` 且未显式开启跳过验签时，Webhook 验签会失败。
 - 没有配置 LLM 或 Embedding Key 时，应用仍可启动，相关能力会降级为跳过。
+- `codepilot123` 是本地开发默认密码，生产或公开环境必须通过环境变量覆盖。

@@ -20,6 +20,8 @@ import java.util.List;
 @Service
 public class GitHubCommentServiceImpl implements GitHubCommentService {
 
+    private static final String LEGACY_COMMENT_MARKER = "<!-- codepilot-ai-review -->";
+
     private final ReviewTaskMapper reviewTaskMapper;
 
     private final ReviewIssueService reviewIssueService;
@@ -41,7 +43,7 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
             ReviewReportFormatter reviewReportFormatter,
             @Value("${codepilot.github.comment-enabled:false}") boolean commentEnabled,
             @Value("${codepilot.github.token:}") String githubToken,
-            @Value("${codepilot.github.comment-marker:<!-- codepilot-ai-review -->}") String commentMarker
+            @Value("${codepilot.github.comment-marker:}") String commentMarker
     ) {
         this.reviewTaskMapper = reviewTaskMapper;
         this.reviewIssueService = reviewIssueService;
@@ -49,7 +51,7 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
         this.reviewReportFormatter = reviewReportFormatter;
         this.commentEnabled = commentEnabled;
         this.githubToken = githubToken;
-        this.commentMarker = StringUtils.hasText(commentMarker) ? commentMarker : "<!-- codepilot-ai-review -->";
+        this.commentMarker = StringUtils.hasText(commentMarker) ? commentMarker : ReviewReportFormatter.DEFAULT_COMMENT_MARKER;
     }
 
     @Override
@@ -114,8 +116,12 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
         }
         return comments.stream()
                 .filter(comment -> comment != null && StringUtils.hasText(comment.getBody()))
-                .filter(comment -> comment.getBody().contains(commentMarker))
+                .filter(comment -> containsCodePilotMarker(comment.getBody()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private boolean containsCodePilotMarker(String body) {
+        return body.contains(commentMarker) || body.contains(LEGACY_COMMENT_MARKER);
     }
 }

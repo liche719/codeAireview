@@ -100,6 +100,7 @@ http://localhost:8080/swagger-ui/index.html
 
 - `CODEPILOT_GITHUB_TOKEN`：GitHub API Token，用于拉取 PR 文件、评论回写和评论更新。
 - `CODEPILOT_GITHUB_COMMENT_ENABLED`：是否开启 GitHub PR 评论回写，默认 `false`。
+- `CODEPILOT_GITHUB_COMMENT_MARKER`：CodePilot PR 评论识别标记，默认 `<!-- codepilot-ai-review:liche719/codeAireview -->`。
 - `CODEPILOT_GITHUB_WEBHOOK_ENABLED`：是否开启 GitHub Webhook 入口，默认 `false`。
 - `CODEPILOT_GITHUB_WEBHOOK_SECRET`：GitHub Webhook 签名密钥。
 - `CODEPILOT_GITHUB_WEBHOOK_SKIP_SIGNATURE_WHEN_SECRET_EMPTY`：本地调试用跳过验签开关，默认 `false`。
@@ -109,6 +110,9 @@ http://localhost:8080/swagger-ui/index.html
 - `CODEPILOT_EMBEDDING_API_KEY`：Embedding API Key。
 - `CODEPILOT_EMBEDDING_BASE_URL`：Embedding 接口地址。
 - `CODEPILOT_EMBEDDING_MODEL`：Embedding 模型名。
+- `CODEPILOT_DB_URL`：PostgreSQL JDBC 地址。
+- `CODEPILOT_DB_USERNAME` / `CODEPILOT_DB_PASSWORD`：PostgreSQL 用户名和密码。
+- `CODEPILOT_RABBITMQ_USERNAME` / `CODEPILOT_RABBITMQ_PASSWORD`：RabbitMQ 用户名和密码。
 - `CODEPILOT_REVIEW_MAX_FILES_PER_TASK`：单个任务最多进入 AI Review 的文件数，默认 `30`。
 - `CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE`：单个文件 patch 最大字符数，默认 `12000`。
 - `CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS`：单个任务累计进入 AI Review 的 patch 最大字符数，默认 `80000`。
@@ -150,11 +154,11 @@ Webhook 支持 `opened`、`synchronize`、`reopened` 三类 PR 事件。
 
 ## RAG 使用
 
-规范文档通过 `POST /api/rules` 创建，随后通过 `POST /api/rules/{id}/index` 切片并向量化，存入 `rule_chunk`。审查时会根据 PR Diff 召回相关规范片段，并注入 AI Review Prompt。
+规范文档通过 `POST /api/rules` 创建，随后通过 `POST /api/rules/{id}/index` 切片并向量化，存入 `rule_chunk`。审查时会根据 PR Diff 推断 `SQL_RULE`、`SECURITY_RULE`、`REDIS_RULE`、`JAVA_STYLE`、`LOG_EXCEPTION_RULE`、`TEST_RULE` 等候选类型，优先按类型召回相关规范片段，并注入 AI Review Prompt。
 
 ## 评论回写
 
-审查成功后，系统会生成 Markdown 报告并回写到 PR 顶部评论。评论带有 marker `<!-- codepilot-ai-review -->`，后续同一 PR 再次审查时会更新已有评论，不会重复刷屏。
+审查成功后，系统会生成 Markdown 报告并回写到 PR 顶部评论。评论带有 marker `<!-- codepilot-ai-review:liche719/codeAireview -->`，后续同一 PR 再次审查时会更新已有评论，不会重复刷屏。
 
 评论回写默认关闭。需要回写到 GitHub PR 时，设置 `CODEPILOT_GITHUB_COMMENT_ENABLED=true` 并配置 `CODEPILOT_GITHUB_TOKEN`。
 
