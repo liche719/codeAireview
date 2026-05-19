@@ -8,6 +8,10 @@
   - 是否开启 GitHub PR 评论回写，默认 `false`。
 - `CODEPILOT_GITHUB_COMMENT_MARKER`
   - CodePilot PR 评论识别标记，默认 `<!-- codepilot-ai-review:liche719/codeAireview -->`。
+- `CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED`
+  - 是否开启 GitHub PR inline review comment，默认 `false`。关闭时仍可使用顶部 Summary Comment。
+- `CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK`
+  - 单个 ReviewTask 最多创建多少条 inline comment，默认 `10`。
 - `CODEPILOT_GITHUB_WEBHOOK_ENABLED`
   - 是否开启 GitHub Webhook 入口，默认 `false`。
 - `CODEPILOT_GITHUB_WEBHOOK_SECRET`
@@ -74,6 +78,8 @@
 ## 说明
 
 - 没有配置 `CODEPILOT_GITHUB_TOKEN` 时，GitHub 评论回写会跳过。
+- Fine-grained GitHub Token 建议权限：`Contents: Read`、`Pull requests: Read and write`、`Issues: Read and write`、`Metadata: Read`。
+- 只使用顶部 Summary Comment 时主要依赖 Issues 评论权限；开启 inline comment 后需要 `Pull requests: Read and write`。
 - Webhook 默认关闭，开启时建议同时配置 `CODEPILOT_GITHUB_WEBHOOK_SECRET`。
 - 没有配置 `CODEPILOT_GITHUB_WEBHOOK_SECRET` 且未显式开启跳过验签时，Webhook 验签会失败。
 - 没有配置 LLM 或 Embedding Key 时，应用仍可启动，相关能力会降级为跳过。

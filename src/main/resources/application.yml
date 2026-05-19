@@ -61,6 +61,8 @@ codepilot:
     token: ${CODEPILOT_GITHUB_TOKEN:}
     comment-enabled: ${CODEPILOT_GITHUB_COMMENT_ENABLED:false}
     comment-marker: "${CODEPILOT_GITHUB_COMMENT_MARKER:<!-- codepilot-ai-review:liche719/codeAireview -->}"
+    inline-comment-enabled: ${CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED:false}
+    inline-comment-max-per-task: ${CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK:10}
     webhook-enabled: ${CODEPILOT_GITHUB_WEBHOOK_ENABLED:false}
     webhook-secret: ${CODEPILOT_GITHUB_WEBHOOK_SECRET:}
     webhook-skip-signature-when-secret-empty: ${CODEPILOT_GITHUB_WEBHOOK_SKIP_SIGNATURE_WHEN_SECRET_EMPTY:false}

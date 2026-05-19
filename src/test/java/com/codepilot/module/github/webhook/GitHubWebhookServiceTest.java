@@ -92,6 +92,35 @@ class GitHubWebhookServiceTest {
         verify(context.reviewTaskService, never()).createTask(anyString(), any());
     }
 
+    @Test
+    void shouldCreateReviewTaskForReviewCommandIssueComment() {
+        TestContext context = new TestContext(true, true);
+        when(context.reviewTaskService.createTask(
+                "https://github.com/liche719/codeAireview/pull/12",
+                "Add webhook support"
+        )).thenReturn(new ReviewCreateResponse(456L, "PENDING"));
+
+        GitHubWebhookResponse response = context.service.handle(
+                "issue_comment",
+                "delivery-5",
+                "sha256=valid",
+                issueCommentPayload()
+        );
+
+        assertThat(response.getTaskId()).isEqualTo(456L);
+        assertThat(response.getAction()).isEqualTo("created");
+        assertThat(response.isIgnored()).isFalse();
+        verify(context.reviewTaskService).createTask(
+                "https://github.com/liche719/codeAireview/pull/12",
+                "Add webhook support"
+        );
+        verify(context.valueOperations).setIfAbsent(
+                eq("codepilot:webhook:review-command:liche719:codeaireview:12:1001"),
+                eq("1"),
+                any(Duration.class)
+        );
+    }
+
     private String pullRequestPayload(String action) {
         return """
                 {
@@ -112,6 +141,35 @@ class GitHubWebhookServiceTest {
                   }
                 }
                 """.formatted(action);
+    }
+
+    private String issueCommentPayload() {
+        return """
+                {
+                  "action": "created",
+                  "repository": {
+                    "name": "codeAireview",
+                    "owner": {
+                      "login": "liche719"
+                    }
+                  },
+                  "issue": {
+                    "number": 12,
+                    "html_url": "https://github.com/liche719/codeAireview/pull/12",
+                    "title": "Add webhook support",
+                    "pull_request": {
+                      "url": "https://api.github.com/repos/liche719/codeAireview/pulls/12"
+                    }
+                  },
+                  "comment": {
+                    "id": 1001,
+                    "body": "/review",
+                    "user": {
+                      "login": "reviewer"
+                    }
+                  }
+                }
+                """;
     }
 
     private static class TestContext {

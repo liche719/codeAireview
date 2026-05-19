@@ -13,6 +13,10 @@ public class GitHubWebhookPayloadParser {
 
     private static final String PULL_REQUEST_EVENT = "pull_request";
 
+    private static final String ISSUE_COMMENT_EVENT = "issue_comment";
+
+    private static final String REVIEW_COMMAND = "/review";
+
     private static final Set<String> SUPPORTED_ACTIONS = Set.of("opened", "synchronize", "reopened");
 
     private final ObjectMapper objectMapper;
@@ -22,15 +26,21 @@ public class GitHubWebhookPayloadParser {
     }
 
     public GitHubPullRequestWebhookPayload parse(String event, String payload) {
-        if (!PULL_REQUEST_EVENT.equals(event)) {
-            return GitHubPullRequestWebhookPayload.ignored("unsupported event");
+        if (PULL_REQUEST_EVENT.equals(event)) {
+            return parsePullRequestEvent(payload);
         }
+        if (ISSUE_COMMENT_EVENT.equals(event)) {
+            return parseIssueCommentEvent(payload);
+        }
+        return GitHubPullRequestWebhookPayload.ignored("unsupported event", null, event);
+    }
 
+    private GitHubPullRequestWebhookPayload parsePullRequestEvent(String payload) {
         try {
             JsonNode root = objectMapper.readTree(payload);
             String action = text(root, "action");
             if (!SUPPORTED_ACTIONS.contains(action)) {
-                return GitHubPullRequestWebhookPayload.ignored("unsupported action", action);
+                return GitHubPullRequestWebhookPayload.ignored("unsupported action", action, PULL_REQUEST_EVENT);
             }
 
             String owner = text(root.at("/repository/owner"), "login");
@@ -55,6 +65,57 @@ public class GitHubWebhookPayloadParser {
         }
     }
 
+    private GitHubPullRequestWebhookPayload parseIssueCommentEvent(String payload) {
+        try {
+            JsonNode root = objectMapper.readTree(payload);
+            String action = text(root, "action");
+            if (!"created".equals(action)) {
+                return GitHubPullRequestWebhookPayload.ignored("unsupported action", action, ISSUE_COMMENT_EVENT);
+            }
+
+            JsonNode pullRequestNode = root.at("/issue/pull_request");
+            if (pullRequestNode.isMissingNode() || pullRequestNode.isNull()) {
+                return GitHubPullRequestWebhookPayload.ignored("not pull request comment", action, ISSUE_COMMENT_EVENT);
+            }
+
+            String commentBody = text(root, "comment", "body");
+            if (!REVIEW_COMMAND.equals(commentBody == null ? null : commentBody.trim())) {
+                return GitHubPullRequestWebhookPayload.ignored("unsupported comment command", action, ISSUE_COMMENT_EVENT);
+            }
+
+            String owner = text(root.at("/repository/owner"), "login");
+            String repo = text(root, "repository", "name");
+            Integer pullNumber = integer(root, "issue", "number");
+            String prUrl = text(root, "issue", "html_url");
+            String title = text(root, "issue", "title");
+            Long commentId = longValue(root, "comment", "id");
+            String commentUserLogin = text(root.at("/comment/user"), "login");
+
+            if (!StringUtils.hasText(owner) || !StringUtils.hasText(repo) || pullNumber == null) {
+                throw new BusinessException("invalid GitHub issue_comment webhook payload");
+            }
+            if (!StringUtils.hasText(prUrl)) {
+                prUrl = "https://github.com/" + owner + "/" + repo + "/pull/" + pullNumber;
+            }
+
+            return GitHubPullRequestWebhookPayload.reviewCommand(
+                    action,
+                    owner,
+                    repo,
+                    pullNumber,
+                    prUrl,
+                    title,
+                    commentId,
+                    commentBody,
+                    commentUserLogin
+            );
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new BusinessException("failed to parse GitHub webhook payload: " + exception.getMessage());
+        }
+    }
+
     private String text(JsonNode root, String fieldName) {
         JsonNode node = root == null ? null : root.get(fieldName);
         return node == null || node.isNull() ? null : node.asText();
@@ -69,5 +130,11 @@ public class GitHubWebhookPayloadParser {
         JsonNode parent = root == null ? null : root.get(parentName);
         JsonNode node = parent == null ? null : parent.get(fieldName);
         return node == null || node.isNull() ? null : node.asInt();
+    }
+
+    private Long longValue(JsonNode root, String parentName, String fieldName) {
+        JsonNode parent = root == null ? null : root.get(parentName);
+        JsonNode node = parent == null ? null : parent.get(fieldName);
+        return node == null || node.isNull() ? null : node.asLong();
     }
 }

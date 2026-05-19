@@ -1,0 +1,221 @@
+package com.codepilot.module.review.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.dto.GithubPullRequestDetail;
+import com.codepilot.module.review.diff.DiffLineMapper;
+import com.codepilot.module.review.diff.DiffLineMapping;
+import com.codepilot.module.review.entity.ReviewFile;
+import com.codepilot.module.review.entity.ReviewIssue;
+import com.codepilot.module.review.entity.ReviewTask;
+import com.codepilot.module.review.mapper.ReviewTaskMapper;
+import com.codepilot.module.review.service.GitHubInlineCommentService;
+import com.codepilot.module.review.service.ReviewFileService;
+import com.codepilot.module.review.service.ReviewIssueService;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+@Slf4j
+@Service
+public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentService {
+
+    private static final int MAX_TEXT_LENGTH = 500;
+
+    private static final String INLINE_MARKER = "<!-- codepilot-inline-review -->";
+
+    private final ReviewTaskMapper reviewTaskMapper;
+
+    private final ReviewIssueService reviewIssueService;
+
+    private final ReviewFileService reviewFileService;
+
+    private final GithubClient githubClient;
+
+    private final DiffLineMapper diffLineMapper;
+
+    private final boolean inlineCommentEnabled;
+
+    private final int inlineCommentMaxPerTask;
+
+    private final String githubToken;
+
+    public GitHubInlineCommentServiceImpl(
+            ReviewTaskMapper reviewTaskMapper,
+            ReviewIssueService reviewIssueService,
+            ReviewFileService reviewFileService,
+            GithubClient githubClient,
+            DiffLineMapper diffLineMapper,
+            @Value("${codepilot.github.inline-comment-enabled:false}") boolean inlineCommentEnabled,
+            @Value("${codepilot.github.inline-comment-max-per-task:10}") int inlineCommentMaxPerTask,
+            @Value("${codepilot.github.token:}") String githubToken
+    ) {
+        this.reviewTaskMapper = reviewTaskMapper;
+        this.reviewIssueService = reviewIssueService;
+        this.reviewFileService = reviewFileService;
+        this.githubClient = githubClient;
+        this.diffLineMapper = diffLineMapper;
+        this.inlineCommentEnabled = inlineCommentEnabled;
+        this.inlineCommentMaxPerTask = inlineCommentMaxPerTask;
+        this.githubToken = githubToken;
+    }
+
+    @Override
+    public void commentInlineIssues(Long taskId) {
+        int successCount = 0;
+        int failedCount = 0;
+        int skippedCount = 0;
+
+        try {
+            if (!inlineCommentEnabled) {
+                log.info("Skip GitHub PR inline comments because inline comment is disabled, taskId={}", taskId);
+                return;
+            }
+            if (!StringUtils.hasText(githubToken)) {
+                log.warn("Skip GitHub PR inline comments because GitHub token is missing, taskId={}", taskId);
+                return;
+            }
+            if (inlineCommentMaxPerTask <= 0) {
+                log.info("Skip GitHub PR inline comments because max per task is not positive, taskId={}, maxPerTask={}",
+                        taskId, inlineCommentMaxPerTask);
+                return;
+            }
+
+            ReviewTask task = reviewTaskMapper.selectById(taskId);
+            if (task == null) {
+                log.warn("Skip GitHub PR inline comments because review task was not found, taskId={}", taskId);
+                return;
+            }
+
+            List<ReviewIssue> issues = reviewIssueService.list(new LambdaQueryWrapper<ReviewIssue>()
+                    .eq(ReviewIssue::getTaskId, taskId));
+            if (issues.isEmpty()) {
+                log.info("Skip GitHub PR inline comments because there are no issues, taskId={}", taskId);
+                return;
+            }
+
+            Map<String, ReviewFile> reviewFileByPath = reviewFileByPath(taskId);
+            GithubPullRequestDetail detail = githubClient.getPullRequestDetail(
+                    task.getRepoOwner(),
+                    task.getRepoName(),
+                    task.getPrNumber()
+            );
+            String headSha = detail.getHeadSha();
+            if (!StringUtils.hasText(headSha)) {
+                log.warn("Skip GitHub PR inline comments because PR head sha is missing, taskId={}", taskId);
+                return;
+            }
+
+            Set<String> sentIssueKeys = new HashSet<>();
+            for (ReviewIssue issue : issues) {
+                if (successCount >= inlineCommentMaxPerTask) {
+                    skippedCount++;
+                    continue;
+                }
+
+                String issueKey = issueKey(issue);
+                if (!sentIssueKeys.add(issueKey)) {
+                    skippedCount++;
+                    continue;
+                }
+
+                ReviewFile reviewFile = StringUtils.hasText(issue.getFilePath())
+                        ? reviewFileByPath.get(issue.getFilePath())
+                        : null;
+                if (reviewFile == null || !StringUtils.hasText(reviewFile.getPatch()) || issue.getLineNumber() == null) {
+                    skippedCount++;
+                    continue;
+                }
+
+                DiffLineMapping mapping = diffLineMapper.map(issue.getFilePath(), reviewFile.getPatch(), issue.getLineNumber());
+                if (!mapping.commentable()) {
+                    skippedCount++;
+                    continue;
+                }
+
+                try {
+                    githubClient.createPullRequestInlineComment(
+                            task.getRepoOwner(),
+                            task.getRepoName(),
+                            task.getPrNumber(),
+                            headSha,
+                            issue.getFilePath(),
+                            mapping.line(),
+                            mapping.side(),
+                            buildInlineCommentBody(issue)
+                    );
+                    successCount++;
+                } catch (Exception exception) {
+                    failedCount++;
+                    log.warn("GitHub PR inline comment failed but ignored, taskId={}, filePath={}, line={}, message={}",
+                            taskId, issue.getFilePath(), issue.getLineNumber(), exception.getMessage());
+                }
+            }
+        } catch (Exception exception) {
+            failedCount++;
+            log.warn("GitHub PR inline comments failed but ignored, taskId={}, message={}", taskId, exception.getMessage());
+        } finally {
+            log.info("GitHub PR inline comments completed, taskId={}, successCount={}, failedCount={}, skippedCount={}, maxPerTask={}",
+                    taskId, successCount, failedCount, skippedCount, inlineCommentMaxPerTask);
+        }
+    }
+
+    private Map<String, ReviewFile> reviewFileByPath(Long taskId) {
+        List<ReviewFile> reviewFiles = reviewFileService.list(new LambdaQueryWrapper<ReviewFile>()
+                .eq(ReviewFile::getTaskId, taskId));
+        Map<String, ReviewFile> result = new HashMap<>();
+        for (ReviewFile reviewFile : reviewFiles) {
+            if (StringUtils.hasText(reviewFile.getFilePath())) {
+                result.putIfAbsent(reviewFile.getFilePath(), reviewFile);
+            }
+        }
+        return result;
+    }
+
+    private String issueKey(ReviewIssue issue) {
+        return nullToDash(issue.getFilePath())
+                + ":"
+                + issue.getLineNumber()
+                + ":"
+                + nullToDash(issue.getIssueType());
+    }
+
+    private String buildInlineCommentBody(ReviewIssue issue) {
+        StringBuilder body = new StringBuilder();
+        body.append(INLINE_MARKER).append("\n\n");
+        body.append("**CodePilot AI** found a potential issue.\n\n");
+        body.append("- Type: ").append(nullToDash(issue.getIssueType())).append("\n");
+        body.append("- Severity: ").append(nullToDash(issue.getSeverity())).append("\n");
+        body.append("- Source: ").append(nullToDash(issue.getSource())).append("\n");
+        if (StringUtils.hasText(issue.getRuleReference())) {
+            body.append("- Rule: ").append(truncate(issue.getRuleReference())).append("\n");
+        }
+        body.append("\nDescription:\n");
+        body.append(truncate(issue.getDescription())).append("\n\n");
+        body.append("Suggestion:\n");
+        body.append(truncate(issue.getSuggestion())).append("\n");
+        return body.toString();
+    }
+
+    private String truncate(String content) {
+        if (!StringUtils.hasText(content)) {
+            return "N/A";
+        }
+        String compact = content.replaceAll("\\s+", " ").trim();
+        if (compact.length() <= MAX_TEXT_LENGTH) {
+            return compact;
+        }
+        return compact.substring(0, MAX_TEXT_LENGTH) + "...";
+    }
+
+    private String nullToDash(String content) {
+        return StringUtils.hasText(content) ? content : "N/A";
+    }
+}

@@ -16,6 +16,8 @@ mvn spring-boot:run
 
 ```bash
 set CODEPILOT_GITHUB_COMMENT_ENABLED=true
+set CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED=true
+set CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK=10
 set CODEPILOT_GITHUB_WEBHOOK_ENABLED=true
 set CODEPILOT_GITHUB_TOKEN=你的 GitHub Token
 set CODEPILOT_GITHUB_WEBHOOK_SECRET=你的 Webhook Secret
@@ -47,8 +49,10 @@ ngrok http 8080
 Payload URL: https://xxx.ngrok-free.app/api/github/webhook
 Content type: application/json
 Secret: 与 CODEPILOT_GITHUB_WEBHOOK_SECRET 保持一致
-Events: Pull requests
+Events: Pull requests, Issue comments
 ```
+
+`Pull requests` 用于 PR `opened` / `synchronize` / `reopened` 自动审查；`Issue comments` 用于在 PR Conversation 中输入 `/review` 手动触发审查。
 
 7. 提交一个包含 SQL 拼接和敏感信息的 PR。
 
@@ -65,4 +69,6 @@ RabbitMQ 正常消费
 review_issue 入库
 PR 顶部出现 CodePilot AI Review Report
 再次触发时更新原评论，不新增第二条
+如果 issue 的 lineNumber 对应 diff 新增行，代码行上出现 CodePilot inline comment
+在 PR Conversation 评论 /review，会再次创建 ReviewTask 并触发审查
 ```

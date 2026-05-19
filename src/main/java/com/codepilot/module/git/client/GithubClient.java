@@ -3,6 +3,7 @@ package com.codepilot.module.git.client;
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubIssueComment;
+import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -122,6 +123,66 @@ public class GithubClient {
 
         log.info("GitHub PR comment updated, owner={}, repo={}, commentId={}, bodyLength={}",
                 owner, repo, commentId, body.length());
+    }
+
+    public GithubPullRequestDetail getPullRequestDetail(String owner, String repo, Integer pullNumber) {
+        try {
+            GithubPullRequestDetail detail = restClient.get()
+                    .uri("/repos/{owner}/{repo}/pulls/{pullNumber}", owner, repo, pullNumber)
+                    .headers(this::setAuthorization)
+                    .retrieve()
+                    .body(GithubPullRequestDetail.class);
+            if (detail == null) {
+                throw new BusinessException("GitHub PR detail response is empty");
+            }
+            log.info("GitHub PR detail fetched, owner={}, repo={}, pullNumber={}, headSha={}",
+                    owner, repo, pullNumber, detail.getHeadSha());
+            return detail;
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (RestClientException exception) {
+            throw new BusinessException("failed to get GitHub PR detail: " + exception.getMessage());
+        }
+    }
+
+    public void createPullRequestInlineComment(
+            String owner,
+            String repo,
+            Integer pullNumber,
+            String commitId,
+            String path,
+            Integer line,
+            String side,
+            String body
+    ) {
+        if (!StringUtils.hasText(body)) {
+            log.info("Skip GitHub PR inline comment because body is empty, owner={}, repo={}, pullNumber={}, path={}, line={}",
+                    owner, repo, pullNumber, path, line);
+            return;
+        }
+        if (!StringUtils.hasText(commitId) || !StringUtils.hasText(path) || line == null || !StringUtils.hasText(side)) {
+            throw new BusinessException("failed to create GitHub PR inline comment: commit_id, path, line and side are required");
+        }
+
+        try {
+            restClient.post()
+                    .uri("/repos/{owner}/{repo}/pulls/{pullNumber}/comments", owner, repo, pullNumber)
+                    .headers(this::setAuthorization)
+                    .body(Map.of(
+                            "body", body,
+                            "commit_id", commitId,
+                            "path", path,
+                            "line", line,
+                            "side", side
+                    ))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientException exception) {
+            throw new BusinessException("failed to create GitHub PR inline comment: " + exception.getMessage());
+        }
+
+        log.info("GitHub PR inline comment created, owner={}, repo={}, pullNumber={}, path={}, line={}, side={}, bodyLength={}",
+                owner, repo, pullNumber, path, line, side, body.length());
     }
 
     private List<GithubChangedFile> requestPullRequestFilesPage(

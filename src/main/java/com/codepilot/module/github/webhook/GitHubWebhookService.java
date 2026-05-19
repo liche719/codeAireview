@@ -54,12 +54,18 @@ public class GitHubWebhookService {
         GitHubPullRequestWebhookPayload parsedPayload = payloadParser.parse(event, rawPayload);
         if (parsedPayload.isIgnored()) {
             log.info("GitHub webhook ignored, event={}, action={}, reason={}, delivery={}",
-                    event, parsedPayload.getAction(), parsedPayload.getReason(), delivery);
+                    parsedPayload.getEvent(), parsedPayload.getAction(), parsedPayload.getReason(), delivery);
             return GitHubWebhookResponse.ignored(parsedPayload.getReason(), parsedPayload.getAction());
         }
         if (isDuplicate(parsedPayload, delivery)) {
-            log.info("GitHub webhook ignored because duplicate event was detected, owner={}, repo={}, pullNumber={}, headSha={}, delivery={}",
-                    parsedPayload.getOwner(), parsedPayload.getRepo(), parsedPayload.getPullNumber(), parsedPayload.getHeadSha(), delivery);
+            log.info("GitHub webhook ignored because duplicate event was detected, event={}, owner={}, repo={}, pullNumber={}, headSha={}, commentId={}, delivery={}",
+                    parsedPayload.getEvent(),
+                    parsedPayload.getOwner(),
+                    parsedPayload.getRepo(),
+                    parsedPayload.getPullNumber(),
+                    parsedPayload.getHeadSha(),
+                    parsedPayload.getCommentId(),
+                    delivery);
             return GitHubWebhookResponse.ignored("duplicate event", parsedPayload.getAction());
         }
 
@@ -67,12 +73,14 @@ public class GitHubWebhookService {
                 parsedPayload.getPrUrl(),
                 parsedPayload.getTitle()
         );
-        log.info("GitHub webhook created review task, taskId={}, action={}, owner={}, repo={}, pullNumber={}, delivery={}",
+        log.info("GitHub webhook created review task, taskId={}, event={}, action={}, owner={}, repo={}, pullNumber={}, commentUser={}, delivery={}",
                 response.getTaskId(),
+                parsedPayload.getEvent(),
                 parsedPayload.getAction(),
                 parsedPayload.getOwner(),
                 parsedPayload.getRepo(),
                 parsedPayload.getPullNumber(),
+                parsedPayload.getCommentUserLogin(),
                 delivery);
         return GitHubWebhookResponse.processed(response.getTaskId(), parsedPayload.getAction());
     }
@@ -90,6 +98,21 @@ public class GitHubWebhookService {
     }
 
     private String buildDedupKey(GitHubPullRequestWebhookPayload payload, String delivery) {
+        if ("issue_comment".equals(payload.getEvent())) {
+            if (payload.getCommentId() != null) {
+                return "codepilot:webhook:review-command:"
+                        + safePart(payload.getOwner())
+                        + ":"
+                        + safePart(payload.getRepo())
+                        + ":"
+                        + payload.getPullNumber()
+                        + ":"
+                        + payload.getCommentId();
+            }
+            if (StringUtils.hasText(delivery)) {
+                return "codepilot:webhook:delivery:" + safePart(delivery);
+            }
+        }
         if (StringUtils.hasText(payload.getHeadSha())) {
             return "codepilot:webhook:pr-head:"
                     + safePart(payload.getOwner())
