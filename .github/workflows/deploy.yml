@@ -77,8 +77,8 @@ jobs:
           docker compose -f docker-compose.server.yml down --remove-orphans || true
           docker rm -f codepilot-app >/dev/null 2>&1 || true
           docker compose -f docker-compose.server.yml up -d --build --remove-orphans
-          DB_USER="$(grep -E '^CODEPILOT_DB_USERNAME=' .env | head -n1 | cut -d= -f2-)"
-          DB_NAME="$(grep -E '^CODEPILOT_DB_NAME=' .env | head -n1 | cut -d= -f2-)"
+          DB_USER="$(grep -E '^CODEPILOT_DB_USERNAME=' .env | head -n1 | cut -d= -f2- | tr -d '\r')"
+          DB_NAME="$(grep -E '^CODEPILOT_DB_NAME=' .env | head -n1 | cut -d= -f2- | tr -d '\r')"
           DB_USER="${DB_USER:-codepilot}"
           DB_NAME="${DB_NAME:-codepilot}"
           echo "Current Flyway checksum:"
