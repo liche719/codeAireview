@@ -77,4 +77,10 @@ jobs:
           docker compose -f docker-compose.server.yml down --remove-orphans || true
           docker rm -f codepilot-app >/dev/null 2>&1 || true
           docker compose -f docker-compose.server.yml up -d --build --remove-orphans
+          echo "Post-deploy container status:"
+          docker compose -f docker-compose.server.yml ps
+          echo "Post-deploy webhook endpoint check:"
+          curl -s -o /dev/null -w "localhost_webhook_http_code=%{http_code}\n" http://127.0.0.1:8080/api/github/webhook || true
+          echo "Post-deploy app logs:"
+          docker compose -f docker-compose.server.yml logs --no-color --tail=100 app || true
           EOF
