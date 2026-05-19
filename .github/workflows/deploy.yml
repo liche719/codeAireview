@@ -74,5 +74,7 @@ jobs:
           rm -f "$ARCHIVE"
 
           cd "$DEPLOY_DIR"
+          docker compose -f docker-compose.server.yml down --remove-orphans || true
+          docker rm -f codepilot-app >/dev/null 2>&1 || true
           docker compose -f docker-compose.server.yml up -d --build --remove-orphans
           EOF
