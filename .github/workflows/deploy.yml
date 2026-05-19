@@ -77,6 +77,14 @@ jobs:
           docker compose -f docker-compose.server.yml down --remove-orphans || true
           docker rm -f codepilot-app >/dev/null 2>&1 || true
           docker compose -f docker-compose.server.yml up -d --build --remove-orphans
+          set -a
+          . .env
+          set +a
+          echo "Current Flyway checksum:"
+          docker compose -f docker-compose.server.yml exec -T postgres psql -U "${CODEPILOT_DB_USERNAME:-codepilot}" -d "${CODEPILOT_DB_NAME:-codepilot}" -c "select version, checksum from flyway_schema_history where version = '1';" || true
+          echo "Repairing Flyway checksum for migration version 1..."
+          docker compose -f docker-compose.server.yml exec -T postgres psql -U "${CODEPILOT_DB_USERNAME:-codepilot}" -d "${CODEPILOT_DB_NAME:-codepilot}" -c "update flyway_schema_history set checksum = -1411607468 where version = '1';" || true
+          docker compose -f docker-compose.server.yml restart app || true
           echo "Waiting for app to answer on localhost:8080..."
           for i in $(seq 1 12); do
             HTTP_CODE=$(curl --connect-timeout 2 --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/api/github/webhook || true)
