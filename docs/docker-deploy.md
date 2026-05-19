@@ -65,7 +65,8 @@ docker compose -f docker-compose.server.yml down
 
 - 如果 8080 被占用，可以修改 `docker-compose.server.yml` 里的端口映射。
 - 如果你要放到 Nginx / Caddy 后面，可以只对外暴露反向代理端口。
-- 如果你想保留 RabbitMQ 管理界面，可以手动给 `rabbitmq` 服务加 `15672:15672` 映射。
+- RabbitMQ 管理界面默认已经映射到 `15672`，直接访问 `http://<host>:15672` 即可。
+- 当前统一端口为：PostgreSQL 容器内 `5432` / 宿主机 `15432`，Redis 容器内 `6379` / 宿主机 `16379`，RabbitMQ AMQP `5672`，RabbitMQ 管理界面 `15672`，应用 `8080`。
 
 ## 6. 说明
 

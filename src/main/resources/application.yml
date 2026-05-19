@@ -6,7 +6,7 @@ spring:
     name: codepilot-ai-review
   datasource:
     driver-class-name: org.postgresql.Driver
-    url: ${CODEPILOT_DB_URL:jdbc:postgresql://localhost:5432/codepilot}
+    url: ${CODEPILOT_DB_URL:jdbc:postgresql://localhost:15432/codepilot}
     username: ${CODEPILOT_DB_USERNAME:codepilot}
     password: ${CODEPILOT_DB_PASSWORD:codepilot123}
   flyway:
@@ -19,7 +19,7 @@ spring:
   data:
     redis:
       host: ${CODEPILOT_REDIS_HOST:localhost}
-      port: ${CODEPILOT_REDIS_PORT:6379}
+      port: ${CODEPILOT_REDIS_PORT:16379}
       database: ${CODEPILOT_REDIS_DATABASE:0}
       timeout: ${CODEPILOT_REDIS_TIMEOUT:3s}
   rabbitmq:

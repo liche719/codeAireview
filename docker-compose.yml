@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: ${CODEPILOT_DB_USERNAME:-codepilot}
       POSTGRES_PASSWORD: ${CODEPILOT_DB_PASSWORD:-codepilot123}
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
@@ -17,7 +17,7 @@ services:
     container_name: codepilot-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "16379:6379"
 
   rabbitmq:
     image: rabbitmq:3.13-management

@@ -31,7 +31,7 @@
 ## Database / Middleware
 
 - `CODEPILOT_DB_URL`
-  - PostgreSQL JDBC 地址，默认 `jdbc:postgresql://localhost:5432/codepilot`。
+  - PostgreSQL JDBC 地址，默认 `jdbc:postgresql://localhost:15432/codepilot`。
 - `CODEPILOT_DB_NAME`
   - Docker Compose 初始化 PostgreSQL 数据库名，默认 `codepilot`。
 - `CODEPILOT_DB_USERNAME`
@@ -41,7 +41,7 @@
 - `CODEPILOT_REDIS_HOST`
   - Redis 主机，默认 `localhost`。
 - `CODEPILOT_REDIS_PORT`
-  - Redis 端口，默认 `6379`。
+  - Redis 端口，默认 `16379`。
 - `CODEPILOT_REDIS_DATABASE`
   - Redis database，默认 `0`。
 - `CODEPILOT_REDIS_TIMEOUT`
