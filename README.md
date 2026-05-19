@@ -198,6 +198,21 @@ curl -X POST http://localhost:8080/api/github/webhook ^
 
 `Pull requests` 用于 PR 打开、更新、重新打开时自动审查；`Issue comments` 用于在 PR Conversation 中输入 `/review` 手动触发审查。普通 issue 评论、非 `/review` 内容和非 `created` 评论事件会被忽略。
 
+## GitHub command agent
+
+PR comments now support these commands:
+
+```text
+/review
+@x-pilotx review
+@x-pilotx fix dry-run
+@x-pilotx fix
+```
+
+`@x-pilotx review` reuses the normal review pipeline and creates a new PR summary comment. `@x-pilotx fix dry-run` generates and validates a small unified diff without pushing. `@x-pilotx fix` uses the latest successful review findings, applies the generated diff in a temporary checkout, runs the validation command, and only then pushes a new commit to the current PR branch.
+
+Fix mode is disabled by default. Enable it with `CODEPILOT_GITHUB_FIX_ENABLED=true`. It only writes to PR branches in the same repository, and the token needs `Contents: Read and write`, `Pull requests: Read and write`, `Issues: Read and write`, and `Metadata: Read`.
+
 ## RAG 规范库使用说明
 
 1. 通过 `POST /api/rules` 创建规则文档。

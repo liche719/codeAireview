@@ -1,6 +1,7 @@
 package com.codepilot.common.config;
 
 import com.codepilot.task.ReviewTaskProducer;
+import com.codepilot.task.PrCommandTaskProducer;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
@@ -37,6 +38,23 @@ public class RabbitMqConfig {
     }
 
     @Bean
+    public Queue prCommandTaskQueue() {
+        return QueueBuilder.durable(PrCommandTaskProducer.PR_COMMAND_TASK_QUEUE).build();
+    }
+
+    @Bean
+    public DirectExchange prCommandTaskExchange() {
+        return new DirectExchange(PrCommandTaskProducer.PR_COMMAND_TASK_EXCHANGE, true, false);
+    }
+
+    @Bean
+    public Binding prCommandTaskBinding(Queue prCommandTaskQueue, DirectExchange prCommandTaskExchange) {
+        return BindingBuilder.bind(prCommandTaskQueue)
+                .to(prCommandTaskExchange)
+                .with(PrCommandTaskProducer.PR_COMMAND_TASK_ROUTING_KEY);
+    }
+
+    @Bean
     public MessageConverter jackson2JsonMessageConverter() {
         return new Jackson2JsonMessageConverter();
     }
@@ -60,4 +78,3 @@ public class RabbitMqConfig {
         return factory;
     }
 }
-

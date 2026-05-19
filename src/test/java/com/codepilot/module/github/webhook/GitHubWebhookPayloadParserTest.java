@@ -1,5 +1,8 @@
 package com.codepilot.module.github.webhook;
 
+import com.codepilot.module.command.config.GithubCommandProperties;
+import com.codepilot.module.command.dto.GithubCommandType;
+import com.codepilot.module.command.parser.GithubCommandParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -7,7 +10,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class GitHubWebhookPayloadParserTest {
 
-    private final GitHubWebhookPayloadParser parser = new GitHubWebhookPayloadParser(new ObjectMapper());
+    private final GitHubWebhookPayloadParser parser = new GitHubWebhookPayloadParser(
+            new ObjectMapper(),
+            new GithubCommandParser(new GithubCommandProperties())
+    );
 
     @Test
     void shouldParseOpenedPullRequestEvent() {
@@ -64,6 +70,35 @@ class GitHubWebhookPayloadParserTest {
         assertThat(payload.getCommentId()).isEqualTo(1001L);
         assertThat(payload.getCommentBody()).isEqualTo("/review");
         assertThat(payload.getCommentUserLogin()).isEqualTo("reviewer");
+        assertThat(payload.getCommandType()).isEqualTo(GithubCommandType.REVIEW.name());
+        assertThat(payload.getMentionedBot()).isFalse();
+    }
+
+    @Test
+    void shouldParseMentionReviewCommandIssueCommentEvent() {
+        GitHubPullRequestWebhookPayload payload = parser.parse("issue_comment", issueCommentPayload("created", "@x-pilotx 帮我review一下", true));
+
+        assertThat(payload.isIgnored()).isFalse();
+        assertThat(payload.getCommandType()).isEqualTo(GithubCommandType.REVIEW.name());
+        assertThat(payload.getMentionedBot()).isTrue();
+    }
+
+    @Test
+    void shouldParseMentionFixDryRunCommandIssueCommentEvent() {
+        GitHubPullRequestWebhookPayload payload = parser.parse("issue_comment", issueCommentPayload("created", "@x-pilotx 帮我解决上述问题 dry-run", true));
+
+        assertThat(payload.isIgnored()).isFalse();
+        assertThat(payload.getCommandType()).isEqualTo(GithubCommandType.FIX.name());
+        assertThat(payload.getDryRun()).isTrue();
+    }
+
+    @Test
+    void shouldParseUnknownMentionAsCommand() {
+        GitHubPullRequestWebhookPayload payload = parser.parse("issue_comment", issueCommentPayload("created", "@x-pilotx hello", true));
+
+        assertThat(payload.isIgnored()).isFalse();
+        assertThat(payload.getCommandType()).isEqualTo(GithubCommandType.UNKNOWN.name());
+        assertThat(payload.getMentionedBot()).isTrue();
     }
 
     @Test

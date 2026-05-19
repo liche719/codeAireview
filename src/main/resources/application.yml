@@ -66,6 +66,11 @@ codepilot:
     webhook-enabled: ${CODEPILOT_GITHUB_WEBHOOK_ENABLED:false}
     webhook-secret: ${CODEPILOT_GITHUB_WEBHOOK_SECRET:}
     webhook-skip-signature-when-secret-empty: ${CODEPILOT_GITHUB_WEBHOOK_SKIP_SIGNATURE_WHEN_SECRET_EMPTY:false}
+    bot-mention-aliases: ${CODEPILOT_GITHUB_BOT_MENTION_ALIASES:@x-pilotx,@X-PilotX}
+    fix-enabled: ${CODEPILOT_GITHUB_FIX_ENABLED:false}
+    fix-max-files: ${CODEPILOT_GITHUB_FIX_MAX_FILES:3}
+    fix-max-changed-lines: ${CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES:120}
+    fix-validation-command: ${CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND:mvn -q -DskipTests compile}
   review:
     max-files-per-task: ${CODEPILOT_REVIEW_MAX_FILES_PER_TASK:30}
     max-patch-chars-per-file: ${CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE:12000}

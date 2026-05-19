@@ -14,6 +14,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -142,6 +143,34 @@ public class GithubClient {
             throw exception;
         } catch (RestClientException exception) {
             throw new BusinessException("failed to get GitHub PR detail: " + exception.getMessage());
+        }
+    }
+
+    public String getFileContent(String owner, String repo, String path, String ref) {
+        if (!StringUtils.hasText(path) || !StringUtils.hasText(ref)) {
+            throw new BusinessException("failed to get GitHub file content: path and ref are required");
+        }
+        try {
+            Map<String, Object> response = restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/repos/{owner}/{repo}/contents/{path}")
+                            .queryParam("ref", ref)
+                            .build(owner, repo, path))
+                    .headers(this::setAuthorization)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<Map<String, Object>>() {
+                    });
+            if (response == null || response.get("content") == null) {
+                return "";
+            }
+            String encoding = response.get("encoding") == null ? "" : response.get("encoding").toString();
+            String content = response.get("content").toString().replaceAll("\\s+", "");
+            if ("base64".equalsIgnoreCase(encoding)) {
+                return new String(Base64.getDecoder().decode(content), java.nio.charset.StandardCharsets.UTF_8);
+            }
+            return content;
+        } catch (RestClientException exception) {
+            throw new BusinessException("failed to get GitHub file content: " + exception.getMessage());
         }
     }
 

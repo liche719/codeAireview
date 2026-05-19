@@ -2,6 +2,8 @@ package com.codepilot.module.github.webhook;
 
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.common.enums.ReviewCommentMode;
+import com.codepilot.module.command.dto.GithubCommandHandleResult;
+import com.codepilot.module.command.router.GithubCommandRouter;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.service.ReviewTaskService;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +26,8 @@ public class GitHubWebhookService {
 
     private final ReviewTaskService reviewTaskService;
 
+    private final GithubCommandRouter githubCommandRouter;
+
     private final StringRedisTemplate stringRedisTemplate;
 
     private final boolean webhookEnabled;
@@ -32,12 +36,14 @@ public class GitHubWebhookService {
             GitHubWebhookSignatureVerifier signatureVerifier,
             GitHubWebhookPayloadParser payloadParser,
             ReviewTaskService reviewTaskService,
+            GithubCommandRouter githubCommandRouter,
             StringRedisTemplate stringRedisTemplate,
             @Value("${codepilot.github.webhook-enabled:false}") boolean webhookEnabled
     ) {
         this.signatureVerifier = signatureVerifier;
         this.payloadParser = payloadParser;
         this.reviewTaskService = reviewTaskService;
+        this.githubCommandRouter = githubCommandRouter;
         this.stringRedisTemplate = stringRedisTemplate;
         this.webhookEnabled = webhookEnabled;
     }
@@ -70,19 +76,34 @@ public class GitHubWebhookService {
             return GitHubWebhookResponse.ignored("duplicate event", parsedPayload.getAction());
         }
 
+        if ("issue_comment".equals(parsedPayload.getEvent())) {
+            GithubCommandHandleResult result = githubCommandRouter.route(parsedPayload);
+            log.info("GitHub webhook routed PR command, resultId={}, commandType={}, action={}, owner={}, repo={}, pullNumber={}, commentUser={}, delivery={}",
+                    result.getId(),
+                    parsedPayload.getCommandType(),
+                    parsedPayload.getAction(),
+                    parsedPayload.getOwner(),
+                    parsedPayload.getRepo(),
+                    parsedPayload.getPullNumber(),
+                    parsedPayload.getCommentUserLogin(),
+                    delivery);
+            return StringUtils.hasText(result.getReason())
+                    ? GitHubWebhookResponse.ignored(result.getReason(), result.getAction())
+                    : GitHubWebhookResponse.processed(result.getId(), result.getAction());
+        }
+
         ReviewCreateResponse response = reviewTaskService.createTask(
                 parsedPayload.getPrUrl(),
                 parsedPayload.getTitle(),
                 resolveReviewCommentMode(parsedPayload)
         );
-        log.info("GitHub webhook created review task, taskId={}, event={}, action={}, owner={}, repo={}, pullNumber={}, commentUser={}, delivery={}",
+        log.info("GitHub webhook created review task, taskId={}, event={}, action={}, owner={}, repo={}, pullNumber={}, delivery={}",
                 response.getTaskId(),
                 parsedPayload.getEvent(),
                 parsedPayload.getAction(),
                 parsedPayload.getOwner(),
                 parsedPayload.getRepo(),
                 parsedPayload.getPullNumber(),
-                parsedPayload.getCommentUserLogin(),
                 delivery);
         return GitHubWebhookResponse.processed(response.getTaskId(), parsedPayload.getAction());
     }
@@ -102,7 +123,7 @@ public class GitHubWebhookService {
     private String buildDedupKey(GitHubPullRequestWebhookPayload payload, String delivery) {
         if ("issue_comment".equals(payload.getEvent())) {
             if (payload.getCommentId() != null) {
-                return "codepilot:webhook:review-command:"
+                return "codepilot:webhook:pr-command:"
                         + safePart(payload.getOwner())
                         + ":"
                         + safePart(payload.getRepo())
@@ -144,9 +165,6 @@ public class GitHubWebhookService {
     }
 
     private ReviewCommentMode resolveReviewCommentMode(GitHubPullRequestWebhookPayload payload) {
-        if ("issue_comment".equals(payload.getEvent())) {
-            return ReviewCommentMode.SUMMARY_ONLY;
-        }
         if ("pull_request".equals(payload.getEvent()) && "opened".equals(payload.getAction())) {
             return ReviewCommentMode.INLINE_ONLY;
         }

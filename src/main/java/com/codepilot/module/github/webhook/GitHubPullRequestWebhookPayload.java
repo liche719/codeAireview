@@ -36,6 +36,14 @@ public class GitHubPullRequestWebhookPayload {
 
     private String commentUserLogin;
 
+    private String commandType;
+
+    private String commandText;
+
+    private Boolean mentionedBot;
+
+    private Boolean dryRun;
+
     public static GitHubPullRequestWebhookPayload ignored(String reason) {
         return ignored(reason, null, null);
     }
@@ -84,7 +92,11 @@ public class GitHubPullRequestWebhookPayload {
             String title,
             Long commentId,
             String commentBody,
-            String commentUserLogin
+            String commentUserLogin,
+            String commandType,
+            String commandText,
+            boolean mentionedBot,
+            boolean dryRun
     ) {
         GitHubPullRequestWebhookPayload payload = new GitHubPullRequestWebhookPayload();
         payload.setIgnored(false);
@@ -98,6 +110,10 @@ public class GitHubPullRequestWebhookPayload {
         payload.setCommentId(commentId);
         payload.setCommentBody(StringUtils.hasText(commentBody) ? commentBody : null);
         payload.setCommentUserLogin(StringUtils.hasText(commentUserLogin) ? commentUserLogin : null);
+        payload.setCommandType(commandType);
+        payload.setCommandText(StringUtils.hasText(commandText) ? commandText : null);
+        payload.setMentionedBot(mentionedBot);
+        payload.setDryRun(dryRun);
         return payload;
     }
 }

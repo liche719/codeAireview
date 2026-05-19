@@ -88,3 +88,24 @@
 补充说明：
 - `.env` 不要提交，`.env.example` 是可提交的本地模板。
 - 本地推荐使用 `scripts/start-local.ps1` 启动，它会先加载 `.env`，再启动 Docker、打包和运行应用。
+
+## GitHub command agent
+
+- `CODEPILOT_GITHUB_BOT_MENTION_ALIASES`
+  - Bot mention aliases used by PR comments, default `@x-pilotx,@X-PilotX`.
+- `CODEPILOT_GITHUB_FIX_ENABLED`
+  - Enables `@x-pilotx fix` and `@x-pilotx fix dry-run`, default `false`.
+- `CODEPILOT_GITHUB_FIX_MAX_FILES`
+  - Maximum files a generated fix patch may change, default `3`.
+- `CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES`
+  - Maximum added/deleted lines a generated fix patch may contain, default `120`.
+- `CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND`
+  - Validation command before commit/push, default `mvn -q -DskipTests compile`.
+
+Command examples:
+- `/review`
+- `@x-pilotx review`
+- `@x-pilotx fix dry-run`
+- `@x-pilotx fix`
+
+Fix mode only pushes to the current PR head branch when the PR branch is in the same repository. Fork PRs are rejected for automatic fixes. Fine-grained GitHub Token permissions for fix mode need `Contents: Read and write`, `Pull requests: Read and write`, `Issues: Read and write`, and `Metadata: Read`.

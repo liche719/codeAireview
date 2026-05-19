@@ -1,0 +1,14 @@
+Limits:
+{{limits}}
+
+Review issues to fix:
+{{issues}}
+
+Nearby code snippets:
+{{snippets}}
+
+Return JSON only:
+{
+  "summary": "short explanation",
+  "patch": "unified diff"
+}

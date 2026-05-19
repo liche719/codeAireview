@@ -54,6 +54,17 @@ Events: Pull requests, Issue comments
 
 `Pull requests` 用于 PR `opened` / `synchronize` / `reopened` 自动审查；`Issue comments` 用于在 PR Conversation 中输入 `/review` 手动触发审查。
 
+Issue comment commands also support:
+
+```text
+/review
+@x-pilotx review
+@x-pilotx fix dry-run
+@x-pilotx fix
+```
+
+`@x-pilotx fix dry-run` previews the generated patch without pushing a commit. `@x-pilotx fix` uses the latest successful review issues, generates a small unified diff, validates it, and only then pushes a new commit to the current PR branch. Automatic fix is only supported for PR branches in the same repository.
+
 7. 提交一个包含 SQL 拼接和敏感信息的 PR。
 
 ```java

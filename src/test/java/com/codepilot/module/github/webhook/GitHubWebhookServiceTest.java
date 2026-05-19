@@ -2,6 +2,10 @@ package com.codepilot.module.github.webhook;
 
 import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.common.exception.BusinessException;
+import com.codepilot.module.command.config.GithubCommandProperties;
+import com.codepilot.module.command.dto.GithubCommandHandleResult;
+import com.codepilot.module.command.parser.GithubCommandParser;
+import com.codepilot.module.command.router.GithubCommandRouter;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.service.ReviewTaskService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -129,11 +133,7 @@ class GitHubWebhookServiceTest {
     @Test
     void shouldCreateReviewTaskForReviewCommandIssueComment() {
         TestContext context = new TestContext(true, true);
-        when(context.reviewTaskService.createTask(
-                "https://github.com/liche719/codeAireview/pull/12",
-                "Add webhook support",
-                ReviewCommentMode.SUMMARY_ONLY
-        )).thenReturn(new ReviewCreateResponse(456L, "PENDING"));
+        when(context.githubCommandRouter.route(any())).thenReturn(GithubCommandHandleResult.processed(456L, "created"));
 
         GitHubWebhookResponse response = context.service.handle(
                 "issue_comment",
@@ -145,13 +145,9 @@ class GitHubWebhookServiceTest {
         assertThat(response.getTaskId()).isEqualTo(456L);
         assertThat(response.getAction()).isEqualTo("created");
         assertThat(response.isIgnored()).isFalse();
-        verify(context.reviewTaskService).createTask(
-                "https://github.com/liche719/codeAireview/pull/12",
-                "Add webhook support",
-                ReviewCommentMode.SUMMARY_ONLY
-        );
+        verify(context.githubCommandRouter).route(any());
         verify(context.valueOperations).setIfAbsent(
-                eq("codepilot:webhook:review-command:liche719:codeaireview:12:1001"),
+                eq("codepilot:webhook:pr-command:liche719:codeaireview:12:1001"),
                 eq("1"),
                 any(Duration.class)
         );
@@ -214,6 +210,8 @@ class GitHubWebhookServiceTest {
 
         private final ReviewTaskService reviewTaskService = mock(ReviewTaskService.class);
 
+        private final GithubCommandRouter githubCommandRouter = mock(GithubCommandRouter.class);
+
         @SuppressWarnings("unchecked")
         private final ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
 
@@ -227,8 +225,12 @@ class GitHubWebhookServiceTest {
 
             service = new GitHubWebhookService(
                     signatureVerifier,
-                    new GitHubWebhookPayloadParser(new ObjectMapper()),
+                    new GitHubWebhookPayloadParser(
+                            new ObjectMapper(),
+                            new GithubCommandParser(new GithubCommandProperties())
+                    ),
                     reviewTaskService,
+                    githubCommandRouter,
                     stringRedisTemplate,
                     true
             );

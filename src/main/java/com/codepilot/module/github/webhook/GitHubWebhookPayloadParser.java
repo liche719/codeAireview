@@ -1,6 +1,8 @@
 package com.codepilot.module.github.webhook;
 
 import com.codepilot.common.exception.BusinessException;
+import com.codepilot.module.command.dto.GithubCommand;
+import com.codepilot.module.command.parser.GithubCommandParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
@@ -15,14 +17,15 @@ public class GitHubWebhookPayloadParser {
 
     private static final String ISSUE_COMMENT_EVENT = "issue_comment";
 
-    private static final String REVIEW_COMMAND = "/review";
-
     private static final Set<String> SUPPORTED_ACTIONS = Set.of("opened", "synchronize", "reopened");
 
     private final ObjectMapper objectMapper;
 
-    public GitHubWebhookPayloadParser(ObjectMapper objectMapper) {
+    private final GithubCommandParser commandParser;
+
+    public GitHubWebhookPayloadParser(ObjectMapper objectMapper, GithubCommandParser commandParser) {
         this.objectMapper = objectMapper;
+        this.commandParser = commandParser;
     }
 
     public GitHubPullRequestWebhookPayload parse(String event, String payload) {
@@ -79,7 +82,8 @@ public class GitHubWebhookPayloadParser {
             }
 
             String commentBody = text(root, "comment", "body");
-            if (!REVIEW_COMMAND.equals(commentBody == null ? null : commentBody.trim())) {
+            GithubCommand command = commandParser.parse(commentBody);
+            if (command.shouldIgnore()) {
                 return GitHubPullRequestWebhookPayload.ignored("unsupported comment command", action, ISSUE_COMMENT_EVENT);
             }
 
@@ -107,7 +111,11 @@ public class GitHubWebhookPayloadParser {
                     title,
                     commentId,
                     commentBody,
-                    commentUserLogin
+                    commentUserLogin,
+                    command.getType().name(),
+                    command.getText(),
+                    command.isMentionedBot(),
+                    command.isDryRun()
             );
         } catch (BusinessException exception) {
             throw exception;
