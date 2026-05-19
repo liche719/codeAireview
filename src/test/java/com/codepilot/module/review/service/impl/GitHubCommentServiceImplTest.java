@@ -2,7 +2,6 @@ package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.codepilot.module.git.client.GithubClient;
-import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
@@ -58,30 +57,29 @@ class GitHubCommentServiceImplTest {
         TestContext context = new TestContext(true, "token");
         when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
         when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any())).thenReturn(List.of());
-        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123)).thenReturn(List.of());
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
 
         context.service.commentReviewResult(1L);
 
         verify(context.githubClient).createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(123), bodyCaptor.capture());
+        verify(context.githubClient, never()).listPullRequestComments(any(), any(), any());
         verify(context.githubClient, never()).updateIssueComment(any(), any(), any(), any());
         assertThat(bodyCaptor.getValue()).contains(COMMENT_MARKER);
         assertThat(bodyCaptor.getValue()).contains("No issues found");
     }
 
     @Test
-    void shouldUpdateExistingCommentWhenMarkerExists() {
+    void shouldCreateNewCommentWhenMarkerExists() {
         TestContext context = new TestContext(true, "token");
         when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
         when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any())).thenReturn(List.of());
-        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123))
-                .thenReturn(List.of(issueComment(99L, COMMENT_MARKER + "\nold body")));
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
 
         context.service.commentReviewResult(1L);
 
-        verify(context.githubClient, never()).createPullRequestComment(any(), any(), any(), any());
-        verify(context.githubClient).updateIssueComment(eq("liche719"), eq("codeAireview"), eq(99L), bodyCaptor.capture());
+        verify(context.githubClient).createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(123), bodyCaptor.capture());
+        verify(context.githubClient, never()).listPullRequestComments(any(), any(), any());
+        verify(context.githubClient, never()).updateIssueComment(any(), any(), any(), any());
         assertThat(bodyCaptor.getValue()).contains(COMMENT_MARKER);
         assertThat(bodyCaptor.getValue()).contains("No issues found");
     }
@@ -91,19 +89,11 @@ class GitHubCommentServiceImplTest {
         TestContext context = new TestContext(true, "token");
         when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
         when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any())).thenReturn(List.of());
-        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123)).thenReturn(List.of());
         doThrow(new RuntimeException("github create error"))
                 .when(context.githubClient)
                 .createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(123), any());
 
         assertThatCode(() -> context.service.commentReviewResult(1L)).doesNotThrowAnyException();
-    }
-
-    private GithubIssueComment issueComment(Long id, String body) {
-        GithubIssueComment comment = new GithubIssueComment();
-        comment.setId(id);
-        comment.setBody(body);
-        return comment;
     }
 
     private ReviewTask reviewTask() {
@@ -134,8 +124,7 @@ class GitHubCommentServiceImplTest {
                     githubClient,
                     new ReviewReportFormatter(COMMENT_MARKER),
                     commentEnabled,
-                    githubToken,
-                    COMMENT_MARKER
+                    githubToken
             );
         }
     }
