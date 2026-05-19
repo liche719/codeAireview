@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: codepilot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${CODEPILOT_DB_NAME:-codepilot}
+      POSTGRES_USER: ${CODEPILOT_DB_USERNAME:-codepilot}
+      POSTGRES_PASSWORD: ${CODEPILOT_DB_PASSWORD:-codepilot123}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CODEPILOT_DB_USERNAME:-codepilot} -d ${CODEPILOT_DB_NAME:-codepilot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7.4
+    container_name: codepilot-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: codepilot-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${CODEPILOT_RABBITMQ_USERNAME:-codepilot}
+      RABBITMQ_DEFAULT_PASS: ${CODEPILOT_RABBITMQ_PASSWORD:-codepilot123}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: codepilot-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      CODEPILOT_DB_URL: jdbc:postgresql://postgres:5432/${CODEPILOT_DB_NAME:-codepilot}
+      CODEPILOT_DB_USERNAME: ${CODEPILOT_DB_USERNAME:-codepilot}
+      CODEPILOT_DB_PASSWORD: ${CODEPILOT_DB_PASSWORD:-codepilot123}
+      CODEPILOT_REDIS_HOST: redis
+      CODEPILOT_REDIS_PORT: 6379
+      CODEPILOT_REDIS_DATABASE: ${CODEPILOT_REDIS_DATABASE:-0}
+      CODEPILOT_REDIS_TIMEOUT: ${CODEPILOT_REDIS_TIMEOUT:-3s}
+      CODEPILOT_RABBITMQ_HOST: rabbitmq
+      CODEPILOT_RABBITMQ_PORT: 5672
+      CODEPILOT_RABBITMQ_USERNAME: ${CODEPILOT_RABBITMQ_USERNAME:-codepilot}
+      CODEPILOT_RABBITMQ_PASSWORD: ${CODEPILOT_RABBITMQ_PASSWORD:-codepilot123}
+      CODEPILOT_RABBITMQ_VIRTUAL_HOST: ${CODEPILOT_RABBITMQ_VIRTUAL_HOST:-/}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
