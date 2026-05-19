@@ -39,21 +39,24 @@ public class LangChain4jEmbeddingConfig {
 
         Duration timeout = Duration.ofSeconds(Math.max(1, embeddingProperties.getTimeoutSeconds()));
         String baseUrl = normalizeBaseUrl(embeddingProperties.getBaseUrl());
+        Integer dimension = embeddingProperties.getDimension() > 0 ? embeddingProperties.getDimension() : null;
 
         log.info("Creating LangChain4j EmbeddingModel, provider={}, model={}, baseUrl={}, dimension={}, timeoutSeconds={}",
                 embeddingProperties.getProvider(),
                 embeddingProperties.getModel(),
                 baseUrl,
-                embeddingProperties.getDimension(),
+                dimension == null ? "auto" : dimension,
                 timeout.toSeconds());
 
-        return OpenAiEmbeddingModel.builder()
+        var builder = OpenAiEmbeddingModel.builder()
                 .baseUrl(baseUrl)
                 .apiKey(embeddingProperties.getApiKey())
                 .modelName(embeddingProperties.getModel())
-                .dimensions(embeddingProperties.getDimension())
-                .timeout(timeout)
-                .build();
+                .timeout(timeout);
+        if (dimension != null) {
+            builder.dimensions(dimension);
+        }
+        return builder.build();
     }
 
     private boolean isOpenAiCompatibleProvider() {

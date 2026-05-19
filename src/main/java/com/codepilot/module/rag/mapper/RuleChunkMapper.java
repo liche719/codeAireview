@@ -10,6 +10,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Result;
 import org.apache.ibatis.annotations.Results;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -21,6 +22,11 @@ public interface RuleChunkMapper extends BaseMapper<RuleChunk> {
             WHERE document_id = #{documentId}
             """)
     int deleteByDocumentId(@Param("documentId") Long documentId);
+
+    @Update("""
+            DELETE FROM rule_chunk
+            """)
+    int deleteAll();
 
     @Insert("""
             INSERT INTO rule_chunk(document_id, chunk_index, content, embedding, type)
@@ -56,4 +62,32 @@ public interface RuleChunkMapper extends BaseMapper<RuleChunk> {
             @Param("type") String type,
             @Param("topK") int topK
     );
+
+    @Select("""
+            SELECT format_type(a.atttypid, a.atttypmod)
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = current_schema()
+              AND c.relname = 'rule_chunk'
+              AND a.attname = 'embedding'
+              AND a.attnum > 0
+              AND NOT a.attisdropped
+            """)
+    String selectEmbeddingColumnType();
+
+    @Select("""
+            SELECT DISTINCT vector_dims(embedding)
+            FROM rule_chunk
+            WHERE embedding IS NOT NULL
+            ORDER BY 1
+            """)
+    List<Integer> selectEmbeddingDimensions();
+
+    @Update("""
+            ALTER TABLE rule_chunk
+            ALTER COLUMN embedding TYPE vector
+            USING embedding::vector
+            """)
+    int alterEmbeddingColumnToFlexibleVector();
 }

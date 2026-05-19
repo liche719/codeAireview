@@ -37,9 +37,15 @@ public class EmbeddingServiceImpl implements EmbeddingService {
         }
 
         List<Float> vector = embedding.vectorAsList();
-        if (vector.size() != embeddingProperties.getDimension()) {
+        int expectedDimension = embeddingProperties.getDimension();
+        if (expectedDimension <= 0) {
+            embeddingProperties.setDimension(vector.size());
+            expectedDimension = vector.size();
+            log.info("Embedding dimension auto-detected lazily, dimension={}", expectedDimension);
+        }
+        if (vector.size() != expectedDimension) {
             throw new BusinessException("embedding dimension mismatch, expected="
-                    + embeddingProperties.getDimension() + ", actual=" + vector.size());
+                    + expectedDimension + ", actual=" + vector.size());
         }
         log.info("Embedding generated, textLength={}, dimension={}, costTimeMs={}",
                 text.length(), vector.size(), System.currentTimeMillis() - startTime);

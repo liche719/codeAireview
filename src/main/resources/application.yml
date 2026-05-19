@@ -75,7 +75,7 @@ codepilot:
     base-url: ${CODEPILOT_EMBEDDING_BASE_URL:${CODEPILOT_LLM_BASE_URL:https://api.openai.com/v1}}
     api-key: ${CODEPILOT_EMBEDDING_API_KEY:${CODEPILOT_LLM_API_KEY:}}
     model: ${CODEPILOT_EMBEDDING_MODEL:text-embedding-3-small}
-    dimension: 1536
+    dimension: ${CODEPILOT_EMBEDDING_DIMENSION:0}
     timeout-seconds: 60
   rag:
     enabled: true

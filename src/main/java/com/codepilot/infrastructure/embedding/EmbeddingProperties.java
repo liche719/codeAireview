@@ -19,7 +19,10 @@ public class EmbeddingProperties {
 
     private String model = "text-embedding-3-small";
 
-    private int dimension = 1536;
+    /**
+     * Embedding dimension. 0 means auto-detect at startup.
+     */
+    private int dimension = 0;
 
     private int timeoutSeconds = 60;
 }
