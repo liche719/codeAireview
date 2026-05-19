@@ -129,6 +129,11 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
 
             String issuesJson = buildIssuesJson(fixableIssues);
             String snippets = buildSnippets(task, detail.getHeadSha(), fixableIssues);
+            if (!StringUtils.hasText(snippets)) {
+                completeFailed(task, "No valid code snippet found for supported review issues.");
+                comment(task, "I found supported review issues, but could not load enough code context to generate a safe patch.");
+                return;
+            }
             String limits = "maxFiles=" + properties.getFixMaxFiles()
                     + ", maxChangedLines=" + properties.getFixMaxChangedLines()
                     + ", output=unified diff only";
@@ -226,13 +231,15 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 .map(GithubChangedFile::getFilename)
                 .toList();
         List<ReviewIssue> issues = new ArrayList<>();
+        int reviewedFiles = 0;
         for (GithubChangedFile file : files) {
-            if (issues.size() >= properties.getFixMaxFiles()) {
+            if (reviewedFiles >= properties.getFixMaxFiles()) {
                 break;
             }
             if (!StringUtils.hasText(file.getPatch())) {
                 continue;
             }
+            reviewedFiles++;
             AiReviewResult result = aiReviewService.reviewFile(null, file.getFilename(), file.getPatch(), allChangedFiles);
             if (result == null || result.getIssues() == null) {
                 continue;
@@ -290,7 +297,10 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             }
             try {
                 String content = githubClient.getFileContent(task.getRepoOwner(), task.getRepoName(), issue.getFilePath(), ref);
-                builder.append(snippet(issue.getFilePath(), issue.getLineNumber(), content)).append("\n");
+                String codeSnippet = snippet(issue.getFilePath(), issue.getLineNumber(), content);
+                if (StringUtils.hasText(codeSnippet)) {
+                    builder.append(codeSnippet).append("\n");
+                }
             } catch (Exception exception) {
                 commandTaskLogService.record(task.getId(), "SNIPPET", false,
                         "Failed to load snippet for " + issue.getFilePath(), exception.getMessage());
@@ -300,7 +310,13 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     }
 
     private String snippet(String filePath, int lineNumber, String content) {
+        if (!StringUtils.hasText(content) || lineNumber < 1) {
+            return "";
+        }
         String[] lines = content == null ? new String[0] : content.split("\\R", -1);
+        if (lineNumber > lines.length) {
+            return "";
+        }
         int start = Math.max(1, lineNumber - SNIPPET_RADIUS);
         int end = Math.min(lines.length, lineNumber + SNIPPET_RADIUS);
         StringBuilder builder = new StringBuilder();
@@ -405,12 +421,18 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                         files.add(parts[3].replaceFirst("^b/", ""));
                     }
                 }
+                if (line.startsWith("+++ ")) {
+                    String filePath = line.substring(4).trim();
+                    if (!"/dev/null".equals(filePath)) {
+                        files.add(filePath.replaceFirst("^b/", ""));
+                    }
+                }
                 if ((line.startsWith("+") && !line.startsWith("+++"))
                         || (line.startsWith("-") && !line.startsWith("---"))) {
                     changedLines++;
                 }
             }
-            return new PatchStats(Math.max(files.size(), 1), changedLines);
+            return new PatchStats(files.isEmpty() && changedLines > 0 ? 1 : files.size(), changedLines);
         }
 
         @Override

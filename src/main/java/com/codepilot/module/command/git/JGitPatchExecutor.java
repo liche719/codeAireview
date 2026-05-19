@@ -14,12 +14,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
 public class JGitPatchExecutor implements GitPatchExecutor {
 
     private static final int PROCESS_TIMEOUT_SECONDS = 120;
+
+    private static final int MAX_VALIDATION_OUTPUT_CHARS = 12000;
 
     @Override
     public GitPatchExecutionResult execute(GitPatchExecutionRequest request) {
@@ -90,20 +93,38 @@ public class JGitPatchExecutor implements GitPatchExecutor {
         if (!StringUtils.hasText(validationCommand)) {
             return GitPatchExecutionResult.success(null, "Validation skipped.", null);
         }
-        ProcessBuilder processBuilder = new ProcessBuilder(splitCommand(validationCommand));
-        processBuilder.directory(workDir.toFile());
-        processBuilder.redirectErrorStream(true);
-        Process process = processBuilder.start();
-        boolean completed = process.waitFor(PROCESS_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
-        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        if (!completed) {
-            process.destroyForcibly();
-            return GitPatchExecutionResult.failure("Validation command timed out.", output);
+        Path outputFile = Files.createTempFile("codepilot-validation-", ".log");
+        try {
+            ProcessBuilder processBuilder = new ProcessBuilder(splitCommand(validationCommand));
+            processBuilder.directory(workDir.toFile());
+            processBuilder.redirectErrorStream(true);
+            processBuilder.redirectOutput(outputFile.toFile());
+            Process process = processBuilder.start();
+            boolean completed = process.waitFor(PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!completed) {
+                process.destroyForcibly();
+                process.waitFor(5, TimeUnit.SECONDS);
+                return GitPatchExecutionResult.failure("Validation command timed out.", readValidationOutput(outputFile));
+            }
+            String output = readValidationOutput(outputFile);
+            if (process.exitValue() != 0) {
+                return GitPatchExecutionResult.failure("Validation command failed with exit code " + process.exitValue(), output);
+            }
+            return GitPatchExecutionResult.success(null, "Validation command passed.", output);
+        } finally {
+            deleteFileQuietly(outputFile);
         }
-        if (process.exitValue() != 0) {
-            return GitPatchExecutionResult.failure("Validation command failed with exit code " + process.exitValue(), output);
+    }
+
+    private String readValidationOutput(Path outputFile) throws IOException {
+        if (outputFile == null || !Files.exists(outputFile)) {
+            return "";
         }
-        return GitPatchExecutionResult.success(null, "Validation command passed.", output);
+        String output = Files.readString(outputFile, StandardCharsets.UTF_8);
+        if (output.length() <= MAX_VALIDATION_OUTPUT_CHARS) {
+            return output;
+        }
+        return output.substring(0, MAX_VALIDATION_OUTPUT_CHARS) + "\n... output truncated ...";
     }
 
     private List<String> splitCommand(String command) {
@@ -127,6 +148,17 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                     });
         } catch (IOException ignored) {
             // Best effort cleanup for temporary clone directories.
+        }
+    }
+
+    private void deleteFileQuietly(Path path) {
+        if (path == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ignored) {
+            // Best effort cleanup for validation output files.
         }
     }
 }

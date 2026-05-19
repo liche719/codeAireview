@@ -2,6 +2,7 @@ package com.codepilot.common.config;
 
 import com.codepilot.task.ReviewTaskProducer;
 import com.codepilot.task.PrCommandTaskProducer;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
@@ -31,7 +32,10 @@ public class RabbitMqConfig {
     }
 
     @Bean
-    public Binding reviewTaskBinding(Queue reviewTaskQueue, DirectExchange reviewTaskExchange) {
+    public Binding reviewTaskBinding(
+            @Qualifier("reviewTaskQueue") Queue reviewTaskQueue,
+            @Qualifier("reviewTaskExchange") DirectExchange reviewTaskExchange
+    ) {
         return BindingBuilder.bind(reviewTaskQueue)
                 .to(reviewTaskExchange)
                 .with(ReviewTaskProducer.REVIEW_TASK_ROUTING_KEY);
@@ -48,7 +52,10 @@ public class RabbitMqConfig {
     }
 
     @Bean
-    public Binding prCommandTaskBinding(Queue prCommandTaskQueue, DirectExchange prCommandTaskExchange) {
+    public Binding prCommandTaskBinding(
+            @Qualifier("prCommandTaskQueue") Queue prCommandTaskQueue,
+            @Qualifier("prCommandTaskExchange") DirectExchange prCommandTaskExchange
+    ) {
         return BindingBuilder.bind(prCommandTaskQueue)
                 .to(prCommandTaskExchange)
                 .with(PrCommandTaskProducer.PR_COMMAND_TASK_ROUTING_KEY);
