@@ -11,6 +11,7 @@ import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 
@@ -99,6 +100,34 @@ class GitHubInlineCommentServiceImplTest {
         verify(context.githubClient, times(1))
                 .createPullRequestInlineComment(eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
                         eq("src/Demo.java"), eq(11), eq("RIGHT"), any());
+    }
+
+    @Test
+    void shouldBuildConciseInlineCommentBody() {
+        TestContext context = new TestContext(true, 10, "token");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
+                .thenReturn(List.of(issue(11)));
+        when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
+                .thenReturn(List.of(reviewFile()));
+        when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+
+        context.service.commentInlineIssues(1L);
+
+        verify(context.githubClient).createPullRequestInlineComment(
+                eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                eq("src/Demo.java"), eq(11), eq("RIGHT"), bodyCaptor.capture()
+        );
+        String body = bodyCaptor.getValue();
+        org.assertj.core.api.Assertions.assertThat(body).contains("<!-- codepilot-inline-review -->");
+        org.assertj.core.api.Assertions.assertThat(body).contains("Description:");
+        org.assertj.core.api.Assertions.assertThat(body).contains("Suggestion:");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("SQL_RISK");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("HIGH");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("Source:");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("Rule:");
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("CodePilot AI found a potential issue");
     }
 
     private ReviewTask reviewTask() {

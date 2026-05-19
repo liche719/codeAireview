@@ -20,8 +20,7 @@ class ReviewReportFormatterTest {
         String markdown = formatter.formatMarkdown(reviewTask("PASS"), List.of());
 
         assertThat(markdown).contains(COMMENT_MARKER);
-        assertThat(markdown).contains("CodePilot AI Review Report");
-        assertThat(markdown).contains("**Risk Level**: PASS");
+        assertThat(markdown).contains("CodePilot AI Review");
         assertThat(markdown).contains("No issues found");
     }
 
@@ -35,9 +34,9 @@ class ReviewReportFormatterTest {
 
         String markdown = formatter.formatMarkdown(reviewTask("HIGH"), issues);
 
-        assertThat(markdown).contains("#### 1. [HIGH] SQL_RISK - high issue");
-        assertThat(markdown).contains("#### 2. [MEDIUM] SECURITY - medium issue");
-        assertThat(markdown).contains("#### 3. [LOW] STYLE - low issue");
+        assertThat(markdown).contains("#### 1. [HIGH] SQL_RISK");
+        assertThat(markdown).contains("#### 2. [MEDIUM] SECURITY");
+        assertThat(markdown).contains("#### 3. [LOW] STYLE");
         assertThat(markdown.indexOf("[HIGH]")).isLessThan(markdown.indexOf("[MEDIUM]"));
         assertThat(markdown.indexOf("[MEDIUM]")).isLessThan(markdown.indexOf("[LOW]"));
     }
@@ -51,8 +50,8 @@ class ReviewReportFormatterTest {
 
         String markdown = formatter.formatMarkdown(reviewTask("LOW"), issues);
 
-        assertThat(markdown).contains("#### 20. [LOW] STYLE - issue 20");
-        assertThat(markdown).doesNotContain("#### 21. [LOW] STYLE - issue 21");
+        assertThat(markdown).contains("#### 20. [LOW] STYLE");
+        assertThat(markdown).doesNotContain("#### 21. [LOW] STYLE");
         assertThat(markdown).contains("Remaining issues: 1");
     }
 

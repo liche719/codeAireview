@@ -26,6 +26,8 @@ public class ReviewTask {
 
     private String title;
 
+    private String reviewCommentMode;
+
     private String status;
 
     private Integer totalFiles;
@@ -44,4 +46,3 @@ public class ReviewTask {
 
     private LocalDateTime updatedAt;
 }
-

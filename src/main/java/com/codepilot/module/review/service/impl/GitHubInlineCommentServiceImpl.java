@@ -9,6 +9,7 @@ import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
+import com.codepilot.module.review.service.GitHubInlineCommentResult;
 import com.codepilot.module.review.service.GitHubInlineCommentService;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
@@ -68,7 +69,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
     }
 
     @Override
-    public void commentInlineIssues(Long taskId) {
+    public GitHubInlineCommentResult commentInlineIssues(Long taskId) {
         int successCount = 0;
         int failedCount = 0;
         int skippedCount = 0;
@@ -76,29 +77,29 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
         try {
             if (!inlineCommentEnabled) {
                 log.info("Skip GitHub PR inline comments because inline comment is disabled, taskId={}", taskId);
-                return;
+                return new GitHubInlineCommentResult(0, 0, 0);
             }
             if (!StringUtils.hasText(githubToken)) {
                 log.warn("Skip GitHub PR inline comments because GitHub token is missing, taskId={}", taskId);
-                return;
+                return new GitHubInlineCommentResult(0, 0, 0);
             }
             if (inlineCommentMaxPerTask <= 0) {
                 log.info("Skip GitHub PR inline comments because max per task is not positive, taskId={}, maxPerTask={}",
                         taskId, inlineCommentMaxPerTask);
-                return;
+                return new GitHubInlineCommentResult(0, 0, 0);
             }
 
             ReviewTask task = reviewTaskMapper.selectById(taskId);
             if (task == null) {
                 log.warn("Skip GitHub PR inline comments because review task was not found, taskId={}", taskId);
-                return;
+                return new GitHubInlineCommentResult(0, 0, 0);
             }
 
             List<ReviewIssue> issues = reviewIssueService.list(new LambdaQueryWrapper<ReviewIssue>()
                     .eq(ReviewIssue::getTaskId, taskId));
             if (issues.isEmpty()) {
                 log.info("Skip GitHub PR inline comments because there are no issues, taskId={}", taskId);
-                return;
+                return new GitHubInlineCommentResult(0, 0, 0);
             }
 
             Map<String, ReviewFile> reviewFileByPath = reviewFileByPath(taskId);
@@ -110,7 +111,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
             String headSha = detail.getHeadSha();
             if (!StringUtils.hasText(headSha)) {
                 log.warn("Skip GitHub PR inline comments because PR head sha is missing, taskId={}", taskId);
-                return;
+                return new GitHubInlineCommentResult(0, 0, 0);
             }
 
             Set<String> sentIssueKeys = new HashSet<>();
@@ -165,6 +166,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
             log.info("GitHub PR inline comments completed, taskId={}, successCount={}, failedCount={}, skippedCount={}, maxPerTask={}",
                     taskId, successCount, failedCount, skippedCount, inlineCommentMaxPerTask);
         }
+        return new GitHubInlineCommentResult(successCount, failedCount, skippedCount);
     }
 
     private Map<String, ReviewFile> reviewFileByPath(Long taskId) {
@@ -190,14 +192,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
     private String buildInlineCommentBody(ReviewIssue issue) {
         StringBuilder body = new StringBuilder();
         body.append(INLINE_MARKER).append("\n\n");
-        body.append("**CodePilot AI** found a potential issue.\n\n");
-        body.append("- Type: ").append(nullToDash(issue.getIssueType())).append("\n");
-        body.append("- Severity: ").append(nullToDash(issue.getSeverity())).append("\n");
-        body.append("- Source: ").append(nullToDash(issue.getSource())).append("\n");
-        if (StringUtils.hasText(issue.getRuleReference())) {
-            body.append("- Rule: ").append(truncate(issue.getRuleReference())).append("\n");
-        }
-        body.append("\nDescription:\n");
+        body.append("Description:\n");
         body.append(truncate(issue.getDescription())).append("\n\n");
         body.append("Suggestion:\n");
         body.append(truncate(issue.getSuggestion())).append("\n");

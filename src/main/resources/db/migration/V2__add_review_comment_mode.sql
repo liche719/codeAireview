@@ -1,0 +1,2 @@
+ALTER TABLE review_task
+    ADD COLUMN IF NOT EXISTS review_comment_mode VARCHAR(32) NOT NULL DEFAULT 'SUMMARY_ONLY';

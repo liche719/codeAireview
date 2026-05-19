@@ -1,6 +1,7 @@
 package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.common.enums.ReviewTaskStatus;
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.module.agent.dto.AiReviewIssue;
@@ -16,6 +17,7 @@ import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
+import com.codepilot.module.review.service.GitHubInlineCommentResult;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.GitHubCommentService;
 import com.codepilot.module.review.service.GitHubInlineCommentService;
@@ -62,12 +64,18 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ReviewCreateResponse createTask(String prUrl) {
-        return createTask(prUrl, null);
+        return createTask(prUrl, null, ReviewCommentMode.SUMMARY_ONLY);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ReviewCreateResponse createTask(String prUrl, String title) {
+        return createTask(prUrl, title, ReviewCommentMode.SUMMARY_ONLY);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ReviewCreateResponse createTask(String prUrl, String title, ReviewCommentMode reviewCommentMode) {
         GithubPrInfo prInfo = githubPrUrlParser.parse(prUrl);
 
         ReviewTask task = new ReviewTask();
@@ -76,6 +84,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         task.setPrNumber(prInfo.getPullNumber());
         task.setPrUrl(prUrl.trim());
         task.setTitle(title);
+        task.setReviewCommentMode(normalizeReviewCommentMode(reviewCommentMode).name());
         task.setStatus(ReviewTaskStatus.PENDING.name());
         task.setTotalFiles(0);
         task.setTotalIssues(0);
@@ -135,7 +144,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             updateById(task);
             log.info("Review task processed successfully, taskId={}, totalFiles={}, totalIssues={}",
                     taskId, changedFiles.size(), reviewIssues.size());
-            commentReviewResult(taskId);
+            commentReviewResult(task);
         } catch (Exception exception) {
             task.setStatus(ReviewTaskStatus.FAILED.name());
             task.setErrorMessage(exception.getMessage());
@@ -146,16 +155,28 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         }
     }
 
-    private void commentReviewResult(Long taskId) {
-        try {
-            gitHubInlineCommentService.commentInlineIssues(taskId);
-        } catch (Exception exception) {
-            log.warn("GitHub PR inline comment failed unexpectedly, taskId={}", taskId, exception);
+    private void commentReviewResult(ReviewTask task) {
+        ReviewCommentMode reviewCommentMode = ReviewCommentMode.fromValue(task.getReviewCommentMode());
+        if (reviewCommentMode.isInlineOnly()) {
+            GitHubInlineCommentResult result = null;
+            try {
+                result = gitHubInlineCommentService.commentInlineIssues(task.getId());
+            } catch (Exception exception) {
+                log.warn("GitHub PR inline comment failed unexpectedly, taskId={}", task.getId(), exception);
+            }
+            if (result == null || !result.hasSuccess()) {
+                try {
+                    githubCommentService.commentReviewResult(task.getId());
+                } catch (Exception exception) {
+                    log.warn("GitHub PR summary comment failed unexpectedly, taskId={}", task.getId(), exception);
+                }
+            }
+            return;
         }
         try {
-            githubCommentService.commentReviewResult(taskId);
+            githubCommentService.commentReviewResult(task.getId());
         } catch (Exception exception) {
-            log.warn("GitHub PR summary comment failed unexpectedly, taskId={}", taskId, exception);
+            log.warn("GitHub PR summary comment failed unexpectedly, taskId={}", task.getId(), exception);
         }
     }
 
@@ -336,6 +357,10 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         }
         String normalizedSource = source.trim().toUpperCase(Locale.ROOT);
         return "TOOL".equals(normalizedSource) ? "TOOL" : "LLM";
+    }
+
+    private ReviewCommentMode normalizeReviewCommentMode(ReviewCommentMode reviewCommentMode) {
+        return reviewCommentMode == null ? ReviewCommentMode.SUMMARY_ONLY : reviewCommentMode;
     }
 
     private String calculateRiskLevel(List<ReviewIssue> reviewIssues) {

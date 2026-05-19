@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS review_task (
     pr_number INT NOT NULL,
     pr_url VARCHAR(512) NOT NULL,
     title VARCHAR(255),
+    review_comment_mode VARCHAR(32) NOT NULL DEFAULT 'SUMMARY_ONLY',
     status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
     total_files INT DEFAULT 0,
     total_issues INT DEFAULT 0,

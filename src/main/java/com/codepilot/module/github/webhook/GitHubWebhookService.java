@@ -1,6 +1,7 @@
 package com.codepilot.module.github.webhook;
 
 import com.codepilot.common.exception.BusinessException;
+import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.service.ReviewTaskService;
 import lombok.extern.slf4j.Slf4j;
@@ -71,7 +72,8 @@ public class GitHubWebhookService {
 
         ReviewCreateResponse response = reviewTaskService.createTask(
                 parsedPayload.getPrUrl(),
-                parsedPayload.getTitle()
+                parsedPayload.getTitle(),
+                resolveReviewCommentMode(parsedPayload)
         );
         log.info("GitHub webhook created review task, taskId={}, event={}, action={}, owner={}, repo={}, pullNumber={}, commentUser={}, delivery={}",
                 response.getTaskId(),
@@ -139,5 +141,15 @@ public class GitHubWebhookService {
             return "unknown";
         }
         return value.trim().toLowerCase().replaceAll("[^a-z0-9._-]", "_");
+    }
+
+    private ReviewCommentMode resolveReviewCommentMode(GitHubPullRequestWebhookPayload payload) {
+        if ("issue_comment".equals(payload.getEvent())) {
+            return ReviewCommentMode.SUMMARY_ONLY;
+        }
+        if ("pull_request".equals(payload.getEvent()) && "opened".equals(payload.getAction())) {
+            return ReviewCommentMode.INLINE_ONLY;
+        }
+        return ReviewCommentMode.SUMMARY_ONLY;
     }
 }

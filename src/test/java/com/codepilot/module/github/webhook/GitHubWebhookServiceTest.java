@@ -1,5 +1,6 @@
 package com.codepilot.module.github.webhook;
 
+import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.service.ReviewTaskService;
@@ -27,7 +28,8 @@ class GitHubWebhookServiceTest {
         TestContext context = new TestContext(true, true);
         when(context.reviewTaskService.createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
-                "Add webhook support"
+                "Add webhook support",
+                ReviewCommentMode.INLINE_ONLY
         )).thenReturn(new ReviewCreateResponse(123L, "PENDING"));
 
         GitHubWebhookResponse response = context.service.handle(
@@ -42,7 +44,39 @@ class GitHubWebhookServiceTest {
         assertThat(response.isIgnored()).isFalse();
         verify(context.reviewTaskService).createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
-                "Add webhook support"
+                "Add webhook support",
+                ReviewCommentMode.INLINE_ONLY
+        );
+        verify(context.valueOperations).setIfAbsent(
+                eq("codepilot:webhook:pr-head:liche719:codeaireview:12:abc123"),
+                eq("1"),
+                any(Duration.class)
+        );
+    }
+
+    @Test
+    void shouldCreateSummaryModeTaskForSynchronizedPullRequest() {
+        TestContext context = new TestContext(true, true);
+        when(context.reviewTaskService.createTask(
+                "https://github.com/liche719/codeAireview/pull/12",
+                "Add webhook support",
+                ReviewCommentMode.SUMMARY_ONLY
+        )).thenReturn(new ReviewCreateResponse(124L, "PENDING"));
+
+        GitHubWebhookResponse response = context.service.handle(
+                "pull_request",
+                "delivery-1",
+                "sha256=valid",
+                pullRequestPayload("synchronize")
+        );
+
+        assertThat(response.getTaskId()).isEqualTo(124L);
+        assertThat(response.getAction()).isEqualTo("synchronize");
+        assertThat(response.isIgnored()).isFalse();
+        verify(context.reviewTaskService).createTask(
+                "https://github.com/liche719/codeAireview/pull/12",
+                "Add webhook support",
+                ReviewCommentMode.SUMMARY_ONLY
         );
         verify(context.valueOperations).setIfAbsent(
                 eq("codepilot:webhook:pr-head:liche719:codeaireview:12:abc123"),
@@ -97,7 +131,8 @@ class GitHubWebhookServiceTest {
         TestContext context = new TestContext(true, true);
         when(context.reviewTaskService.createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
-                "Add webhook support"
+                "Add webhook support",
+                ReviewCommentMode.SUMMARY_ONLY
         )).thenReturn(new ReviewCreateResponse(456L, "PENDING"));
 
         GitHubWebhookResponse response = context.service.handle(
@@ -112,7 +147,8 @@ class GitHubWebhookServiceTest {
         assertThat(response.isIgnored()).isFalse();
         verify(context.reviewTaskService).createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
-                "Add webhook support"
+                "Add webhook support",
+                ReviewCommentMode.SUMMARY_ONLY
         );
         verify(context.valueOperations).setIfAbsent(
                 eq("codepilot:webhook:review-command:liche719:codeaireview:12:1001"),
