@@ -2,7 +2,7 @@ package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.codepilot.module.git.client.GithubClient;
-import com.codepilot.module.git.dto.GithubIssueComment;
+import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.report.ReviewReportFormatter;
@@ -26,18 +26,17 @@ class GitHubCommentServiceImplTest {
 
     private static final String COMMENT_MARKER = "<!-- codepilot-ai-review:liche719/codeAireview -->";
 
-    private static final String LEGACY_COMMENT_MARKER = "<!-- codepilot-ai-review -->";
-
     @Test
     void shouldNotCallGithubClientWhenCommentDisabled() {
         TestContext context = new TestContext(false, "token");
 
         context.service.commentReviewResult(1L);
 
-        verify(context.githubClient, never()).listPullRequestComments(any(), any(), any());
         verify(context.githubClient, never()).createPullRequestComment(any(), any(), any(), any());
+        verify(context.githubClient, never()).listPullRequestComments(any(), any(), any());
         verify(context.githubClient, never()).updateIssueComment(any(), any(), any(), any());
         verify(context.reviewTaskMapper, never()).selectById(any());
+        verify(context.reviewIssueService, never()).list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any());
     }
 
     @Test
@@ -46,93 +45,34 @@ class GitHubCommentServiceImplTest {
 
         context.service.commentReviewResult(1L);
 
-        verify(context.githubClient, never()).listPullRequestComments(any(), any(), any());
         verify(context.githubClient, never()).createPullRequestComment(any(), any(), any(), any());
+        verify(context.githubClient, never()).listPullRequestComments(any(), any(), any());
         verify(context.githubClient, never()).updateIssueComment(any(), any(), any(), any());
         verify(context.reviewTaskMapper, never()).selectById(any());
+        verify(context.reviewIssueService, never()).list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any());
     }
 
     @Test
-    void shouldUpdateExistingCommentWhenMarkerExists() {
+    void shouldAlwaysCreateNewComment() {
         TestContext context = new TestContext(true, "token");
         when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
-        when(context.reviewIssueService.list(any(Wrapper.class))).thenReturn(List.of());
-        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123))
-                .thenReturn(List.of(issueComment(99L, COMMENT_MARKER + "\nold report")));
-        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
-
-        context.service.commentReviewResult(1L);
-
-        verify(context.githubClient).updateIssueComment(eq("liche719"), eq("codeAireview"), eq(99L), bodyCaptor.capture());
-        verify(context.githubClient, never()).createPullRequestComment(any(), any(), any(), any());
-        assertThat(bodyCaptor.getValue()).contains(COMMENT_MARKER);
-        assertThat(bodyCaptor.getValue()).contains("No issues found");
-    }
-
-    @Test
-    void shouldUpdateExistingCommentWhenLegacyMarkerExists() {
-        TestContext context = new TestContext(true, "token");
-        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
-        when(context.reviewIssueService.list(any(Wrapper.class))).thenReturn(List.of());
-        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123))
-                .thenReturn(List.of(issueComment(99L, LEGACY_COMMENT_MARKER + "\nold report")));
-
-        context.service.commentReviewResult(1L);
-
-        verify(context.githubClient).updateIssueComment(eq("liche719"), eq("codeAireview"), eq(99L), any());
-        verify(context.githubClient, never()).createPullRequestComment(any(), any(), any(), any());
-    }
-
-    @Test
-    void shouldCreateCommentWhenMarkerDoesNotExist() {
-        TestContext context = new TestContext(true, "token");
-        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
-        when(context.reviewIssueService.list(any(Wrapper.class))).thenReturn(List.of());
-        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123))
-                .thenReturn(List.of(issueComment(88L, "human comment")));
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any())).thenReturn(List.of());
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
 
         context.service.commentReviewResult(1L);
 
         verify(context.githubClient).createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(123), bodyCaptor.capture());
+        verify(context.githubClient, never()).listPullRequestComments(any(), any(), any());
         verify(context.githubClient, never()).updateIssueComment(any(), any(), any(), any());
         assertThat(bodyCaptor.getValue()).contains(COMMENT_MARKER);
         assertThat(bodyCaptor.getValue()).contains("No issues found");
-    }
-
-    @Test
-    void shouldNotThrowWhenListCommentsFails() {
-        TestContext context = new TestContext(true, "token");
-        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
-        when(context.reviewIssueService.list(any(Wrapper.class))).thenReturn(List.of());
-        doThrow(new RuntimeException("github list error"))
-                .when(context.githubClient)
-                .listPullRequestComments("liche719", "codeAireview", 123);
-
-        assertThatCode(() -> context.service.commentReviewResult(1L)).doesNotThrowAnyException();
-    }
-
-    @Test
-    void shouldNotThrowWhenUpdateCommentFails() {
-        TestContext context = new TestContext(true, "token");
-        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
-        when(context.reviewIssueService.list(any(Wrapper.class))).thenReturn(List.of());
-        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123))
-                .thenReturn(List.of(issueComment(99L, COMMENT_MARKER)));
-        doThrow(new RuntimeException("github update error"))
-                .when(context.githubClient)
-                .updateIssueComment(eq("liche719"), eq("codeAireview"), eq(99L), any());
-
-        assertThatCode(() -> context.service.commentReviewResult(1L)).doesNotThrowAnyException();
     }
 
     @Test
     void shouldNotThrowWhenCreateCommentFails() {
         TestContext context = new TestContext(true, "token");
         when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
-        when(context.reviewIssueService.list(any(Wrapper.class))).thenReturn(List.of());
-        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123))
-                .thenReturn(List.of());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any())).thenReturn(List.of());
         doThrow(new RuntimeException("github create error"))
                 .when(context.githubClient)
                 .createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(123), any());
@@ -149,13 +89,6 @@ class GitHubCommentServiceImplTest {
         task.setRiskLevel("PASS");
         task.setTotalIssues(0);
         return task;
-    }
-
-    private GithubIssueComment issueComment(Long id, String body) {
-        GithubIssueComment comment = new GithubIssueComment();
-        comment.setId(id);
-        comment.setBody(body);
-        return comment;
     }
 
     private static class TestContext {
@@ -175,8 +108,7 @@ class GitHubCommentServiceImplTest {
                     githubClient,
                     new ReviewReportFormatter(COMMENT_MARKER),
                     commentEnabled,
-                    githubToken,
-                    COMMENT_MARKER
+                    githubToken
             );
         }
     }

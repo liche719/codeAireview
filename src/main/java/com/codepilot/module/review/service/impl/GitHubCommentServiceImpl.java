@@ -2,7 +2,6 @@ package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.codepilot.module.git.client.GithubClient;
-import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
@@ -20,8 +19,6 @@ import java.util.List;
 @Service
 public class GitHubCommentServiceImpl implements GitHubCommentService {
 
-    private static final String LEGACY_COMMENT_MARKER = "<!-- codepilot-ai-review -->";
-
     private final ReviewTaskMapper reviewTaskMapper;
 
     private final ReviewIssueService reviewIssueService;
@@ -34,16 +31,13 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
 
     private final String githubToken;
 
-    private final String commentMarker;
-
     public GitHubCommentServiceImpl(
             ReviewTaskMapper reviewTaskMapper,
             ReviewIssueService reviewIssueService,
             GithubClient githubClient,
             ReviewReportFormatter reviewReportFormatter,
             @Value("${codepilot.github.comment-enabled:false}") boolean commentEnabled,
-            @Value("${codepilot.github.token:}") String githubToken,
-            @Value("${codepilot.github.comment-marker:}") String commentMarker
+            @Value("${codepilot.github.token:}") String githubToken
     ) {
         this.reviewTaskMapper = reviewTaskMapper;
         this.reviewIssueService = reviewIssueService;
@@ -51,7 +45,6 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
         this.reviewReportFormatter = reviewReportFormatter;
         this.commentEnabled = commentEnabled;
         this.githubToken = githubToken;
-        this.commentMarker = StringUtils.hasText(commentMarker) ? commentMarker : ReviewReportFormatter.DEFAULT_COMMENT_MARKER;
     }
 
     @Override
@@ -75,53 +68,11 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
             List<ReviewIssue> issues = reviewIssueService.list(new LambdaQueryWrapper<ReviewIssue>()
                     .eq(ReviewIssue::getTaskId, taskId));
             String body = reviewReportFormatter.formatMarkdown(task, issues);
-            upsertReviewComment(task, body);
+            githubClient.createPullRequestComment(task.getRepoOwner(), task.getRepoName(), task.getPrNumber(), body);
+            log.info("Created new CodePilot GitHub PR comment, taskId={}, owner={}, repo={}, pullNumber={}",
+                    task.getId(), task.getRepoOwner(), task.getRepoName(), task.getPrNumber());
         } catch (Exception exception) {
             log.warn("GitHub PR comment failed but ignored, taskId={}, message={}", taskId, exception.getMessage());
         }
-    }
-
-    private void upsertReviewComment(ReviewTask task, String body) {
-        List<GithubIssueComment> comments = githubClient.listPullRequestComments(
-                task.getRepoOwner(),
-                task.getRepoName(),
-                task.getPrNumber()
-        );
-        GithubIssueComment existingComment = findExistingCodePilotComment(comments);
-        if (existingComment == null) {
-            githubClient.createPullRequestComment(
-                    task.getRepoOwner(),
-                    task.getRepoName(),
-                    task.getPrNumber(),
-                    body
-            );
-            log.info("Created new CodePilot GitHub PR comment, taskId={}, owner={}, repo={}, pullNumber={}",
-                    task.getId(), task.getRepoOwner(), task.getRepoName(), task.getPrNumber());
-            return;
-        }
-
-        githubClient.updateIssueComment(
-                task.getRepoOwner(),
-                task.getRepoName(),
-                existingComment.getId(),
-                body
-        );
-        log.info("Updated existing CodePilot GitHub PR comment, taskId={}, owner={}, repo={}, commentId={}",
-                task.getId(), task.getRepoOwner(), task.getRepoName(), existingComment.getId());
-    }
-
-    private GithubIssueComment findExistingCodePilotComment(List<GithubIssueComment> comments) {
-        if (comments == null || comments.isEmpty()) {
-            return null;
-        }
-        return comments.stream()
-                .filter(comment -> comment != null && StringUtils.hasText(comment.getBody()))
-                .filter(comment -> containsCodePilotMarker(comment.getBody()))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private boolean containsCodePilotMarker(String body) {
-        return body.contains(commentMarker) || body.contains(LEGACY_COMMENT_MARKER);
     }
 }
