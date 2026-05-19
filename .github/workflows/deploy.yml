@@ -1,0 +1,78 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codepilot-production-deploy
+  cancel-in-progress: true
+
+env:
+  SERVER_HOST: 121.43.251.65
+  SERVER_USER: root
+  SERVER_DIR: /opt/codeAireview
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install SSH tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Create deployment archive
+        run: |
+          set -euo pipefail
+          git archive --format=tar -o "$RUNNER_TEMP/codepilot-deploy.tar" HEAD
+
+      - name: Upload archive to server
+        env:
+          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sshpass -p "$SERVER_PASSWORD" scp \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            "$RUNNER_TEMP/codepilot-deploy.tar" \
+            "${SERVER_USER}@${SERVER_HOST}:/tmp/codepilot-deploy.tar"
+
+      - name: Deploy on server
+        env:
+          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sshpass -p "$SERVER_PASSWORD" ssh \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            "${SERVER_USER}@${SERVER_HOST}" <<'EOF'
+          set -euo pipefail
+
+          DEPLOY_DIR="/opt/codeAireview"
+          ARCHIVE="/tmp/codepilot-deploy.tar"
+
+          mkdir -p "$DEPLOY_DIR"
+
+          if [ ! -f "$DEPLOY_DIR/.env" ]; then
+            echo ".env is missing on the server. Please create it before deploying." >&2
+            exit 1
+          fi
+
+          find "$DEPLOY_DIR" -mindepth 1 -maxdepth 1 ! -name '.env' -exec rm -rf {} +
+          tar -xf "$ARCHIVE" -C "$DEPLOY_DIR"
+          rm -f "$ARCHIVE"
+
+          cd "$DEPLOY_DIR"
+          docker compose -f docker-compose.server.yml up -d --build --remove-orphans
+          EOF
