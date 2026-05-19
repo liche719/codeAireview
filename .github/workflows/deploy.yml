@@ -77,8 +77,9 @@ jobs:
           docker compose -f docker-compose.server.yml down --remove-orphans || true
           docker rm -f codepilot-app >/dev/null 2>&1 || true
           docker compose -f docker-compose.server.yml up -d --build --remove-orphans
+          tr -d '\r' < .env > /tmp/codepilot-env
           set -a
-          . .env
+          . /tmp/codepilot-env
           set +a
           echo "Current Flyway checksum:"
           docker compose -f docker-compose.server.yml exec -T postgres psql -U "${CODEPILOT_DB_USERNAME:-codepilot}" -d "${CODEPILOT_DB_NAME:-codepilot}" -c "select version, checksum from flyway_schema_history where version = '1';" || true
