@@ -4,6 +4,7 @@ import com.codepilot.common.exception.BusinessException;
 import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.command.router.GithubCommandRouter;
+import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.service.ReviewTaskService;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,8 @@ public class GitHubWebhookService {
 
     private final GithubCommandRouter githubCommandRouter;
 
+    private final GithubClient githubClient;
+
     private final StringRedisTemplate stringRedisTemplate;
 
     private final boolean webhookEnabled;
@@ -37,6 +40,7 @@ public class GitHubWebhookService {
             GitHubWebhookPayloadParser payloadParser,
             ReviewTaskService reviewTaskService,
             GithubCommandRouter githubCommandRouter,
+            GithubClient githubClient,
             StringRedisTemplate stringRedisTemplate,
             @Value("${codepilot.github.webhook-enabled:false}") boolean webhookEnabled
     ) {
@@ -44,6 +48,7 @@ public class GitHubWebhookService {
         this.payloadParser = payloadParser;
         this.reviewTaskService = reviewTaskService;
         this.githubCommandRouter = githubCommandRouter;
+        this.githubClient = githubClient;
         this.stringRedisTemplate = stringRedisTemplate;
         this.webhookEnabled = webhookEnabled;
     }
@@ -63,6 +68,17 @@ public class GitHubWebhookService {
             log.info("GitHub webhook ignored, event={}, action={}, reason={}, delivery={}",
                     parsedPayload.getEvent(), parsedPayload.getAction(), parsedPayload.getReason(), delivery);
             return GitHubWebhookResponse.ignored(parsedPayload.getReason(), parsedPayload.getAction());
+        }
+        if (isBotAuthoredIssueComment(parsedPayload)) {
+            log.info("GitHub webhook ignored because comment was authored by bot, event={}, action={}, owner={}, repo={}, pullNumber={}, commentUser={}, delivery={}",
+                    parsedPayload.getEvent(),
+                    parsedPayload.getAction(),
+                    parsedPayload.getOwner(),
+                    parsedPayload.getRepo(),
+                    parsedPayload.getPullNumber(),
+                    parsedPayload.getCommentUserLogin(),
+                    delivery);
+            return GitHubWebhookResponse.ignored("bot comment", parsedPayload.getAction());
         }
         if (isDuplicate(parsedPayload, delivery)) {
             log.info("GitHub webhook ignored because duplicate event was detected, event={}, owner={}, repo={}, pullNumber={}, headSha={}, commentId={}, delivery={}",
@@ -118,6 +134,14 @@ public class GitHubWebhookService {
                     payload.getOwner(), payload.getRepo(), payload.getPullNumber(), exception.getMessage());
             return false;
         }
+    }
+
+    private boolean isBotAuthoredIssueComment(GitHubPullRequestWebhookPayload payload) {
+        if (!"issue_comment".equals(payload.getEvent()) || !StringUtils.hasText(payload.getCommentUserLogin())) {
+            return false;
+        }
+        String botLogin = githubClient == null ? null : githubClient.getAuthenticatedUserLogin();
+        return StringUtils.hasText(botLogin) && botLogin.equalsIgnoreCase(payload.getCommentUserLogin());
     }
 
     private String buildDedupKey(GitHubPullRequestWebhookPayload payload, String delivery) {

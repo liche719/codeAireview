@@ -7,6 +7,7 @@ import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.command.parser.GithubCommandParser;
 import com.codepilot.module.command.router.GithubCommandRouter;
+import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.service.ReviewTaskService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -154,6 +155,24 @@ class GitHubWebhookServiceTest {
         );
     }
 
+    @Test
+    void shouldIgnoreIssueCommentAuthoredByBot() {
+        TestContext context = new TestContext(true, true);
+
+        GitHubWebhookResponse response = context.service.handle(
+                "issue_comment",
+                "delivery-6",
+                "sha256=valid",
+                issueCommentPayload("created", "@x-pilotx 帮我解决上述问题", true, "X-PilotX")
+        );
+
+        assertThat(response.isIgnored()).isTrue();
+        assertThat(response.getReason()).isEqualTo("bot comment");
+        verify(context.githubCommandRouter, never()).route(any());
+        verify(context.reviewTaskService, never()).createTask(anyString(), any());
+        verify(context.valueOperations, never()).setIfAbsent(anyString(), anyString(), any());
+    }
+
     private String pullRequestPayload(String action) {
         return """
                 {
@@ -177,9 +196,17 @@ class GitHubWebhookServiceTest {
     }
 
     private String issueCommentPayload() {
+        return issueCommentPayload("created", "/review", true, "reviewer");
+    }
+
+    private String issueCommentPayload(String action, String body, boolean pullRequestComment) {
+        return issueCommentPayload(action, body, pullRequestComment, "reviewer");
+    }
+
+    private String issueCommentPayload(String action, String body, boolean pullRequestComment, String commentUserLogin) {
         return """
                 {
-                  "action": "created",
+                  "action": "%s",
                   "repository": {
                     "name": "codeAireview",
                     "owner": {
@@ -196,13 +223,13 @@ class GitHubWebhookServiceTest {
                   },
                   "comment": {
                     "id": 1001,
-                    "body": "/review",
+                    "body": "%s",
                     "user": {
-                      "login": "reviewer"
+                      "login": "%s"
                     }
                   }
                 }
-                """;
+                """.formatted(action, body, commentUserLogin);
     }
 
     private static class TestContext {
@@ -212,6 +239,8 @@ class GitHubWebhookServiceTest {
         private final ReviewTaskService reviewTaskService = mock(ReviewTaskService.class);
 
         private final GithubCommandRouter githubCommandRouter = mock(GithubCommandRouter.class);
+
+        private final GithubClient githubClient = mock(GithubClient.class);
 
         @SuppressWarnings("unchecked")
         private final ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
@@ -223,6 +252,7 @@ class GitHubWebhookServiceTest {
             when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
             when(valueOperations.setIfAbsent(anyString(), eq("1"), any(Duration.class))).thenReturn(redisLockAcquired);
             when(signatureVerifier.verify(anyString(), any())).thenReturn(signatureValid);
+            when(githubClient.getAuthenticatedUserLogin()).thenReturn("X-PilotX");
 
             service = new GitHubWebhookService(
                     signatureVerifier,
@@ -232,6 +262,7 @@ class GitHubWebhookServiceTest {
                     ),
                     reviewTaskService,
                     githubCommandRouter,
+                    githubClient,
                     stringRedisTemplate,
                     true
             );

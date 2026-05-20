@@ -28,6 +28,8 @@ public class GithubClient {
 
     private final String token;
 
+    private volatile String authenticatedUserLogin;
+
     public GithubClient(
             @Value("${codepilot.github.api-base-url:https://api.github.com}") String apiBaseUrl,
             @Value("${codepilot.github.token:}") String token
@@ -143,6 +145,36 @@ public class GithubClient {
             throw exception;
         } catch (RestClientException exception) {
             throw new BusinessException("failed to get GitHub PR detail: " + exception.getMessage());
+        }
+    }
+
+    public String getAuthenticatedUserLogin() {
+        String cachedLogin = authenticatedUserLogin;
+        if (StringUtils.hasText(cachedLogin)) {
+            return cachedLogin;
+        }
+
+        synchronized (this) {
+            if (StringUtils.hasText(authenticatedUserLogin)) {
+                return authenticatedUserLogin;
+            }
+            try {
+                Map<String, Object> response = restClient.get()
+                        .uri("/user")
+                        .headers(this::setAuthorization)
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<Map<String, Object>>() {
+                        });
+                if (response == null || response.get("login") == null) {
+                    return null;
+                }
+                authenticatedUserLogin = response.get("login").toString();
+                log.info("GitHub authenticated user resolved, login={}", authenticatedUserLogin);
+                return authenticatedUserLogin;
+            } catch (RestClientException exception) {
+                log.warn("failed to resolve GitHub authenticated user login, message={}", exception.getMessage());
+                return null;
+            }
         }
     }
 
