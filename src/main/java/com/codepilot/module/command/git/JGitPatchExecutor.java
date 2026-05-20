@@ -56,8 +56,20 @@ public class JGitPatchExecutor implements GitPatchExecutor {
 
                 stage = "apply";
                 log.info("Git patch execution stage start, stage={}, branch={}", stage, branch);
-                applyPatch(git, request.getPatch());
-                log.info("Git patch execution stage success, stage={}, branch={}", stage, branch);
+                boolean applyPatchFormat = ApplyPatchFormatApplier.isApplyPatchFormat(request.getPatch());
+                if (applyPatchFormat) {
+                    ApplyPatchFormatApplier.ApplyPatchApplicationResult applyResult =
+                            ApplyPatchFormatApplier.apply(workDir, request.getPatch());
+                    log.info("Git patch execution stage success, stage={}, branch={}, changedFiles={}, changedPaths={}",
+                            stage, branch, applyResult.changedFiles(), applyResult.changedPaths());
+                    if (applyResult.changedFiles() == 0) {
+                        log.warn("Git patch execution stage failed, stage={}, branch={}, reason=patch applied but no file changed", stage, branch);
+                        return GitPatchExecutionResult.failure("Patch applied but no file changed.", "apply_patch format produced no file changes");
+                    }
+                } else {
+                    applyPatch(git, request.getPatch());
+                    log.info("Git patch execution stage success, stage={}, branch={}", stage, branch);
+                }
 
                 stage = "validate";
                 int validationTimeoutSeconds = resolveValidationTimeoutSeconds(request);
