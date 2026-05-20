@@ -1,19 +1,25 @@
 package com.codepilot.module.github.webhook;
 
+import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.dto.GithubCommandType;
+import com.codepilot.module.command.parser.GithubCommandIntentAiAssistant;
+import com.codepilot.module.command.parser.GithubCommandIntentResultParser;
 import com.codepilot.module.command.parser.GithubCommandParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class GitHubWebhookPayloadParserTest {
 
-    private final GitHubWebhookPayloadParser parser = new GitHubWebhookPayloadParser(
-            new ObjectMapper(),
-            new GithubCommandParser(new GithubCommandProperties())
-    );
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private final GitHubWebhookPayloadParser parser = parserWithoutClassifierButLlmAvailable();
 
     @Test
     void shouldParseOpenedPullRequestEvent() {
@@ -76,7 +82,15 @@ class GitHubWebhookPayloadParserTest {
 
     @Test
     void shouldParseMentionReviewCommandIssueCommentEvent() {
-        GitHubPullRequestWebhookPayload payload = parser.parse("issue_comment", issueCommentPayload("created", "@x-pilotx 帮我review一下", true));
+        GitHubWebhookPayloadParser aiParser = parserWithAiResponse("""
+                {
+                  "type": "REVIEW",
+                  "dryRun": false,
+                  "reason": "asks for review"
+                }
+                """);
+
+        GitHubPullRequestWebhookPayload payload = aiParser.parse("issue_comment", issueCommentPayload("created", "@x-pilotx please review this PR", true));
 
         assertThat(payload.isIgnored()).isFalse();
         assertThat(payload.getCommandType()).isEqualTo(GithubCommandType.REVIEW.name());
@@ -85,7 +99,15 @@ class GitHubWebhookPayloadParserTest {
 
     @Test
     void shouldParseMentionFixDryRunCommandIssueCommentEvent() {
-        GitHubPullRequestWebhookPayload payload = parser.parse("issue_comment", issueCommentPayload("created", "@x-pilotx 帮我解决上述问题 dry-run", true));
+        GitHubWebhookPayloadParser aiParser = parserWithAiResponse("""
+                {
+                  "type": "FIX",
+                  "dryRun": true,
+                  "reason": "asks for a dry-run fix"
+                }
+                """);
+
+        GitHubPullRequestWebhookPayload payload = aiParser.parse("issue_comment", issueCommentPayload("created", "@x-pilotx fix dry-run", true));
 
         assertThat(payload.isIgnored()).isFalse();
         assertThat(payload.getCommandType()).isEqualTo(GithubCommandType.FIX.name());
@@ -94,10 +116,28 @@ class GitHubWebhookPayloadParserTest {
 
     @Test
     void shouldParseUnknownMentionAsCommand() {
-        GitHubPullRequestWebhookPayload payload = parser.parse("issue_comment", issueCommentPayload("created", "@x-pilotx hello", true));
+        GitHubWebhookPayloadParser aiParser = parserWithAiResponse("""
+                {
+                  "type": "UNKNOWN",
+                  "dryRun": false,
+                  "reason": "not an actionable command"
+                }
+                """);
+
+        GitHubPullRequestWebhookPayload payload = aiParser.parse("issue_comment", issueCommentPayload("created", "@x-pilotx hello", true));
 
         assertThat(payload.isIgnored()).isFalse();
         assertThat(payload.getCommandType()).isEqualTo(GithubCommandType.UNKNOWN.name());
+        assertThat(payload.getMentionedBot()).isTrue();
+    }
+
+    @Test
+    void shouldParseMentionCommandAsUnavailableWhenLlmIsUnavailable() {
+        GitHubPullRequestWebhookPayload payload = parserWithLlmUnavailable()
+                .parse("issue_comment", issueCommentPayload("created", "@x-pilotx please review this PR", true));
+
+        assertThat(payload.isIgnored()).isFalse();
+        assertThat(payload.getCommandType()).isEqualTo(GithubCommandType.UNAVAILABLE.name());
         assertThat(payload.getMentionedBot()).isTrue();
     }
 
@@ -127,6 +167,43 @@ class GitHubWebhookPayloadParserTest {
         assertThat(payload.getEvent()).isEqualTo("issue_comment");
         assertThat(payload.getAction()).isEqualTo("edited");
         assertThat(payload.getReason()).isEqualTo("unsupported action");
+    }
+
+    private GitHubWebhookPayloadParser parserWithAiResponse(String response) {
+        GithubCommandIntentAiAssistant assistant = mock(GithubCommandIntentAiAssistant.class);
+        when(assistant.classify(anyString(), anyString(), anyString())).thenReturn(response);
+
+        @SuppressWarnings("unchecked")
+        ObjectProvider<GithubCommandIntentAiAssistant> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(assistant);
+
+        GithubCommandParser commandParser = new GithubCommandParser(
+                new GithubCommandProperties(),
+                provider,
+                new GithubCommandIntentResultParser(objectMapper),
+                enabledLlmProperties()
+        );
+        return new GitHubWebhookPayloadParser(objectMapper, commandParser);
+    }
+
+    private GitHubWebhookPayloadParser parserWithoutClassifierButLlmAvailable() {
+        GithubCommandParser commandParser = new GithubCommandParser(
+                new GithubCommandProperties(),
+                null,
+                null,
+                enabledLlmProperties()
+        );
+        return new GitHubWebhookPayloadParser(objectMapper, commandParser);
+    }
+
+    private GitHubWebhookPayloadParser parserWithLlmUnavailable() {
+        GithubCommandParser commandParser = new GithubCommandParser(
+                new GithubCommandProperties(),
+                null,
+                null,
+                null
+        );
+        return new GitHubWebhookPayloadParser(objectMapper, commandParser);
     }
 
     private String pullRequestPayload(String action) {
@@ -186,5 +263,12 @@ class GitHubWebhookPayloadParserTest {
                   }
                 }
                 """.formatted(action, pullRequestNode, body);
+    }
+
+    private LlmProperties enabledLlmProperties() {
+        LlmProperties properties = new LlmProperties();
+        properties.setEnabled(true);
+        properties.setApiKey("test-key");
+        return properties;
     }
 }

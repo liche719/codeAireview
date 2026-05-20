@@ -1,0 +1,10 @@
+Bot aliases:
+{{aliases}}
+
+Original PR comment:
+{{body}}
+
+Comment text after removing the bot mention:
+{{commandText}}
+
+Classify the intent and return JSON only.

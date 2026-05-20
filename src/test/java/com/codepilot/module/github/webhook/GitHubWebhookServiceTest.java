@@ -2,6 +2,7 @@ package com.codepilot.module.github.webhook;
 
 import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.common.exception.BusinessException;
+import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.command.parser.GithubCommandParser;
@@ -227,13 +228,20 @@ class GitHubWebhookServiceTest {
                     signatureVerifier,
                     new GitHubWebhookPayloadParser(
                             new ObjectMapper(),
-                            new GithubCommandParser(new GithubCommandProperties())
+                            new GithubCommandParser(new GithubCommandProperties(), null, null, enabledLlmProperties())
                     ),
                     reviewTaskService,
                     githubCommandRouter,
                     stringRedisTemplate,
                     true
             );
+        }
+
+        private LlmProperties enabledLlmProperties() {
+            LlmProperties properties = new LlmProperties();
+            properties.setEnabled(true);
+            properties.setApiKey("test-key");
+            return properties;
         }
     }
 }
