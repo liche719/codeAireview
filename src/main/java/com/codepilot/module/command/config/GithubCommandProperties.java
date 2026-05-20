@@ -21,4 +21,6 @@ public class GithubCommandProperties {
     private int fixMaxChangedLines = 120;
 
     private String fixValidationCommand = "mvn -q -DskipTests compile";
+
+    private int fixValidationTimeoutSeconds = 300;
 }

@@ -101,6 +101,8 @@
   - 单个补丁最多可包含的新增/删除行数，默认 `120`。
 - `CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND`
   - 提交和推送前执行的校验命令，默认 `mvn -q -DskipTests compile`。
+- `CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS`
+  - 修复补丁校验命令的最大等待时间，默认 `300` 秒。服务器首次运行 Maven 时可能需要下载依赖，超时过短会导致补丁已生成但不会提交。
 
 命令示例：
 - `/review`

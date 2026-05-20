@@ -213,6 +213,8 @@ PR 评论支持以下命令：
 
 Fix 模式默认已开启。若要关闭，请设置 `CODEPILOT_GITHUB_FIX_ENABLED=false`。它只会写回同仓库的 PR 分支，token 仍需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`。
 
+修复提交前的校验命令默认是 `mvn -q -DskipTests compile`，最大等待时间由 `CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS` 控制，默认 `300` 秒。服务器 Docker 部署会持久化 Maven 本地仓库，减少首次依赖下载导致的校验超时。
+
 ## RAG 规范库使用说明
 
 1. 通过 `POST /api/rules` 创建规则文档。

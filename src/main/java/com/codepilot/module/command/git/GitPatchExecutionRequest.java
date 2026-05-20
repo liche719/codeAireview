@@ -17,5 +17,7 @@ public class GitPatchExecutionRequest {
 
     private String validationCommand;
 
+    private int validationTimeoutSeconds;
+
     private boolean dryRun;
 }

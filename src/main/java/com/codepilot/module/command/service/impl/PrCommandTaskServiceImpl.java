@@ -346,6 +346,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         request.setToken(githubToken);
         request.setCommitMessage("fix: 应用 CodePilot AI 建议");
         request.setValidationCommand(properties.getFixValidationCommand());
+        request.setValidationTimeoutSeconds(properties.getFixValidationTimeoutSeconds());
         request.setDryRun(Boolean.TRUE.equals(task.getDryRun()));
         return request;
     }
