@@ -28,7 +28,7 @@
 - `CODEPILOT_LLM_MODEL`
   - Chat Model 名称。
 
-## Database / Middleware
+## 数据库 / 中间件
 
 - `CODEPILOT_DB_URL`
   - PostgreSQL JDBC 地址，默认 `jdbc:postgresql://localhost:15432/codepilot`。
@@ -66,7 +66,7 @@
 - `CODEPILOT_EMBEDDING_MODEL`
   - Embedding 模型名。
 
-## Review Limits
+## 审查限制
 
 - `CODEPILOT_REVIEW_MAX_FILES_PER_TASK`
   - 单个任务最多进入 AI Review 的文件数，默认 `30`。
@@ -89,23 +89,23 @@
 - `.env` 不要提交，`.env.example` 是可提交的本地模板。
 - 本地推荐使用 `scripts/start-local.ps1` 启动，它会先加载 `.env`，再启动 Docker、打包和运行应用。
 
-## GitHub command agent
+## GitHub 命令代理
 
 - `CODEPILOT_GITHUB_BOT_MENTION_ALIASES`
-  - Bot mention aliases used by PR comments, default `@x-pilotx,@X-PilotX`.
+  - PR 评论中的机器人 mention 别名，默认 `@x-pilotx,@X-PilotX`。
 - `CODEPILOT_GITHUB_FIX_ENABLED`
-  - Enables `@x-pilotx fix` and `@x-pilotx fix dry-run`, default `true`.
+  - 是否启用 `@x-pilotx fix` 和 `@x-pilotx fix dry-run`，默认 `true`。
 - `CODEPILOT_GITHUB_FIX_MAX_FILES`
-  - Maximum files a generated fix patch may change, default `3`.
+  - 单个补丁最多可修改的文件数，默认 `3`。
 - `CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES`
-  - Maximum added/deleted lines a generated fix patch may contain, default `120`.
+  - 单个补丁最多可包含的新增/删除行数，默认 `120`。
 - `CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND`
-  - Validation command before commit/push, default `mvn -q -DskipTests compile`.
+  - 提交和推送前执行的校验命令，默认 `mvn -q -DskipTests compile`。
 
-Command examples:
+命令示例：
 - `/review`
 - `@x-pilotx review`
 - `@x-pilotx fix dry-run`
 - `@x-pilotx fix`
 
-Fix mode only pushes to the current PR head branch when the PR branch is in the same repository. Fork PRs are rejected for automatic fixes. Fine-grained GitHub Token permissions for fix mode need `Contents: Read and write`, `Pull requests: Read and write`, `Issues: Read and write`, and `Metadata: Read`.
+修复模式只会推送到同仓库的当前 PR head 分支。Fork PR 不支持自动修复。Fine-grained GitHub Token 在修复模式下需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`。

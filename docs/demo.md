@@ -54,7 +54,7 @@ Events: Pull requests, Issue comments
 
 `Pull requests` 用于 PR `opened` / `synchronize` / `reopened` 自动审查；`Issue comments` 用于在 PR Conversation 中输入 `/review` 手动触发审查。
 
-Issue comment commands also support:
+PR 评论命令还支持：
 
 ```text
 /review

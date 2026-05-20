@@ -198,9 +198,9 @@ curl -X POST http://localhost:8080/api/github/webhook ^
 
 `Pull requests` 用于 PR 打开、更新、重新打开时自动审查；`Issue comments` 用于在 PR Conversation 中输入 `/review` 手动触发审查。普通 issue 评论、非 `/review` 内容和非 `created` 评论事件会被忽略。
 
-## GitHub command agent
+## GitHub 命令代理
 
-PR comments now support these commands:
+PR 评论支持以下命令：
 
 ```text
 /review
@@ -209,7 +209,7 @@ PR comments now support these commands:
 @x-pilotx fix
 ```
 
-`@x-pilotx review` reuses the normal review pipeline and creates a new PR summary comment. `@x-pilotx fix dry-run` generates and validates a small unified diff without pushing. `@x-pilotx fix` uses the latest successful review findings, applies the generated diff in a temporary checkout, runs the validation command, and only then pushes a new commit to the current PR branch.
+`@x-pilotx review` 会复用普通审查流水线，并创建新的 PR 总结评论。`@x-pilotx fix dry-run` 会生成并校验一个小型 unified diff，但不会推送提交。`@x-pilotx fix` 会使用最近一次成功的审查结果，在临时检出目录中应用补丁，运行校验命令，通过后才向当前 PR 分支推送新提交。
 
 Fix 模式默认已开启。若要关闭，请设置 `CODEPILOT_GITHUB_FIX_ENABLED=false`。它只会写回同仓库的 PR 分支，token 仍需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`。
 
