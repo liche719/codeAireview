@@ -65,7 +65,7 @@ class GitHubCommentServiceImplTest {
         verify(context.githubClient, never()).listPullRequestComments(any(), any(), any());
         verify(context.githubClient, never()).updateIssueComment(any(), any(), any(), any());
         assertThat(bodyCaptor.getValue()).contains(COMMENT_MARKER);
-        assertThat(bodyCaptor.getValue()).contains("No issues found");
+        assertThat(bodyCaptor.getValue()).contains("未发现问题");
     }
 
     @Test
@@ -81,7 +81,7 @@ class GitHubCommentServiceImplTest {
         verify(context.githubClient, never()).listPullRequestComments(any(), any(), any());
         verify(context.githubClient, never()).updateIssueComment(any(), any(), any(), any());
         assertThat(bodyCaptor.getValue()).contains(COMMENT_MARKER);
-        assertThat(bodyCaptor.getValue()).contains("No issues found");
+        assertThat(bodyCaptor.getValue()).contains("未发现问题");
     }
 
     @Test

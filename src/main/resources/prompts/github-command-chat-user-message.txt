@@ -1,13 +1,13 @@
-Original PR comment:
+原始 PR 评论：
 {{commentBody}}
 
-Comment text after removing the bot mention:
+去掉机器人 mention 之后的评论文本：
 {{commandText}}
 
-PR identity:
+PR 信息：
 owner={{owner}}
 repo={{repo}}
 pullNumber={{pullNumber}}
 
-If you need PR details or changed files, call the GitHub tools first.
-Write a concise conversational reply.
+如果需要 PR 详情或变更文件，请先调用 GitHub 工具。
+请用简洁自然的中文回复。

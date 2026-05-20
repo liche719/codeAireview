@@ -1,10 +1,10 @@
-Bot aliases:
+机器人别名：
 {{aliases}}
 
-Original PR comment:
+原始 PR 评论：
 {{body}}
 
-Comment text after removing the bot mention:
+去掉机器人 mention 之后的评论文本：
 {{commandText}}
 
-Classify the intent and return JSON only.
+请判断意图并仅返回 JSON。

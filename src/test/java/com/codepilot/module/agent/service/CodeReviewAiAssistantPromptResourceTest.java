@@ -16,10 +16,10 @@ class CodeReviewAiAssistantPromptResourceTest {
         String userMessage = new ClassPathResource("prompts/ai-review-user-message.txt")
                 .getContentAsString(StandardCharsets.UTF_8);
 
-        assertThat(systemMessage).contains("Return valid JSON only");
-        assertThat(systemMessage).contains("SQL risk detection tool");
-        assertThat(systemMessage).contains("Secret scan tool");
-        assertThat(systemMessage).contains("Test suggestion tool");
+        assertThat(systemMessage).contains("只返回有效 JSON");
+        assertThat(systemMessage).contains("SQL 风险检测工具");
+        assertThat(systemMessage).contains("敏感信息扫描工具");
+        assertThat(systemMessage).contains("测试建议工具");
         assertThat(userMessage).contains("{{filePath}}");
         assertThat(userMessage).contains("{{patch}}");
         assertThat(userMessage).contains("{{rules}}");

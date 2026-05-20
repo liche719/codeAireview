@@ -78,7 +78,7 @@ String token = "abc123";
 review_task 创建成功
 RabbitMQ 正常消费
 review_issue 入库
-PR 顶部出现 CodePilot AI Review Report
+PR 顶部出现 CodePilot AI 审查报告
 再次触发时更新原评论，不新增第二条
 如果 issue 的 lineNumber 对应 diff 新增行，代码行上出现 CodePilot inline comment
 在 PR Conversation 评论 /review，会再次创建 ReviewTask 并触发审查

@@ -94,7 +94,7 @@
 - `CODEPILOT_GITHUB_BOT_MENTION_ALIASES`
   - Bot mention aliases used by PR comments, default `@x-pilotx,@X-PilotX`.
 - `CODEPILOT_GITHUB_FIX_ENABLED`
-  - Enables `@x-pilotx fix` and `@x-pilotx fix dry-run`, default `false`.
+  - Enables `@x-pilotx fix` and `@x-pilotx fix dry-run`, default `true`.
 - `CODEPILOT_GITHUB_FIX_MAX_FILES`
   - Maximum files a generated fix patch may change, default `3`.
 - `CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES`

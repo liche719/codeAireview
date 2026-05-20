@@ -1,4 +1,4 @@
-Output format:
+输出格式：
 {
   "issues": [
     {
@@ -13,28 +13,28 @@ Output format:
       "ruleReference": null
     }
   ],
-  "summary": "file review summary"
+  "summary": "文件审查总结"
 }
 
-If no issue is found, return an empty issues array and a short summary.
-For ruleReference:
-- If an issue is related to a team rule, set ruleReference to the rule type and a short reason.
-- If no team rule applies, set ruleReference to null.
-- Do not copy the full rule text into ruleReference.
-- Keep ruleReference within 200 characters.
-For source:
-- If the issue mainly comes from a tool result, set source to "TOOL".
-- If the issue comes from your own review judgment, set source to "LLM".
-- If uncertain, set source to "LLM".
+如果没有发现问题，请返回空的 `issues` 数组，并给出简短中文 `summary`。
+对于 `ruleReference`：
+- 如果问题和某条团队规范有关，请填写规范类型和简短原因；
+- 如果没有相关规范，请填 `null`；
+- 不要把整段规范原文塞进 `ruleReference`；
+- `ruleReference` 长度建议不超过 200 个字符。
+对于 `source`：
+- 如果问题主要来自工具结果，填 `"TOOL"`；
+- 如果问题来自你自己的审查判断，填 `"LLM"`；
+- 如果不确定，默认填 `"LLM"`。
 
-Relevant team coding rules:
+相关团队编码规范：
 {{rules}}
 
-All changed files in this PR:
+与本次 PR 变更相关的所有文件：
 {{allChangedFilesText}}
 
-File path:
+文件路径：
 {{filePath}}
 
-Code diff:
+代码 Diff：
 {{patch}}

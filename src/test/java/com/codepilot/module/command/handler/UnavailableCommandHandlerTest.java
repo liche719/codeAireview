@@ -31,7 +31,7 @@ class UnavailableCommandHandlerTest {
         );
 
         assertThat(bodyCaptor.getValue()).contains(ReviewReportFormatter.DEFAULT_COMMENT_MARKER);
-        assertThat(bodyCaptor.getValue()).contains("temporarily unavailable");
+        assertThat(bodyCaptor.getValue()).contains("当前暂时不可用");
     }
 
     private GitHubPullRequestWebhookPayload payload() {

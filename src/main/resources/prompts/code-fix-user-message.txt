@@ -1,14 +1,14 @@
-Limits:
+限制：
 {{limits}}
 
-Review issues to fix:
+需要修复的 review 问题：
 {{issues}}
 
-Nearby code snippets:
+附近代码片段：
 {{snippets}}
 
-Return JSON only:
+请仅返回 JSON：
 {
-  "summary": "short explanation",
-  "patch": "unified diff"
+  "summary": "简短说明",
+  "patch": "统一 diff"
 }

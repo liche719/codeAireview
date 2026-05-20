@@ -20,8 +20,8 @@ class ReviewReportFormatterTest {
         String markdown = formatter.formatMarkdown(reviewTask("PASS"), List.of());
 
         assertThat(markdown).contains(COMMENT_MARKER);
-        assertThat(markdown).contains("CodePilot AI Review");
-        assertThat(markdown).contains("No issues found");
+        assertThat(markdown).contains("CodePilot AI 审查报告");
+        assertThat(markdown).contains("未发现问题");
     }
 
     @Test
@@ -52,7 +52,7 @@ class ReviewReportFormatterTest {
 
         assertThat(markdown).contains("#### 20. [LOW] STYLE");
         assertThat(markdown).doesNotContain("#### 21. [LOW] STYLE");
-        assertThat(markdown).contains("Remaining issues: 1");
+        assertThat(markdown).contains("剩余问题数：1");
     }
 
     private ReviewTask reviewTask(String riskLevel) {

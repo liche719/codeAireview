@@ -38,7 +38,7 @@ public class FixCommandHandler implements GithubCommandHandler {
                         payload.getOwner(),
                         payload.getRepo(),
                         payload.getPullNumber(),
-                        "**CodePilot AI** fix mode is disabled. Set `CODEPILOT_GITHUB_FIX_ENABLED=true` to enable it."
+                        "**CodePilot AI** 修复模式未启用。请设置 `CODEPILOT_GITHUB_FIX_ENABLED=true` 后再试。"
                 );
             } catch (Exception exception) {
                 log.warn("GitHub fix disabled comment failed but ignored, owner={}, repo={}, pullNumber={}, message={}",

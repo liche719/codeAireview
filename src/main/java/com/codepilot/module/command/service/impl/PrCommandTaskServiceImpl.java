@@ -110,7 +110,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
 
         markRunning(task);
         try {
-            commandTaskLogService.record(task.getId(), "START", true, "Fix command started.", null);
+            commandTaskLogService.record(task.getId(), "START", true, "修复命令已开始。", null);
             GithubPullRequestDetail detail = githubClient.getPullRequestDetail(
                     task.getRepoOwner(),
                     task.getRepoName(),
@@ -122,16 +122,16 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             assertWritableSameRepo(task, detail);
             List<ReviewIssue> fixableIssues = selectFixableIssues(task);
             if (fixableIssues.isEmpty()) {
-                completeFailed(task, "No supported review issue found to fix.");
-                comment(task, "I could not find a supported issue to fix. Please run `@x-pilotx review` first, or narrow the request to a simple code issue.");
+                completeFailed(task, "未找到可修复的受支持 review 问题。");
+                comment(task, "我没找到支持的可修复问题。请先运行 `@x-pilotx review`，或者把需求收敛到一个具体的代码问题。");
                 return;
             }
 
             String issuesJson = buildIssuesJson(fixableIssues);
             String snippets = buildSnippets(task, detail.getHeadSha(), fixableIssues);
             if (!StringUtils.hasText(snippets)) {
-                completeFailed(task, "No valid code snippet found for supported review issues.");
-                comment(task, "I found supported review issues, but could not load enough code context to generate a safe patch.");
+                completeFailed(task, "找到了可修复的问题，但没有有效的代码片段。");
+                comment(task, "我找到了可修复的问题，但没有加载到足够的代码上下文来生成安全补丁。");
                 return;
             }
             String limits = "maxFiles=" + properties.getFixMaxFiles()
@@ -140,22 +140,22 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             CodeFixResult fixResult = codeFixService.generateFix(task.getId(), issuesJson, snippets, limits);
             String patch = fixResult == null ? null : fixResult.getPatch();
             if (!StringUtils.hasText(patch)) {
-                completeFailed(task, "Model did not generate a patch.");
-                comment(task, "I could not generate a safe patch for this request.");
+                completeFailed(task, "模型没有生成补丁。");
+                comment(task, "我无法为这次请求生成安全补丁。");
                 return;
             }
 
             PatchStats stats = validatePatchScope(patch);
             task.setGeneratedPatch(patch);
             updateById(task);
-            commandTaskLogService.record(task.getId(), "PATCH_GENERATED", true, "Patch generated.", stats.toString());
+            commandTaskLogService.record(task.getId(), "PATCH_GENERATED", true, "补丁已生成。", stats.toString());
 
             GitPatchExecutionRequest request = buildExecutionRequest(task, detail, patch);
             GitPatchExecutionResult executionResult = gitPatchExecutor.execute(request);
             if (!executionResult.isSuccess()) {
                 completeFailed(task, executionResult.getMessage());
                 commandTaskLogService.record(task.getId(), "PATCH_EXECUTE", false, executionResult.getMessage(), executionResult.getDetail());
-                comment(task, "I generated a patch, but validation failed, so I did not push a commit.\n\n" + truncate(executionResult.getMessage(), 500));
+                comment(task, "我生成了一个补丁，但校验失败，所以没有推送提交。\n\n" + truncate(executionResult.getMessage(), 500));
                 return;
             }
 
@@ -165,13 +165,13 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             if (Boolean.TRUE.equals(task.getDryRun())) {
                 comment(task, buildDryRunComment(stats, fixResult.getSummary(), patch));
             } else {
-                comment(task, "**CodePilot AI** pushed a fix commit"
-                        + (StringUtils.hasText(task.getCommitSha()) ? ": `" + task.getCommitSha() + "`" : "."));
+                comment(task, "**CodePilot AI** 已推送修复提交"
+                        + (StringUtils.hasText(task.getCommitSha()) ? "：`" + task.getCommitSha() + "`" : "。"));
             }
         } catch (Exception exception) {
             completeFailed(task, exception.getMessage());
             commandTaskLogService.record(task.getId(), "FAILED", false, exception.getMessage(), null);
-            comment(task, "I could not complete the fix request.\n\n" + truncate(exception.getMessage(), 500));
+            comment(task, "我没能完成这次修复请求。\n\n" + truncate(exception.getMessage(), 500));
         }
     }
 
@@ -179,10 +179,10 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         String expectedRepo = task.getRepoOwner() + "/" + task.getRepoName();
         if (!expectedRepo.equalsIgnoreCase(detail.getHeadRepoFullName())
                 || !expectedRepo.equalsIgnoreCase(detail.getBaseRepoFullName())) {
-            throw new IllegalStateException("Fix is only allowed for branches in the current repository.");
+            throw new IllegalStateException("仅允许对当前仓库中的分支执行修复。");
         }
         if (!StringUtils.hasText(detail.getHeadRef()) || !StringUtils.hasText(detail.getHeadRepoCloneUrl())) {
-            throw new IllegalStateException("PR head branch information is incomplete.");
+            throw new IllegalStateException("PR head 分支信息不完整。");
         }
     }
 
@@ -218,14 +218,14 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             return List.of();
         }
         commandTaskLogService.record(task.getId(), "CONTEXT", true,
-                "Using latest successful review task " + latestTask.getId(), null);
+                "使用最近一次成功的审查任务 " + latestTask.getId(), null);
         return reviewIssueService.list(new LambdaQueryWrapper<ReviewIssue>()
                 .eq(ReviewIssue::getTaskId, latestTask.getId())
                 .orderByAsc(ReviewIssue::getId));
     }
 
     private List<ReviewIssue> runAdHocReview(PrCommandTask task) {
-        commandTaskLogService.record(task.getId(), "CONTEXT", true, "No successful review task found; running ad-hoc review.", null);
+        commandTaskLogService.record(task.getId(), "CONTEXT", true, "未找到成功的审查任务，改为执行一次临时审查。", null);
         List<GithubChangedFile> files = githubClient.listPullRequestFiles(task.getRepoOwner(), task.getRepoName(), task.getPrNumber());
         List<String> allChangedFiles = files.stream()
                 .map(GithubChangedFile::getFilename)
@@ -320,7 +320,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         int start = Math.max(1, lineNumber - SNIPPET_RADIUS);
         int end = Math.min(lines.length, lineNumber + SNIPPET_RADIUS);
         StringBuilder builder = new StringBuilder();
-        builder.append("File: ").append(filePath).append(" lines ").append(start).append("-").append(end).append("\n");
+        builder.append("文件：").append(filePath).append(" 行 ").append(start).append("-").append(end).append("\n");
         for (int i = start; i <= end; i++) {
             builder.append(i).append(": ").append(lines[i - 1]).append("\n");
         }
@@ -330,10 +330,10 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     private PatchStats validatePatchScope(String patch) {
         PatchStats stats = PatchStats.from(patch);
         if (stats.filesChanged() > properties.getFixMaxFiles()) {
-            throw new IllegalStateException("Patch changes too many files: " + stats.filesChanged());
+            throw new IllegalStateException("补丁修改的文件数过多：" + stats.filesChanged());
         }
         if (stats.changedLines() > properties.getFixMaxChangedLines()) {
-            throw new IllegalStateException("Patch changes too many lines: " + stats.changedLines());
+            throw new IllegalStateException("补丁修改的行数过多：" + stats.changedLines());
         }
         return stats;
     }
@@ -344,7 +344,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         request.setBranch(detail.getHeadRef());
         request.setPatch(patch);
         request.setToken(githubToken);
-        request.setCommitMessage("fix: apply CodePilot AI suggestions");
+        request.setCommitMessage("fix: 应用 CodePilot AI 建议");
         request.setValidationCommand(properties.getFixValidationCommand());
         request.setDryRun(Boolean.TRUE.equals(task.getDryRun()));
         return request;
@@ -352,19 +352,19 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
 
     private String buildDryRunComment(PatchStats stats, String summary, String patch) {
         return """
-                **CodePilot AI** dry-run completed.
+                **CodePilot AI** 预演完成。
 
-                Summary: %s
+                摘要：%s
 
-                Planned changes:
-                - Files: %d
-                - Changed lines: %d
+                计划变更：
+                - 文件数：%d
+                - 变更行数：%d
 
                 ```diff
                 %s
                 ```
                 """.formatted(
-                StringUtils.hasText(summary) ? truncate(summary, 500) : "Patch generated.",
+                StringUtils.hasText(summary) ? truncate(summary, 500) : "补丁已生成。",
                 stats.filesChanged(),
                 stats.changedLines(),
                 truncate(patch, 2500)

@@ -77,16 +77,16 @@ public class ChatCommandHandler implements GithubCommandHandler {
     }
 
     private void postUnavailableComment(GitHubPullRequestWebhookPayload payload) {
-        githubClient.createPullRequestComment(
+                githubClient.createPullRequestComment(
                 payload.getOwner(),
                 payload.getRepo(),
                 payload.getPullNumber(),
                 """
                 %s
 
-                **CodePilot AI** is temporarily unavailable.
+                **CodePilot AI** 当前暂时不可用。
 
-                The current command needs the LLM service, but the model is not configured or the LLM call failed. Please check `CODEPILOT_LLM_API_KEY`, `CODEPILOT_LLM_BASE_URL`, and `CODEPILOT_LLM_MODEL`, then try again.
+                当前命令需要 LLM 服务，但模型尚未配置或调用失败。请检查 `CODEPILOT_LLM_API_KEY`、`CODEPILOT_LLM_BASE_URL` 和 `CODEPILOT_LLM_MODEL`，然后再试一次。
                 """.formatted(ReviewReportFormatter.DEFAULT_COMMENT_MARKER)
         );
     }
@@ -94,7 +94,7 @@ public class ChatCommandHandler implements GithubCommandHandler {
     private String formatCommentBody(String response) {
         String content = StringUtils.hasText(response)
                 ? response.trim()
-                : "I can review this PR, fix a specific issue, or summarize what changed.";
+                : "我可以帮你审查这个 PR、修复一个具体问题，或者总结一下变更。";
         if (content.contains(ReviewReportFormatter.DEFAULT_COMMENT_MARKER)) {
             return content;
         }

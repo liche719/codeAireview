@@ -211,7 +211,7 @@ PR comments now support these commands:
 
 `@x-pilotx review` reuses the normal review pipeline and creates a new PR summary comment. `@x-pilotx fix dry-run` generates and validates a small unified diff without pushing. `@x-pilotx fix` uses the latest successful review findings, applies the generated diff in a temporary checkout, runs the validation command, and only then pushes a new commit to the current PR branch.
 
-Fix mode is disabled by default. Enable it with `CODEPILOT_GITHUB_FIX_ENABLED=true`. It only writes to PR branches in the same repository, and the token needs `Contents: Read and write`, `Pull requests: Read and write`, `Issues: Read and write`, and `Metadata: Read`.
+Fix 模式默认已开启。若要关闭，请设置 `CODEPILOT_GITHUB_FIX_ENABLED=false`。它只会写回同仓库的 PR 分支，token 仍需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`。
 
 ## RAG 规范库使用说明
 

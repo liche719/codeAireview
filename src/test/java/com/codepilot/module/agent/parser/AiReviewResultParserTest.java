@@ -44,7 +44,7 @@ class AiReviewResultParserTest {
                 ```json
                 {
                   "issues": [],
-                  "summary": "No issues found"
+                  "summary": "未发现问题"
                 }
                 ```
                 """;
@@ -52,7 +52,7 @@ class AiReviewResultParserTest {
         var result = parser.parse(content);
 
         assertThat(result.getIssues()).isEmpty();
-        assertThat(result.getSummary()).isEqualTo("No issues found");
+        assertThat(result.getSummary()).isEqualTo("未发现问题");
     }
 
     @Test

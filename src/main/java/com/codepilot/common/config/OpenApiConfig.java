@@ -14,7 +14,7 @@ public class OpenApiConfig implements WebMvcConfigurer {
     public OpenAPI codePilotOpenApi() {
         return new OpenAPI()
                 .info(new Info()
-                        .title("CodePilot AI Review API")
+                        .title("CodePilot AI 审查 API")
                         .description("GitHub PR intelligent code review backend")
                         .version("0.0.1"));
     }
