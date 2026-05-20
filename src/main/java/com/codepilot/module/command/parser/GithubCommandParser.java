@@ -40,13 +40,24 @@ public class GithubCommandParser {
                 || normalized.contains("preview")
                 || normalized.contains("预览");
 
-        if (containsAny(normalized, "help", "帮助", "怎么用")) {
+        if (containsAny(normalized, "help", "帮助", "怎么用", "用法", "支持什么")) {
             return new GithubCommand(GithubCommandType.HELP, commandText, true, dryRun);
         }
-        if (containsAny(normalized, "fix", "解决", "修复", "改一下", "处理一下")) {
+        if (containsAny(normalized, "fix", "解决", "修复", "改一下", "处理一下", "修一下", "帮我修")) {
             return new GithubCommand(GithubCommandType.FIX, commandText, true, dryRun);
         }
-        if (containsAny(normalized, "review", "审查", "检查", "看一下")) {
+        if (containsAny(normalized,
+                "review",
+                "审查",
+                "检查",
+                "看一下",
+                "看一看",
+                "看下",
+                "看看",
+                "帮我看",
+                "还有什么问题",
+                "有没有问题"
+        )) {
             return new GithubCommand(GithubCommandType.REVIEW, commandText, true, dryRun);
         }
 

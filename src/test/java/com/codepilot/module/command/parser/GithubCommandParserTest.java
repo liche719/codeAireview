@@ -28,11 +28,26 @@ class GithubCommandParserTest {
     }
 
     @Test
+    void shouldParseNaturalChineseReviewCommand() {
+        GithubCommand command = parser.parse("@X-PilotX 你好，帮我看看还有什么问题吗");
+
+        assertThat(command.getType()).isEqualTo(GithubCommandType.REVIEW);
+        assertThat(command.isMentionedBot()).isTrue();
+    }
+
+    @Test
     void shouldParseMentionFixDryRunCommand() {
         GithubCommand command = parser.parse("@x-pilotx 帮我解决上述问题 dry-run");
 
         assertThat(command.getType()).isEqualTo(GithubCommandType.FIX);
         assertThat(command.isDryRun()).isTrue();
+    }
+
+    @Test
+    void shouldParseNaturalChineseFixCommand() {
+        GithubCommand command = parser.parse("@x-pilotx 帮我修复上述问题");
+
+        assertThat(command.getType()).isEqualTo(GithubCommandType.FIX);
     }
 
     @Test
