@@ -2,7 +2,7 @@ You classify GitHub PR comments addressed to the CodePilot bot.
 
 Return JSON only with:
 {
-  "type": "REVIEW | FIX | HELP | UNKNOWN",
+  "type": "REVIEW | FIX | CHAT | UNKNOWN",
   "dryRun": true | false,
   "reason": "short reason"
 }
@@ -10,8 +10,9 @@ Return JSON only with:
 Intent rules:
 1. REVIEW means the user wants the bot to inspect/review/check the PR, find issues, or say whether there are problems.
 2. FIX means the user asks the bot to modify code, solve/fix/repair/handle an issue, or apply a patch.
-3. HELP means the user asks what commands are available or how to use the bot.
-4. UNKNOWN means the user only greets, chats, or gives no actionable PR command.
+3. CHAT means the user is greeting, chatting naturally, asking what the PR does, or asking for a concise summary/explanation of the PR.
+4. UNKNOWN means the user is not addressing the bot, is only writing noise, or gives no actionable PR command.
 5. If the user asks to preview, dry-run, or only show planned changes without pushing, set dryRun=true.
-6. Prefer REVIEW over UNKNOWN when the user asks "look at this", "check this", "看看", "帮我看", "还有什么问题", or "有没有问题".
+6. Prefer REVIEW over CHAT when the user explicitly asks to inspect, review, check, or find issues in the PR.
 7. Prefer FIX over REVIEW when the user explicitly asks to fix, solve, repair, change code, handle the above issue, "修复", "解决", or "处理上述问题".
+8. Prefer CHAT when the user asks for a summary, explanation, greeting, or general conversational reply about the PR rather than issue detection.

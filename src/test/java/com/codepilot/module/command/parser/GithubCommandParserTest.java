@@ -78,10 +78,42 @@ class GithubCommandParserTest {
     }
 
     @Test
-    void shouldParseMentionHelpCommandWithoutLlm() {
-        GithubCommand command = parserWithLlmUnavailable().parse("@x-pilotx help");
+    void shouldUseAiClassifierForChatGreetingWhenLlmIsAvailable() {
+        GithubCommandIntentAiAssistant assistant = mockAssistantReturning("""
+                {
+                  "type": "CHAT",
+                  "dryRun": false,
+                  "reason": "greets the bot"
+                }
+                """);
 
-        assertThat(command.getType()).isEqualTo(GithubCommandType.HELP);
+        GithubCommand command = parserWithAssistant(assistant).parse("@x-pilotx \u4f60\u597d");
+
+        assertThat(command.getType()).isEqualTo(GithubCommandType.CHAT);
+        assertThat(command.isMentionedBot()).isTrue();
+    }
+
+    @Test
+    void shouldUseAiClassifierForChatSummaryCommandWhenLlmIsAvailable() {
+        GithubCommandIntentAiAssistant assistant = mockAssistantReturning("""
+                {
+                  "type": "CHAT",
+                  "dryRun": false,
+                  "reason": "asks for a PR summary"
+                }
+                """);
+
+        GithubCommand command = parserWithAssistant(assistant).parse("@x-pilotx \u603b\u7ed3\u4e00\u4e0b\u8fd9\u4e2apr\u4e3b\u8981\u505a\u4e86\u4ec0\u4e48");
+
+        assertThat(command.getType()).isEqualTo(GithubCommandType.CHAT);
+        assertThat(command.isMentionedBot()).isTrue();
+    }
+
+    @Test
+    void shouldReturnUnavailableForChatWhenLlmIsUnavailable() {
+        GithubCommand command = parserWithLlmUnavailable().parse("@x-pilotx \u603b\u7ed3\u4e00\u4e0b\u8fd9\u4e2apr\u4e3b\u8981\u505a\u4e86\u4ec0\u4e48");
+
+        assertThat(command.getType()).isEqualTo(GithubCommandType.UNAVAILABLE);
         assertThat(command.isMentionedBot()).isTrue();
     }
 

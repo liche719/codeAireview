@@ -115,6 +115,23 @@ class GitHubWebhookPayloadParserTest {
     }
 
     @Test
+    void shouldParseMentionChatCommandIssueCommentEvent() {
+        GitHubWebhookPayloadParser aiParser = parserWithAiResponse("""
+                {
+                  "type": "CHAT",
+                  "dryRun": false,
+                  "reason": "asks for a PR summary"
+                }
+                """);
+
+        GitHubPullRequestWebhookPayload payload = aiParser.parse("issue_comment", issueCommentPayload("created", "@x-pilotx \u603b\u7ed3\u4e00\u4e0b\u8fd9\u4e2apr\u4e3b\u8981\u505a\u4e86\u4ec0\u4e48", true));
+
+        assertThat(payload.isIgnored()).isFalse();
+        assertThat(payload.getCommandType()).isEqualTo(GithubCommandType.CHAT.name());
+        assertThat(payload.getMentionedBot()).isTrue();
+    }
+
+    @Test
     void shouldParseUnknownMentionAsCommand() {
         GitHubWebhookPayloadParser aiParser = parserWithAiResponse("""
                 {

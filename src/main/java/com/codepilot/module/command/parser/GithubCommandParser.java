@@ -66,11 +66,6 @@ public class GithubCommandParser {
         }
 
         String commandText = removeMention(trimmed, mention).trim();
-        GithubCommand localCommand = classifyLocalCommands(commandText);
-        if (localCommand != null) {
-            return localCommand;
-        }
-
         if (!isLlmAvailable()) {
             return unavailable(commandText, true);
         }
@@ -93,14 +88,11 @@ public class GithubCommandParser {
                 return unavailable(commandText, true);
             }
             GithubCommandType type = parseType(result.getType());
-            if (type == GithubCommandType.NONE) {
-                type = GithubCommandType.UNKNOWN;
-            }
             return new GithubCommand(
                     type,
                     commandText,
                     true,
-                    Boolean.TRUE.equals(result.getDryRun()) || detectDryRun(commandText)
+                    Boolean.TRUE.equals(result.getDryRun())
             );
         } catch (Exception exception) {
             log.warn("GitHub command intent classification failed, return unavailable command, message={}", exception.getMessage());
@@ -108,22 +100,8 @@ public class GithubCommandParser {
         }
     }
 
-    private GithubCommand classifyLocalCommands(String commandText) {
-        String normalized = commandText.toLowerCase(Locale.ROOT);
-        boolean dryRun = detectDryRun(normalized);
-        if (containsAny(normalized,
-                "help",
-                "\u5e2e\u52a9",
-                "\u600e\u4e48\u7528",
-                "\u7528\u6cd5",
-                "\u652f\u6301\u4ec0\u4e48")) {
-            return new GithubCommand(GithubCommandType.HELP, commandText, true, dryRun);
-        }
-        return null;
-    }
-
     private GithubCommand unavailable(String commandText, boolean mentionedBot) {
-        return new GithubCommand(GithubCommandType.UNAVAILABLE, commandText, mentionedBot, detectDryRun(commandText));
+        return new GithubCommand(GithubCommandType.UNAVAILABLE, commandText, mentionedBot, false);
     }
 
     private boolean isLlmAvailable() {
@@ -140,22 +118,15 @@ public class GithubCommandParser {
         if (!StringUtils.hasText(value)) {
             return GithubCommandType.UNKNOWN;
         }
+        if ("HELP".equalsIgnoreCase(value.trim())) {
+            return GithubCommandType.CHAT;
+        }
         try {
-            return GithubCommandType.valueOf(value.trim().toUpperCase(Locale.ROOT));
+            GithubCommandType type = GithubCommandType.valueOf(value.trim().toUpperCase(Locale.ROOT));
+            return type;
         } catch (IllegalArgumentException exception) {
             return GithubCommandType.UNKNOWN;
         }
-    }
-
-    private boolean detectDryRun(String value) {
-        if (!StringUtils.hasText(value)) {
-            return false;
-        }
-        String normalized = value.toLowerCase(Locale.ROOT);
-        return normalized.contains("dry-run")
-                || normalized.contains("dry run")
-                || normalized.contains("preview")
-                || normalized.contains("\u9884\u89c8");
     }
 
     private String findMention(String body) {
@@ -177,14 +148,5 @@ public class GithubCommandParser {
 
     private String removeMention(String body, String mention) {
         return body.replaceFirst("(?i)" + java.util.regex.Pattern.quote(mention), "");
-    }
-
-    private boolean containsAny(String value, String... keywords) {
-        for (String keyword : keywords) {
-            if (value.contains(keyword)) {
-                return true;
-            }
-        }
-        return false;
     }
 }

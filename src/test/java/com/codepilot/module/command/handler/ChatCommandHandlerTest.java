@@ -1,0 +1,84 @@
+package com.codepilot.module.command.handler;
+
+import com.codepilot.infrastructure.llm.LlmProperties;
+import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
+import com.codepilot.module.review.report.ReviewReportFormatter;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentCaptor.forClass;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class ChatCommandHandlerTest {
+
+    @Test
+    void shouldPrependBotResponseMarkerToChatCommentWithoutPrefetchingPrData() {
+        GithubClient githubClient = mock(GithubClient.class);
+        GithubCommandChatAiAssistant assistant = mock(GithubCommandChatAiAssistant.class);
+        String commandText = "\u603b\u7ed3\u4e00\u4e0b\u8fd9\u4e2apr\u4e3b\u8981\u505a\u4e86\u4ec0\u4e48";
+        String commentBody = "@x-pilotx " + commandText;
+        String chatReply = "\u4f60\u597d\uff0c\u6211\u4f1a\u5e2e\u4f60\u603b\u7ed3\u8fd9\u4e2a PR\u3002";
+
+        @SuppressWarnings("unchecked")
+        ObjectProvider<GithubCommandChatAiAssistant> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(assistant);
+        when(assistant.reply(anyString(), anyString(), anyString(), anyString(), anyInt()))
+                .thenReturn(chatReply);
+
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, enabledLlmProperties());
+        GitHubPullRequestWebhookPayload payload = payload(commentBody);
+        payload.setCommandText(commandText);
+
+        handler.handle(payload);
+
+        verify(assistant).reply(
+                eq(commentBody),
+                eq(commandText),
+                eq("liche719"),
+                eq("codeAireview"),
+                eq(12)
+        );
+        verify(githubClient, never()).getPullRequestDetail(eq("liche719"), eq("codeAireview"), eq(12));
+        verify(githubClient, never()).listPullRequestFiles(eq("liche719"), eq("codeAireview"), eq(12));
+
+        var bodyCaptor = forClass(String.class);
+        verify(githubClient).createPullRequestComment(
+                eq("liche719"),
+                eq("codeAireview"),
+                eq(12),
+                bodyCaptor.capture()
+        );
+
+        assertThat(bodyCaptor.getValue()).contains(ReviewReportFormatter.DEFAULT_COMMENT_MARKER);
+        assertThat(bodyCaptor.getValue()).contains(chatReply);
+    }
+
+    private GitHubPullRequestWebhookPayload payload(String body) {
+        GitHubPullRequestWebhookPayload payload = new GitHubPullRequestWebhookPayload();
+        payload.setOwner("liche719");
+        payload.setRepo("codeAireview");
+        payload.setPullNumber(12);
+        payload.setPrUrl("https://github.com/liche719/codeAireview/pull/12");
+        payload.setTitle("Add webhook support");
+        payload.setCommentBody(body);
+        payload.setAction("created");
+        return payload;
+    }
+
+    private LlmProperties enabledLlmProperties() {
+        LlmProperties properties = new LlmProperties();
+        properties.setEnabled(true);
+        properties.setApiKey("test-key");
+        properties.setBaseUrl("https://api.openai.com/v1");
+        properties.setModel("gpt-4o-mini");
+        return properties;
+    }
+}

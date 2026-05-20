@@ -23,9 +23,6 @@ public class GithubCommandRouter {
     public GithubCommandHandleResult route(GitHubPullRequestWebhookPayload payload) {
         GithubCommandType type = parseType(payload.getCommandType());
         GithubCommandHandler handler = handlers.get(type);
-        if (handler == null && type == GithubCommandType.UNKNOWN) {
-            handler = handlers.get(GithubCommandType.HELP);
-        }
         if (handler == null) {
             return GithubCommandHandleResult.ignored("unsupported command", payload.getAction());
         }

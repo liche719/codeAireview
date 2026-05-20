@@ -5,7 +5,7 @@ public enum GithubCommandType {
     NONE,
     REVIEW,
     FIX,
-    HELP,
+    CHAT,
     UNAVAILABLE,
     UNKNOWN
 }
