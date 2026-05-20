@@ -15,11 +15,17 @@ public class DangerousReviewSample {
 
     public String getHardcodedToken() {
         String token = System.getenv("GITHUB_TOKEN");
-        return token == null ? "" : token;
+        if (token == null) {
+            return null;
+        }
+        String trimmed = token.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     public void logSensitiveValue(String password) {
-        int len = password == null ? 0 : password.length();
-        System.out.println("password.length=" + len);
+        // 避免对敏感字段进行任何形式的输出（包括长度特征），防止侧信道泄露。
+        if (password == null || password.isEmpty()) {
+            return;
+        }
     }
 }
