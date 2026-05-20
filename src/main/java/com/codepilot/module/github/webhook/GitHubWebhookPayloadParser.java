@@ -3,6 +3,7 @@ package com.codepilot.module.github.webhook;
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.module.command.dto.GithubCommand;
 import com.codepilot.module.command.parser.GithubCommandParser;
+import com.codepilot.module.review.report.ReviewReportFormatter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
@@ -82,6 +83,9 @@ public class GitHubWebhookPayloadParser {
             }
 
             String commentBody = text(root, "comment", "body");
+            if (StringUtils.hasText(commentBody) && commentBody.contains(ReviewReportFormatter.DEFAULT_COMMENT_MARKER)) {
+                return GitHubPullRequestWebhookPayload.ignored("bot response", action, ISSUE_COMMENT_EVENT);
+            }
             GithubCommand command = commandParser.parse(commentBody);
             if (command.shouldIgnore()) {
                 return GitHubPullRequestWebhookPayload.ignored("unsupported comment command", action, ISSUE_COMMENT_EVENT);

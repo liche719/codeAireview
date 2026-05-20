@@ -169,6 +169,21 @@ class GitHubWebhookPayloadParserTest {
         assertThat(payload.getReason()).isEqualTo("unsupported action");
     }
 
+    @Test
+    void shouldIgnoreBotGeneratedIssueComment() {
+        GitHubPullRequestWebhookPayload payload = parser.parse(
+                "issue_comment",
+                issueCommentPayload(
+                        "created",
+                        "<!-- codepilot-ai-review:liche719/codeAireview --> @x-pilotx review",
+                        true
+                )
+        );
+
+        assertThat(payload.isIgnored()).isTrue();
+        assertThat(payload.getReason()).isEqualTo("bot response");
+    }
+
     private GitHubWebhookPayloadParser parserWithAiResponse(String response) {
         GithubCommandIntentAiAssistant assistant = mock(GithubCommandIntentAiAssistant.class);
         when(assistant.classify(anyString(), anyString(), anyString())).thenReturn(response);
