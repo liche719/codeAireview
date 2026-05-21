@@ -5,6 +5,7 @@ import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubChangedFile;
+import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.git.dto.GithubPrInfo;
 import com.codepilot.module.git.parser.GithubPrUrlParser;
 import com.codepilot.module.review.config.ReviewProperties;
@@ -56,6 +57,28 @@ class ReviewTaskServiceImplTest {
         assertThat(response.getTaskId()).isEqualTo(1L);
         verify(context.reviewTaskMapper).insert(context.taskCaptor.capture());
         assertThat(context.taskCaptor.getValue().getReviewCommentMode()).isEqualTo("INLINE_ONLY");
+    }
+
+    @Test
+    void shouldPersistHeadShaWhenCreatingTaskFromWebhook() {
+        TestContext context = new TestContext();
+        when(context.githubPrUrlParser.parse("https://github.com/liche719/codeAireview/pull/12"))
+                .thenReturn(new GithubPrInfo("liche719", "codeAireview", 12));
+        when(context.reviewTaskMapper.insert(any(ReviewTask.class))).thenAnswer(invocation -> {
+            ReviewTask task = invocation.getArgument(0);
+            task.setId(1L);
+            return 1;
+        });
+
+        context.service.createTask(
+                "https://github.com/liche719/codeAireview/pull/12",
+                "Add webhook support",
+                ReviewCommentMode.SUMMARY_ONLY,
+                " abc123 "
+        );
+
+        verify(context.reviewTaskMapper).insert(context.taskCaptor.capture());
+        assertThat(context.taskCaptor.getValue().getHeadSha()).isEqualTo("abc123");
     }
 
     @Test
@@ -132,6 +155,7 @@ class ReviewTaskServiceImplTest {
         ReviewTask lastTaskUpdate = context.taskCaptor.getAllValues().getLast();
         assertThat(lastTaskUpdate.getStatus()).isEqualTo("FAILED");
         assertThat(lastTaskUpdate.getErrorMessage()).contains("AI review failed for file src/main/java/Demo.java");
+        assertThat(lastTaskUpdate.getHeadSha()).isEqualTo("head-sha");
         verify(context.githubCommentService, never()).commentReviewResult(anyLong());
         verify(context.reviewIssueService, never()).saveBatch(anyList());
     }
@@ -186,6 +210,7 @@ class ReviewTaskServiceImplTest {
             task.setPrNumber(123);
             task.setReviewCommentMode(reviewCommentMode.name());
             when(reviewTaskMapper.selectById(1L)).thenReturn(task);
+            when(githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
             when(githubClient.listPullRequestFiles("liche719", "codeAireview", 123)).thenReturn(List.of());
         }
 
@@ -208,6 +233,12 @@ class ReviewTaskServiceImplTest {
             changedFile.setAdditions(1);
             changedFile.setDeletions(0);
             return changedFile;
+        }
+
+        private GithubPullRequestDetail prDetail() {
+            GithubPullRequestDetail detail = new GithubPullRequestDetail();
+            detail.setHeadSha("head-sha");
+            return detail;
         }
     }
 }

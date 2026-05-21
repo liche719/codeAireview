@@ -116,6 +116,9 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                     task.getRepoName(),
                     task.getPrNumber()
             );
+            if (!StringUtils.hasText(detail.getHeadSha())) {
+                throw new IllegalStateException("PR head sha is required before generating a fix");
+            }
             task.setHeadSha(detail.getHeadSha());
             updateById(task);
 
@@ -207,14 +210,25 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     }
 
     private List<ReviewIssue> loadLatestReviewIssues(PrCommandTask task) {
+        if (!StringUtils.hasText(task.getHeadSha())) {
+            commandTaskLogService.record(task.getId(), "CONTEXT", false,
+                    "当前 PR head sha 缺失，跳过历史审查结果以避免 stale fix。", null);
+            return List.of();
+        }
         ReviewTask latestTask = reviewTaskService.getOne(new LambdaQueryWrapper<ReviewTask>()
                 .eq(ReviewTask::getRepoOwner, task.getRepoOwner())
                 .eq(ReviewTask::getRepoName, task.getRepoName())
                 .eq(ReviewTask::getPrNumber, task.getPrNumber())
+                .eq(ReviewTask::getHeadSha, task.getHeadSha())
                 .eq(ReviewTask::getStatus, ReviewTaskStatus.SUCCESS.name())
                 .orderByDesc(ReviewTask::getId)
                 .last("LIMIT 1"));
         if (latestTask == null) {
+            return List.of();
+        }
+        if (!hasSameHeadSha(task, latestTask)) {
+            commandTaskLogService.record(task.getId(), "CONTEXT", false,
+                    "最近一次成功审查与当前 PR head sha 不一致，跳过历史审查结果以避免 stale fix。", null);
             return List.of();
         }
         commandTaskLogService.record(task.getId(), "CONTEXT", true,
@@ -222,6 +236,14 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         return reviewIssueService.list(new LambdaQueryWrapper<ReviewIssue>()
                 .eq(ReviewIssue::getTaskId, latestTask.getId())
                 .orderByAsc(ReviewIssue::getId));
+    }
+
+    boolean hasSameHeadSha(PrCommandTask task, ReviewTask reviewTask) {
+        return task != null
+                && reviewTask != null
+                && StringUtils.hasText(task.getHeadSha())
+                && StringUtils.hasText(reviewTask.getHeadSha())
+                && task.getHeadSha().trim().equalsIgnoreCase(reviewTask.getHeadSha().trim());
     }
 
     private List<ReviewIssue> runAdHocReview(PrCommandTask task) {

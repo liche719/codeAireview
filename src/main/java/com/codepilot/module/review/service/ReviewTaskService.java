@@ -13,5 +13,7 @@ public interface ReviewTaskService extends IService<ReviewTask> {
 
     ReviewCreateResponse createTask(String prUrl, String title, ReviewCommentMode reviewCommentMode);
 
+    ReviewCreateResponse createTask(String prUrl, String title, ReviewCommentMode reviewCommentMode, String headSha);
+
     void processTask(Long taskId);
 }

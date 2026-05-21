@@ -25,7 +25,8 @@ public class ReviewCommandHandler implements GithubCommandHandler {
         ReviewCreateResponse response = reviewTaskService.createTask(
                 payload.getPrUrl(),
                 payload.getTitle(),
-                ReviewCommentMode.SUMMARY_ONLY
+                ReviewCommentMode.SUMMARY_ONLY,
+                payload.getHeadSha()
         );
         return GithubCommandHandleResult.processed(response.getTaskId(), payload.getAction());
     }

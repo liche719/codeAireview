@@ -111,7 +111,8 @@ public class GitHubWebhookService {
         ReviewCreateResponse response = reviewTaskService.createTask(
                 parsedPayload.getPrUrl(),
                 parsedPayload.getTitle(),
-                resolveReviewCommentMode(parsedPayload)
+                resolveReviewCommentMode(parsedPayload),
+                parsedPayload.getHeadSha()
         );
         log.info("GitHub webhook created review task, taskId={}, event={}, action={}, owner={}, repo={}, pullNumber={}, delivery={}",
                 response.getTaskId(),

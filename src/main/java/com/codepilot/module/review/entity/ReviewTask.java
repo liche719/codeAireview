@@ -26,6 +26,8 @@ public class ReviewTask {
 
     private String title;
 
+    private String headSha;
+
     private String reviewCommentMode;
 
     private String status;

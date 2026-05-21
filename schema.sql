@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS review_task (
     pr_number INT NOT NULL,
     pr_url VARCHAR(512) NOT NULL,
     title VARCHAR(255),
+    head_sha VARCHAR(128),
     review_comment_mode VARCHAR(32) NOT NULL DEFAULT 'SUMMARY_ONLY',
     status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
     total_files INT DEFAULT 0,
@@ -25,6 +26,9 @@ CREATE INDEX IF NOT EXISTS idx_review_task_status
 
 CREATE INDEX IF NOT EXISTS idx_review_task_repo_pr
     ON review_task (repo_owner, repo_name, pr_number);
+
+CREATE INDEX IF NOT EXISTS idx_review_task_repo_pr_head_sha
+    ON review_task (repo_owner, repo_name, pr_number, head_sha);
 
 CREATE TABLE IF NOT EXISTS review_file (
     id BIGSERIAL PRIMARY KEY,

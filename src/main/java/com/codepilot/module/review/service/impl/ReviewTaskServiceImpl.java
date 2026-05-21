@@ -9,6 +9,7 @@ import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubChangedFile;
+import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.git.dto.GithubPrInfo;
 import com.codepilot.module.git.parser.GithubPrUrlParser;
 import com.codepilot.module.review.config.ReviewProperties;
@@ -64,18 +65,24 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ReviewCreateResponse createTask(String prUrl) {
-        return createTask(prUrl, null, ReviewCommentMode.SUMMARY_ONLY);
+        return createTask(prUrl, null, ReviewCommentMode.SUMMARY_ONLY, null);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ReviewCreateResponse createTask(String prUrl, String title) {
-        return createTask(prUrl, title, ReviewCommentMode.SUMMARY_ONLY);
+        return createTask(prUrl, title, ReviewCommentMode.SUMMARY_ONLY, null);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ReviewCreateResponse createTask(String prUrl, String title, ReviewCommentMode reviewCommentMode) {
+        return createTask(prUrl, title, reviewCommentMode, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ReviewCreateResponse createTask(String prUrl, String title, ReviewCommentMode reviewCommentMode, String headSha) {
         GithubPrInfo prInfo = githubPrUrlParser.parse(prUrl);
 
         ReviewTask task = new ReviewTask();
@@ -84,6 +91,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         task.setPrNumber(prInfo.getPullNumber());
         task.setPrUrl(prUrl.trim());
         task.setTitle(title);
+        task.setHeadSha(StringUtils.hasText(headSha) ? headSha.trim() : null);
         task.setReviewCommentMode(normalizeReviewCommentMode(reviewCommentMode).name());
         task.setStatus(ReviewTaskStatus.PENDING.name());
         task.setTotalFiles(0);
@@ -107,6 +115,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         markTaskRunning(task);
 
         try {
+            refreshTaskHeadSha(task);
             List<GithubChangedFile> changedFiles = githubClient.listPullRequestFiles(
                     task.getRepoOwner(),
                     task.getRepoName(),
@@ -200,6 +209,24 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     private void markTaskRunning(ReviewTask task) {
         task.setStatus(ReviewTaskStatus.RUNNING.name());
         task.setStartedAt(LocalDateTime.now());
+        task.setUpdatedAt(LocalDateTime.now());
+        updateById(task);
+    }
+
+    private void refreshTaskHeadSha(ReviewTask task) {
+        GithubPullRequestDetail detail = githubClient.getPullRequestDetail(
+                task.getRepoOwner(),
+                task.getRepoName(),
+                task.getPrNumber()
+        );
+        if (!StringUtils.hasText(detail.getHeadSha())) {
+            return;
+        }
+        String headSha = detail.getHeadSha().trim();
+        if (headSha.equals(task.getHeadSha())) {
+            return;
+        }
+        task.setHeadSha(headSha);
         task.setUpdatedAt(LocalDateTime.now());
         updateById(task);
     }

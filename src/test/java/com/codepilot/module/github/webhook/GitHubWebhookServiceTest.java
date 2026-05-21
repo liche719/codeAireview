@@ -35,7 +35,8 @@ class GitHubWebhookServiceTest {
         when(context.reviewTaskService.createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
                 "Add webhook support",
-                ReviewCommentMode.INLINE_ONLY
+                ReviewCommentMode.INLINE_ONLY,
+                "abc123"
         )).thenReturn(new ReviewCreateResponse(123L, "PENDING"));
 
         GitHubWebhookResponse response = context.service.handle(
@@ -51,7 +52,8 @@ class GitHubWebhookServiceTest {
         verify(context.reviewTaskService).createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
                 "Add webhook support",
-                ReviewCommentMode.INLINE_ONLY
+                ReviewCommentMode.INLINE_ONLY,
+                "abc123"
         );
         verify(context.valueOperations).setIfAbsent(
                 eq("codepilot:webhook:pr-head:liche719:codeaireview:12:abc123"),
@@ -66,7 +68,8 @@ class GitHubWebhookServiceTest {
         when(context.reviewTaskService.createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
                 "Add webhook support",
-                ReviewCommentMode.SUMMARY_ONLY
+                ReviewCommentMode.SUMMARY_ONLY,
+                "abc123"
         )).thenReturn(new ReviewCreateResponse(124L, "PENDING"));
 
         GitHubWebhookResponse response = context.service.handle(
@@ -82,7 +85,8 @@ class GitHubWebhookServiceTest {
         verify(context.reviewTaskService).createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
                 "Add webhook support",
-                ReviewCommentMode.SUMMARY_ONLY
+                ReviewCommentMode.SUMMARY_ONLY,
+                "abc123"
         );
         verify(context.valueOperations).setIfAbsent(
                 eq("codepilot:webhook:pr-head:liche719:codeaireview:12:abc123"),
