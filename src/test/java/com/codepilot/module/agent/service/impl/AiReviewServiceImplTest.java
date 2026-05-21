@@ -7,6 +7,9 @@ import com.codepilot.module.agent.service.CodeReviewAiAssistant;
 import com.codepilot.module.agent.service.ReviewRagService;
 import com.codepilot.module.audit.entity.LlmCallLog;
 import com.codepilot.module.audit.service.LlmCallLogService;
+import com.codepilot.module.tool.impl.SecretScanTool;
+import com.codepilot.module.tool.impl.SqlRiskTool;
+import com.codepilot.module.tool.impl.TestSuggestionTool;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.service.Result;
 import org.junit.jupiter.api.Test;
@@ -19,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -64,7 +68,77 @@ class AiReviewServiceImplTest {
         assertThat(logCaptor.getValue().getErrorMessage()).isEqualTo("empty model response");
     }
 
+    @Test
+    void shouldRunDeterministicToolsWhenLlmIsDisabled() {
+        TestContext context = new TestContext();
+        context.llmProperties.setEnabled(false);
+
+        var result = context.service.reviewFile(
+                1L,
+                "src/main/java/DemoService.java",
+                """
+                        @@ -1,1 +1,2 @@
+                        +String sql = "select * from user where name = '" + name + "'";
+                        """,
+                List.of("src/main/java/DemoService.java")
+        );
+
+        assertThat(result.getIssues())
+                .anySatisfy(issue -> {
+                    assertThat(issue.getIssueType()).isEqualTo("SQL_RISK");
+                    assertThat(issue.getIssueTypeZh()).isEqualTo("SQL 风险");
+                    assertThat(issue.getSeverity()).isEqualTo("HIGH");
+                    assertThat(issue.getSource()).isEqualTo("TOOL");
+                });
+        verify(context.assistantProvider, never()).getIfAvailable();
+        verify(context.llmCallLogService, never()).save(any());
+    }
+
+    @Test
+    void shouldMergeDeterministicToolIssuesWithLlmIssues() {
+        TestContext context = new TestContext();
+        when(context.assistant.review(any(), any(), any(), any()))
+                .thenReturn(new Result<>("""
+                        {
+                          "issues": [
+                            {
+                              "filePath": "src/main/java/DemoService.java",
+                              "issueType": "BUG_RISK",
+                              "issueTypeZh": "Bug 风险",
+                              "severity": "MEDIUM",
+                              "title": "LLM finding",
+                              "description": "model issue",
+                              "suggestion": "fix it",
+                              "source": "LLM",
+                              "ruleReference": null
+                            }
+                          ],
+                          "summary": "model summary"
+                        }
+                        """, null, List.of(), null, List.of()));
+
+        var result = context.service.reviewFile(
+                1L,
+                "src/main/java/DemoService.java",
+                """
+                        @@ -1,1 +1,2 @@
+                        +String sql = "select * from user where name = '" + name + "'";
+                        """,
+                List.of("src/main/java/DemoService.java")
+        );
+
+        assertThat(result.getIssues())
+                .anySatisfy(issue -> assertThat(issue.getSource()).isEqualTo("LLM"))
+                .anySatisfy(issue -> {
+                    assertThat(issue.getSource()).isEqualTo("TOOL");
+                    assertThat(issue.getIssueType()).isEqualTo("SQL_RISK");
+                });
+        assertThat(result.getSummary()).isEqualTo("model summary");
+    }
+
     private static class TestContext {
+
+        private final LlmProperties llmProperties = new LlmProperties();
 
         private final CodeReviewAiAssistant assistant = mock(CodeReviewAiAssistant.class);
 
@@ -75,14 +149,25 @@ class AiReviewServiceImplTest {
 
         private final LlmCallLogService llmCallLogService = mock(LlmCallLogService.class);
 
+        @SuppressWarnings("unchecked")
+        private final ObjectProvider<SqlRiskTool> sqlRiskToolProvider = mock(ObjectProvider.class);
+
+        @SuppressWarnings("unchecked")
+        private final ObjectProvider<SecretScanTool> secretScanToolProvider = mock(ObjectProvider.class);
+
+        @SuppressWarnings("unchecked")
+        private final ObjectProvider<TestSuggestionTool> testSuggestionToolProvider = mock(ObjectProvider.class);
+
         private final AiReviewServiceImpl service;
 
         private TestContext() {
-            LlmProperties llmProperties = new LlmProperties();
             llmProperties.setEnabled(true);
             llmProperties.setApiKey("test-key");
             when(assistantProvider.getIfAvailable()).thenReturn(assistant);
             when(reviewRagService.retrieveRelevantRules(any(), any())).thenReturn(List.of());
+            when(sqlRiskToolProvider.getIfAvailable()).thenReturn(new SqlRiskTool());
+            when(secretScanToolProvider.getIfAvailable()).thenReturn(new SecretScanTool());
+            when(testSuggestionToolProvider.getIfAvailable()).thenReturn(new TestSuggestionTool());
 
             service = new AiReviewServiceImpl(
                     llmProperties,
@@ -90,7 +175,10 @@ class AiReviewServiceImplTest {
                     new AiReviewResultParser(new ObjectMapper()),
                     reviewRagService,
                     new ReviewPromptBuilder(),
-                    llmCallLogService
+                    llmCallLogService,
+                    sqlRiskToolProvider,
+                    secretScanToolProvider,
+                    testSuggestionToolProvider
             );
         }
     }
