@@ -92,7 +92,7 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                 stage = "validate";
                 int validationTimeoutSeconds = resolveValidationTimeoutSeconds(request);
                 log.info("Git patch execution stage start, stage={}, branch={}, validationCommand={}, timeoutSeconds={}",
-                        stage, branch, request.getValidationCommand(), validationTimeoutSeconds);
+                        stage, branch, SensitiveDataSanitizer.redact(request.getValidationCommand()), validationTimeoutSeconds);
                 GitPatchExecutionResult validationResult = validate(
                         workDir,
                         request.getValidationCommand(),
@@ -363,19 +363,25 @@ public class JGitPatchExecutor implements GitPatchExecutor {
         }
     }
 
-    private void sanitizeValidationEnvironment(Map<String, String> environment, Path workDir) {
+    void sanitizeValidationEnvironment(Map<String, String> environment, Path workDir) throws IOException {
         Map<String, String> inheritedSafeValues = new HashMap<>();
         keepEnvironmentValue(environment, inheritedSafeValues, "PATH");
         keepEnvironmentValue(environment, inheritedSafeValues, "Path");
         keepEnvironmentValue(environment, inheritedSafeValues, "SystemRoot");
         keepEnvironmentValue(environment, inheritedSafeValues, "WINDIR");
-        keepEnvironmentValue(environment, inheritedSafeValues, "TEMP");
-        keepEnvironmentValue(environment, inheritedSafeValues, "TMP");
         environment.clear();
         environment.putAll(inheritedSafeValues);
-        String isolatedHome = workDir.resolve(".codepilot-validation-home").toString();
+        Path isolatedHomePath = workDir.resolve(".codepilot-validation-home");
+        Path isolatedTempPath = workDir.resolve(".codepilot-validation-tmp");
+        Files.createDirectories(isolatedHomePath);
+        Files.createDirectories(isolatedTempPath);
+        String isolatedHome = isolatedHomePath.toString();
+        String isolatedTemp = isolatedTempPath.toString();
         environment.put("HOME", isolatedHome);
         environment.put("USERPROFILE", isolatedHome);
+        environment.put("TEMP", isolatedTemp);
+        environment.put("TMP", isolatedTemp);
+        environment.put("TMPDIR", isolatedTemp);
     }
 
     private void keepEnvironmentValue(Map<String, String> source, Map<String, String> target, String key) {
