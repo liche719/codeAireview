@@ -1,6 +1,7 @@
 package com.codepilot.module.github.webhook;
 
 import com.codepilot.common.exception.BusinessException;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.command.dto.GithubCommand;
 import com.codepilot.module.command.parser.GithubCommandParser;
 import com.codepilot.module.review.report.ReviewReportFormatter;
@@ -65,7 +66,8 @@ public class GitHubWebhookPayloadParser {
         } catch (BusinessException exception) {
             throw exception;
         } catch (Exception exception) {
-            throw new BusinessException("failed to parse GitHub webhook payload: " + exception.getMessage());
+            throw new BusinessException("failed to parse GitHub webhook payload: "
+                    + SensitiveDataSanitizer.redact(exception.getMessage()));
         }
     }
 
@@ -126,7 +128,8 @@ public class GitHubWebhookPayloadParser {
         } catch (BusinessException exception) {
             throw exception;
         } catch (Exception exception) {
-            throw new BusinessException("failed to parse GitHub webhook payload: " + exception.getMessage());
+            throw new BusinessException("failed to parse GitHub webhook payload: "
+                    + SensitiveDataSanitizer.redact(exception.getMessage()));
         }
     }
 

@@ -1,6 +1,7 @@
 package com.codepilot.module.git.client;
 
 import com.codepilot.common.exception.BusinessException;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
@@ -211,7 +212,8 @@ public class GithubClient {
                 log.info("GitHub authenticated user resolved, login={}", authenticatedUserLogin);
                 return authenticatedUserLogin;
             } catch (BusinessException exception) {
-                log.warn("failed to resolve GitHub authenticated user login, message={}", exception.getMessage());
+                log.warn("failed to resolve GitHub authenticated user login, message={}",
+                        SensitiveDataSanitizer.redact(exception.getMessage()));
                 return null;
             }
         }
@@ -351,7 +353,7 @@ public class GithubClient {
                 return supplier.get();
             } catch (RestClientResponseException exception) {
                 if (!isGithubRateLimit(exception)) {
-                    throw new BusinessException(operation + ": " + exception.getMessage());
+                    throw new BusinessException(operation + ": " + SensitiveDataSanitizer.redact(exception.getMessage()));
                 }
                 if (!shouldRetryRateLimit(exception, attempt)) {
                     throw buildRateLimitException(operation, exception);
@@ -365,7 +367,7 @@ public class GithubClient {
                         summarizeResponseBody(exception));
                 sleepBeforeRetry(operation, delayMillis);
             } catch (RestClientException exception) {
-                throw new BusinessException(operation + ": " + exception.getMessage());
+                throw new BusinessException(operation + ": " + SensitiveDataSanitizer.redact(exception.getMessage()));
             }
         }
         throw new BusinessException(operation + ": GitHub API request failed");

@@ -1,6 +1,7 @@
 package com.codepilot.infrastructure.embedding;
 
 import com.codepilot.common.exception.BusinessException;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.rag.entity.RuleDocument;
 import com.codepilot.module.rag.mapper.RuleChunkMapper;
 import com.codepilot.module.rag.service.RuleDocumentService;
@@ -75,7 +76,8 @@ public class EmbeddingDimensionBootstrap implements ApplicationRunner {
             }
             return embedding.dimension();
         } catch (Exception exception) {
-            throw new BusinessException("failed to detect embedding dimension: " + exception.getMessage());
+            throw new BusinessException("failed to detect embedding dimension: "
+                    + SensitiveDataSanitizer.redact(exception.getMessage()));
         }
     }
 

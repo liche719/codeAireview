@@ -101,6 +101,23 @@ class GithubClientTest {
     }
 
     @Test
+    void shouldRedactSecretsFromGitHubApiFailureMessage() {
+        TestContext context = new TestContext();
+        context.server.expect(once(), requestTo("https://api.github.test/repos/liche719/codeAireview/pulls/123"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"message\":\"token=ghp_123456789012345678901234567890123456 rejected\"}"));
+
+        assertThatThrownBy(() -> context.client.getPullRequestDetail("liche719", "codeAireview", 123))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("failed to get GitHub PR detail")
+                .hasMessageContaining("[REDACTED]")
+                .hasMessageNotContaining("ghp_123456789012345678901234567890123456");
+        context.server.verify();
+    }
+
+    @Test
     void shouldListPullRequestReviewComments() {
         TestContext context = new TestContext();
         context.server.expect(once(), requestTo("https://api.github.test/repos/liche719/codeAireview/pulls/123/comments?per_page=100&page=1"))

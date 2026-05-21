@@ -1,5 +1,6 @@
 package com.codepilot.infrastructure.embedding;
 
+import com.codepilot.common.exception.BusinessException;
 import com.codepilot.module.rag.dto.IndexRuleDocumentResponse;
 import com.codepilot.module.rag.entity.RuleDocument;
 import com.codepilot.module.rag.mapper.RuleChunkMapper;
@@ -14,6 +15,7 @@ import org.springframework.boot.DefaultApplicationArguments;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -65,6 +67,19 @@ class EmbeddingDimensionBootstrapTest {
         verify(context.ruleChunkMapper, never()).deleteAll();
         verify(context.ruleDocumentService, never()).list();
         verify(context.ruleIndexService, never()).indexDocument(1L);
+    }
+
+    @Test
+    void shouldRedactSecretFromProbeFailureMessage() {
+        TestContext context = new TestContext(true, "token");
+        when(context.embeddingModel.embed(anyString()))
+                .thenThrow(new IllegalStateException("embedding failed api_key=sk-proj-12345678901234567890"));
+
+        assertThatThrownBy(() -> context.bootstrap.run(new DefaultApplicationArguments()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("failed to detect embedding dimension")
+                .hasMessageContaining("[REDACTED]")
+                .hasMessageNotContaining("sk-proj-12345678901234567890");
     }
 
     private RuleDocument enabledRuleDocument(Long id) {

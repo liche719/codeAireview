@@ -1,5 +1,6 @@
 package com.codepilot.module.github.webhook;
 
+import com.codepilot.common.exception.BusinessException;
 import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.dto.GithubCommandType;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -200,6 +202,27 @@ class GitHubWebhookPayloadParserTest {
 
         assertThat(payload.isIgnored()).isTrue();
         assertThat(payload.getReason()).isEqualTo("bot response");
+    }
+
+    @Test
+    void shouldRedactSecretFromMalformedWebhookPayloadMessage() {
+        ObjectMapper failingObjectMapper = mock(ObjectMapper.class);
+        try {
+            when(failingObjectMapper.readTree(anyString()))
+                    .thenThrow(new IllegalStateException("token=ghp_123456789012345678901234567890123456 rejected"));
+        } catch (Exception exception) {
+            throw new AssertionError(exception);
+        }
+        GitHubWebhookPayloadParser failingParser = new GitHubWebhookPayloadParser(
+                failingObjectMapper,
+                mock(GithubCommandParser.class)
+        );
+
+        assertThatThrownBy(() -> failingParser.parse("pull_request", "{}"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("failed to parse GitHub webhook payload")
+                .hasMessageContaining("[REDACTED]")
+                .hasMessageNotContaining("ghp_123456789012345678901234567890123456");
     }
 
     private GitHubWebhookPayloadParser parserWithAiResponse(String response) {

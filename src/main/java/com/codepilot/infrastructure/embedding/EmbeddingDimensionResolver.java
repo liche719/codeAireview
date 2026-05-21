@@ -1,6 +1,7 @@
 package com.codepilot.infrastructure.embedding;
 
 import com.codepilot.common.exception.BusinessException;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.output.Response;
@@ -73,7 +74,8 @@ public class EmbeddingDimensionResolver {
             log.info("Embedding dimension auto-detected for Flyway, dimension={}", detectedDimension);
             return detectedDimension;
         } catch (Exception exception) {
-            throw new BusinessException("failed to detect embedding dimension: " + exception.getMessage());
+            throw new BusinessException("failed to detect embedding dimension: "
+                    + SensitiveDataSanitizer.redact(exception.getMessage()));
         }
     }
 }

@@ -1,11 +1,13 @@
 package com.codepilot.infrastructure.embedding;
 
+import com.codepilot.common.exception.BusinessException;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.output.Response;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -48,6 +50,19 @@ class EmbeddingDimensionResolverTest {
         assertThat(dimension).isEqualTo(EmbeddingDimensionResolver.DEFAULT_EMBEDDING_DIMENSION);
         assertThat(context.embeddingProperties.getDimension()).isEqualTo(EmbeddingDimensionResolver.DEFAULT_EMBEDDING_DIMENSION);
         verifyNoInteractions(context.embeddingModel);
+    }
+
+    @Test
+    void shouldRedactSecretFromProbeFailureMessage() {
+        TestContext context = new TestContext(true, "token", 0);
+        when(context.embeddingModel.embed(anyString()))
+                .thenThrow(new IllegalStateException("embedding failed token=sk-proj-12345678901234567890"));
+
+        assertThatThrownBy(context.resolver::resolveDimension)
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("failed to detect embedding dimension")
+                .hasMessageContaining("[REDACTED]")
+                .hasMessageNotContaining("sk-proj-12345678901234567890");
     }
 
     private static class TestContext {

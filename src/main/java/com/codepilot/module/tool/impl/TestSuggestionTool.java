@@ -1,5 +1,6 @@
 package com.codepilot.module.tool.impl;
 
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.tool.dto.ToolCheckResult;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -44,7 +45,8 @@ public class TestSuggestionTool {
                     filePath, results.size(), System.currentTimeMillis() - startTime);
             return results;
         } catch (Exception exception) {
-            log.warn("TestSuggestionTool failed, filePath={}, message={}", filePath, exception.getMessage());
+            log.warn("TestSuggestionTool failed, filePath={}, message={}",
+                    filePath, SensitiveDataSanitizer.redact(exception.getMessage()));
             return List.of();
         }
     }

@@ -1,5 +1,6 @@
 package com.codepilot.module.tool.impl;
 
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.tool.context.DiffToolUtils;
 import com.codepilot.module.tool.dto.ToolCheckResult;
 import dev.langchain4j.agent.tool.P;
@@ -113,7 +114,8 @@ public class SqlRiskTool {
                     filePath, !results.isEmpty(), results.size(), System.currentTimeMillis() - startTime);
             return results;
         } catch (Exception exception) {
-            log.warn("SqlRiskTool failed, filePath={}, message={}", filePath, exception.getMessage());
+            log.warn("SqlRiskTool failed, filePath={}, message={}",
+                    filePath, SensitiveDataSanitizer.redact(exception.getMessage()));
             return List.of();
         }
     }
