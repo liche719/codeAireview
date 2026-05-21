@@ -56,7 +56,7 @@ public class CodeFixServiceImpl implements CodeFixService {
         } catch (Exception exception) {
             errorMessage = exception.getMessage();
             log.warn("Code fix generation failed, commandTaskId={}, message={}", commandTaskId, errorMessage, exception);
-            return CodeFixResult.empty();
+            throw new IllegalStateException("code fix generation failed", exception);
         } finally {
             saveCallLog(commandTaskId, issues, snippets, limits, System.currentTimeMillis() - startTime, success, errorMessage, responseText);
         }

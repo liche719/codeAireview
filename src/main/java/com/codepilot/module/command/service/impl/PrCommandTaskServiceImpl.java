@@ -30,6 +30,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.retry.RetryContext;
+import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -95,6 +97,9 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
 
     @Value("${codepilot.github.token:}")
     private String githubToken;
+
+    @Value("${spring.rabbitmq.listener.simple.retry.max-attempts:3}")
+    private int rabbitRetryMaxAttempts = 3;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -206,6 +211,9 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             GitPatchExecutionRequest request = buildExecutionRequest(task, detail, patch, fixResult == null ? null : fixResult.getCommitMessage());
             GitPatchExecutionResult executionResult = gitPatchExecutor.execute(request);
             if (!executionResult.isSuccess()) {
+                if (executionResult.isRetryable()) {
+                    throw new IllegalStateException(executionResult.getMessage());
+                }
                 completeFailed(task, executionResult.getMessage());
                 commandTaskLogService.record(task.getId(), "PATCH_EXECUTE", false, executionResult.getMessage(), executionResult.getDetail());
                 comment(task, "我生成了一个补丁，但校验失败，所以没有推送提交。\n\n" + truncate(executionResult.getMessage(), 500));
@@ -221,10 +229,12 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 comment(task, "**CodePilot AI** 已推送修复提交"
                         + (StringUtils.hasText(task.getCommitSha()) ? "：`" + task.getCommitSha() + "`" : "。"));
             }
-        } catch (Exception exception) {
+        } catch (NonRetryableFixTaskException exception) {
             completeFailed(task, exception.getMessage());
             commandTaskLogService.record(task.getId(), "FAILED", false, exception.getMessage(), null);
             comment(task, "我没能完成这次修复请求。\n\n" + truncate(exception.getMessage(), 500));
+        } catch (Exception exception) {
+            handleRetryableFailure(task, exception);
         }
     }
 
@@ -247,14 +257,44 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status);
     }
 
+    private void handleRetryableFailure(PrCommandTask task, Exception exception) {
+        String message = exception.getMessage();
+        if (isFinalRetryAttempt()) {
+            completeFailed(task, message);
+            commandTaskLogService.record(task.getId(), "FAILED", false, message, retryDetail(exception));
+            comment(task, "我没能完成这次修复请求。\n\n" + truncate(message, 500));
+        } else {
+            markRetrying(task, message);
+            commandTaskLogService.record(task.getId(), "RETRYING", false, message, retryDetail(exception));
+        }
+        throw new IllegalStateException("PR fix command task failed, commandTaskId=" + task.getId(), exception);
+    }
+
+    private boolean isFinalRetryAttempt() {
+        RetryContext retryContext = RetrySynchronizationManager.getContext();
+        if (retryContext == null) {
+            return true;
+        }
+        int maxAttempts = Math.max(1, rabbitRetryMaxAttempts);
+        return retryContext.getRetryCount() >= maxAttempts - 1;
+    }
+
+    private String retryDetail(Exception exception) {
+        RetryContext retryContext = RetrySynchronizationManager.getContext();
+        String attempt = retryContext == null
+                ? "attempt=1/1"
+                : "attempt=" + (retryContext.getRetryCount() + 1) + "/" + Math.max(1, rabbitRetryMaxAttempts);
+        return attempt + ", errorType=" + exception.getClass().getSimpleName();
+    }
+
     private void assertWritableSameRepo(PrCommandTask task, GithubPullRequestDetail detail) {
         String expectedRepo = task.getRepoOwner() + "/" + task.getRepoName();
         if (!expectedRepo.equalsIgnoreCase(detail.getHeadRepoFullName())
                 || !expectedRepo.equalsIgnoreCase(detail.getBaseRepoFullName())) {
-            throw new IllegalStateException("仅允许对当前仓库中的分支执行修复。");
+            throw new NonRetryableFixTaskException("仅允许对当前仓库中的分支执行修复。");
         }
         if (!StringUtils.hasText(detail.getHeadRef()) || !StringUtils.hasText(detail.getHeadRepoCloneUrl())) {
-            throw new IllegalStateException("PR head 分支信息不完整。");
+            throw new NonRetryableFixTaskException("PR head 分支信息不完整。");
         }
     }
 
@@ -423,21 +463,21 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     PatchStats validatePatchScope(String patch, Set<String> allowedPaths) {
         PatchStats stats = PatchStats.from(patch);
         if (stats.filesChanged() > properties.getFixMaxFiles()) {
-            throw new IllegalStateException("补丁修改的文件数过多：" + stats.filesChanged());
+            throw new NonRetryableFixTaskException("补丁修改的文件数过多：" + stats.filesChanged());
         }
         if (stats.changedLines() > properties.getFixMaxChangedLines()) {
-            throw new IllegalStateException("补丁修改的行数过多：" + stats.changedLines());
+            throw new NonRetryableFixTaskException("补丁修改的行数过多：" + stats.changedLines());
         }
         if (stats.paths().isEmpty()) {
-            throw new IllegalStateException("补丁没有声明被修改的文件路径。");
+            throw new NonRetryableFixTaskException("补丁没有声明被修改的文件路径。");
         }
         Set<String> normalizedAllowedPaths = normalizeAllowedPaths(allowedPaths);
         for (String path : stats.paths()) {
             if (isBlockedFixPath(path)) {
-                throw new IllegalStateException("自动修复不允许修改敏感路径：" + path);
+                throw new NonRetryableFixTaskException("自动修复不允许修改敏感路径：" + path);
             }
             if (!normalizedAllowedPaths.isEmpty() && !normalizedAllowedPaths.contains(path)) {
-                throw new IllegalStateException("自动修复只能修改被选中问题所在文件：" + path);
+                throw new NonRetryableFixTaskException("自动修复只能修改被选中问题所在文件：" + path);
             }
         }
         return stats;
@@ -543,6 +583,13 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         updateById(task);
     }
 
+    private void markRetrying(PrCommandTask task, String message) {
+        task.setStatus("RUNNING");
+        task.setErrorMessage(truncate(message, 2000));
+        task.setUpdatedAt(LocalDateTime.now());
+        updateById(task);
+    }
+
     private void completeSuccess(PrCommandTask task) {
         task.setStatus("SUCCESS");
         task.setErrorMessage(null);
@@ -638,5 +685,12 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             path = path.substring(2);
         }
         return path;
+    }
+
+    private static class NonRetryableFixTaskException extends IllegalStateException {
+
+        private NonRetryableFixTaskException(String message) {
+            super(message);
+        }
     }
 }

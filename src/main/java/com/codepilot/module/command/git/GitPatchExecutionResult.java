@@ -17,11 +17,17 @@ public class GitPatchExecutionResult {
 
     private String detail;
 
+    private boolean retryable;
+
     public static GitPatchExecutionResult success(String commitSha, String message, String detail) {
-        return new GitPatchExecutionResult(true, commitSha, message, detail);
+        return new GitPatchExecutionResult(true, commitSha, message, detail, false);
     }
 
     public static GitPatchExecutionResult failure(String message, String detail) {
-        return new GitPatchExecutionResult(false, null, message, detail);
+        return new GitPatchExecutionResult(false, null, message, detail, false);
+    }
+
+    public static GitPatchExecutionResult retryableFailure(String message, String detail) {
+        return new GitPatchExecutionResult(false, null, message, detail, true);
     }
 }

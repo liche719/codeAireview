@@ -102,4 +102,14 @@ class JGitPatchExecutorTest {
                 List.of("npm run lint")
         )).isTrue();
     }
+
+    @Test
+    void shouldOnlyRetryTransientGitStages() {
+        JGitPatchExecutor executor = new JGitPatchExecutor();
+
+        assertThat(executor.isRetryableExecutionStage("clone")).isTrue();
+        assertThat(executor.isRetryableExecutionStage("push")).isTrue();
+        assertThat(executor.isRetryableExecutionStage("apply")).isFalse();
+        assertThat(executor.isRetryableExecutionStage("validate")).isFalse();
+    }
 }

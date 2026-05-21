@@ -151,16 +151,24 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                     exception.getClass().getSimpleName(),
                     exception.getMessage(),
                     exception);
-            return GitPatchExecutionResult.failure(
-                    "Git patch execution failed at stage " + stage + ": " + exception.getMessage(),
-                    "stage=" + stage
-                            + ", errorType=" + exception.getClass().getSimpleName()
-                            + ", branch=" + branch
-                            + ", cloneUrl=" + cloneUrl
-            );
+            String message = "Git patch execution failed at stage " + stage + ": " + exception.getMessage();
+            String detail = "stage=" + stage
+                    + ", errorType=" + exception.getClass().getSimpleName()
+                    + ", branch=" + branch
+                    + ", cloneUrl=" + cloneUrl;
+            return isRetryableExecutionStage(stage)
+                    ? GitPatchExecutionResult.retryableFailure(message, detail)
+                    : GitPatchExecutionResult.failure(message, detail);
         } finally {
             deleteQuietly(workDir);
         }
+    }
+
+    boolean isRetryableExecutionStage(String stage) {
+        return "create-temp-dir".equals(stage)
+                || "clone".equals(stage)
+                || "commit".equals(stage)
+                || "push".equals(stage);
     }
 
     private void validateRequest(GitPatchExecutionRequest request) {

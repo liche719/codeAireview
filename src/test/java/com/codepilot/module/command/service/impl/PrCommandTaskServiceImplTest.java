@@ -2,12 +2,26 @@ package com.codepilot.module.command.service.impl;
 
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.config.GithubCommandProperties;
+import com.codepilot.module.command.git.GitPatchExecutionRequest;
+import com.codepilot.module.command.git.GitPatchExecutionResult;
+import com.codepilot.module.command.git.GitPatchExecutor;
 import com.codepilot.module.command.mapper.PrCommandTaskMapper;
+import com.codepilot.module.command.service.PrCommandTaskLogService;
+import com.codepilot.module.agent.dto.CodeFixResult;
+import com.codepilot.module.agent.service.CodeFixService;
+import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
+import com.codepilot.module.review.service.ReviewIssueService;
+import com.codepilot.module.review.service.ReviewTaskService;
+import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.retry.context.RetryContextSupport;
+import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -15,13 +29,21 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class PrCommandTaskServiceImplTest {
+
+    @AfterEach
+    void clearRetryContext() {
+        RetrySynchronizationManager.clear();
+    }
 
     @Test
     void shouldRequireSameHeadShaBeforeReusingReviewTaskForFix() {
@@ -189,6 +211,51 @@ class PrCommandTaskServiceImplTest {
         verify(context.githubClient, never()).getPullRequestDetail(any(), any(), any());
     }
 
+    @Test
+    void shouldRethrowRetryableFixFailureWithoutTerminalCommentBeforeFinalAttempt() {
+        TestContext context = new TestContext();
+        context.stubRunnableFixTask();
+        when(context.gitPatchExecutor.execute(any(GitPatchExecutionRequest.class)))
+                .thenReturn(GitPatchExecutionResult.retryableFailure("temporary validation runner error", "detail"));
+        ReflectionTestUtils.setField(context.service, "rabbitRetryMaxAttempts", 3);
+        registerRetryContext(0);
+
+        assertThatThrownBy(() -> context.service.processFixTask(1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("PR fix command task failed");
+
+        verify(context.mapper, atLeastOnce()).updateById(context.taskCaptor.capture());
+        PrCommandTask lastUpdate = context.taskCaptor.getAllValues().getLast();
+        assertThat(lastUpdate.getStatus()).isEqualTo("RUNNING");
+        assertThat(lastUpdate.getErrorMessage()).contains("temporary validation runner error");
+        verify(context.githubClient, never()).createPullRequestComment(any(), any(), anyInt(), any());
+        verify(context.commandTaskLogService).record(eq(1L), eq("RETRYING"), eq(false),
+                eq("temporary validation runner error"), org.mockito.ArgumentMatchers.contains("attempt=1/3"));
+    }
+
+    @Test
+    void shouldMarkFixTaskFailedAndCommentOnFinalRetryAttempt() {
+        TestContext context = new TestContext();
+        context.stubRunnableFixTask();
+        when(context.gitPatchExecutor.execute(any(GitPatchExecutionRequest.class)))
+                .thenReturn(GitPatchExecutionResult.retryableFailure("validation failed", "detail"));
+        ReflectionTestUtils.setField(context.service, "rabbitRetryMaxAttempts", 3);
+        registerRetryContext(2);
+
+        assertThatThrownBy(() -> context.service.processFixTask(1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("PR fix command task failed");
+
+        verify(context.mapper, atLeastOnce()).updateById(context.taskCaptor.capture());
+        PrCommandTask lastUpdate = context.taskCaptor.getAllValues().getLast();
+        assertThat(lastUpdate.getStatus()).isEqualTo("FAILED");
+        assertThat(lastUpdate.getErrorMessage()).contains("validation failed");
+        verify(context.githubClient).createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(12),
+                org.mockito.ArgumentMatchers.contains("validation failed"));
+        verify(context.commandTaskLogService).record(eq(1L), eq("FAILED"), eq(false),
+                eq("validation failed"), org.mockito.ArgumentMatchers.contains("attempt=3/3"));
+    }
+
     private PrCommandTaskServiceImpl serviceWithDefaultProperties() {
         return serviceWithProperties(new GithubCommandProperties());
     }
@@ -223,6 +290,10 @@ class PrCommandTaskServiceImplTest {
     }
 
     private PrCommandTask existingFixTask(Long commentId, String status) {
+        return buildExistingFixTask(commentId, status);
+    }
+
+    private static PrCommandTask buildExistingFixTask(Long commentId, String status) {
         PrCommandTask task = new PrCommandTask();
         task.setId(1L);
         task.setCommandType("FIX");
@@ -231,7 +302,16 @@ class PrCommandTaskServiceImplTest {
         task.setRepoName("codeAireview");
         task.setPrNumber(12);
         task.setCommentId(commentId);
+        task.setDryRun(true);
         return task;
+    }
+
+    private void registerRetryContext(int retryCount) {
+        RetryContextSupport context = new RetryContextSupport(null);
+        for (int i = 0; i < retryCount; i++) {
+            context.registerThrowable(new RuntimeException("retry-" + i));
+        }
+        RetrySynchronizationManager.register(context);
     }
 
     private static class TestContext {
@@ -240,21 +320,92 @@ class PrCommandTaskServiceImplTest {
 
         private final GithubClient githubClient = mock(GithubClient.class);
 
+        private final ReviewTaskService reviewTaskService = mock(ReviewTaskService.class);
+
+        private final ReviewIssueService reviewIssueService = mock(ReviewIssueService.class);
+
+        private final CodeFixService codeFixService = mock(CodeFixService.class);
+
+        private final GitPatchExecutor gitPatchExecutor = mock(GitPatchExecutor.class);
+
+        private final PrCommandTaskLogService commandTaskLogService = mock(PrCommandTaskLogService.class);
+
+        private final org.mockito.ArgumentCaptor<PrCommandTask> taskCaptor =
+                org.mockito.ArgumentCaptor.forClass(PrCommandTask.class);
+
         private final PrCommandTaskServiceImpl service;
 
         private TestContext() {
             service = new PrCommandTaskServiceImpl(
                     new GithubCommandProperties(),
                     githubClient,
+                    reviewTaskService,
+                    reviewIssueService,
                     null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
+                    codeFixService,
+                    gitPatchExecutor,
+                    commandTaskLogService,
+                    new ObjectMapper()
             );
             ReflectionTestUtils.setField(service, "baseMapper", mapper);
+            ReflectionTestUtils.setField(service, "githubToken", "github-token");
+        }
+
+        private void stubRunnableFixTask() {
+            when(mapper.selectById(1L)).thenReturn(buildExistingFixTask(99L, "PENDING"));
+            when(githubClient.getPullRequestDetail("liche719", "codeAireview", 12)).thenReturn(prDetail());
+            ReviewTask reviewTask = new ReviewTask();
+            reviewTask.setId(10L);
+            reviewTask.setHeadSha("head-sha");
+            when(reviewTaskService.getOne(any())).thenReturn(reviewTask);
+            when(reviewIssueService.list(org.mockito.ArgumentMatchers.<com.baomidou.mybatisplus.core.conditions.Wrapper<ReviewIssue>>any()))
+                    .thenReturn(List.of(fixableIssue()));
+            when(codeFixService.generateFix(eq(1L), any(), any(), any())).thenReturn(fixResult());
+            when(githubClient.getFileContent("liche719", "codeAireview", "src/main/java/Demo.java", "head-sha"))
+                    .thenReturn("""
+                            class Demo {
+                                void run() {
+                                    System.out.println("old");
+                                }
+                            }
+                            """);
+        }
+
+        private GithubPullRequestDetail prDetail() {
+            GithubPullRequestDetail detail = new GithubPullRequestDetail();
+            detail.setHeadSha("head-sha");
+            detail.setHeadRef("feature/fix");
+            detail.setHeadRepoFullName("liche719/codeAireview");
+            detail.setBaseRepoFullName("liche719/codeAireview");
+            detail.setHeadRepoCloneUrl("https://github.com/liche719/codeAireview.git");
+            return detail;
+        }
+
+        private com.codepilot.module.review.entity.ReviewIssue fixableIssue() {
+            com.codepilot.module.review.entity.ReviewIssue issue = new com.codepilot.module.review.entity.ReviewIssue();
+            issue.setFilePath("src/main/java/Demo.java");
+            issue.setLineNumber(2);
+            issue.setIssueType("BUG_RISK");
+            issue.setSeverity("HIGH");
+            issue.setTitle("Demo bug");
+            issue.setDescription("Fix demo bug");
+            issue.setSuggestion("Update the line");
+            return issue;
+        }
+
+        private CodeFixResult fixResult() {
+            CodeFixResult result = new CodeFixResult();
+            result.setSummary("Fix demo bug");
+            result.setPatch("""
+                    diff --git a/src/main/java/Demo.java b/src/main/java/Demo.java
+                    --- a/src/main/java/Demo.java
+                    +++ b/src/main/java/Demo.java
+                    @@ -1 +1 @@
+                    -old
+                    +new
+                    """);
+            result.setCommitMessage("fix: demo bug");
+            return result;
         }
     }
 }
