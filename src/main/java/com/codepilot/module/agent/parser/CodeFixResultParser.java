@@ -4,13 +4,11 @@ import com.codepilot.module.agent.dto.CodeFixResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.util.Set;
 
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class CodeFixResultParser {
@@ -32,10 +30,9 @@ public class CodeFixResultParser {
                 return objectMapper.treeToValue(root, CodeFixResult.class);
             }
         } catch (Exception exception) {
-            log.warn("Failed to parse code fix JSON, reject model response, message={}", exception.getMessage());
+            throw new IllegalArgumentException("Failed to parse code fix result as JSON", exception);
         }
-        log.warn("Code fix response rejected because it does not contain valid JSON");
-        return CodeFixResult.empty();
+        throw new IllegalArgumentException("Code fix result must be a JSON object");
     }
 
     private String extractJson(String content) {

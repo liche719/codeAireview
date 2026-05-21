@@ -47,6 +47,37 @@ class CodeFixServiceImplTest {
     }
 
     @Test
+    void shouldRethrowMalformedFixResponseForQueueRetryAndMarkLogFailed() {
+        LlmProperties properties = new LlmProperties();
+        properties.setEnabled(true);
+        properties.setApiKey("llm-key");
+        properties.setModel("test-model");
+        CodeFixAiAssistant assistant = mock(CodeFixAiAssistant.class);
+        when(assistant.generateFix(any(), any(), any())).thenReturn(new Result<>("""
+                diff --git a/src/main/java/Demo.java b/src/main/java/Demo.java
+                --- a/src/main/java/Demo.java
+                +++ b/src/main/java/Demo.java
+                """, null, List.of(), null, List.of()));
+        LlmCallLogService llmCallLogService = mock(LlmCallLogService.class);
+        CodeFixServiceImpl service = new CodeFixServiceImpl(
+                properties,
+                provider(assistant),
+                new CodeFixResultParser(new ObjectMapper()),
+                llmCallLogService
+        );
+        ArgumentCaptor<LlmCallLog> logCaptor = ArgumentCaptor.forClass(LlmCallLog.class);
+
+        assertThatThrownBy(() -> service.generateFix(1L, "[]", "snippet", "limits"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("code fix generation failed")
+                .hasRootCauseMessage("Code fix result must be a JSON object");
+
+        verify(llmCallLogService).save(logCaptor.capture());
+        assertThat(logCaptor.getValue().getSuccess()).isFalse();
+        assertThat(logCaptor.getValue().getErrorMessage()).isEqualTo("Code fix result must be a JSON object");
+    }
+
+    @Test
     void shouldRedactSecretsFromCodeFixResponseSummary() {
         LlmProperties properties = new LlmProperties();
         properties.setEnabled(true);

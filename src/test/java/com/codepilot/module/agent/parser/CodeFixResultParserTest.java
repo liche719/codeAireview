@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CodeFixResultParserTest {
 
@@ -49,7 +50,7 @@ class CodeFixResultParserTest {
     void shouldAllowEmptyPatchWhenModelCannotFixSafely() {
         String content = """
                 {
-                  "summary": "无法安全修复，因为缺少上下文",
+                  "summary": "Cannot safely fix without enough context",
                   "patch": "",
                   "commitMessage": ""
                 }
@@ -57,21 +58,21 @@ class CodeFixResultParserTest {
 
         CodeFixResult result = parser.parse(content);
 
-        assertThat(result.getSummary()).isEqualTo("无法安全修复，因为缺少上下文");
+        assertThat(result.getSummary()).isEqualTo("Cannot safely fix without enough context");
         assertThat(result.getPatch()).isEmpty();
         assertThat(result.getCommitMessage()).isEmpty();
     }
 
     @Test
-    void shouldReturnChineseSummaryWhenResponseIsEmpty() {
+    void shouldReturnEmptyResultWhenResponseIsEmpty() {
         CodeFixResult result = parser.parse("");
 
-        assertThat(result.getSummary()).isEqualTo("未生成补丁。");
+        assertThat(result.getSummary()).isNotBlank();
         assertThat(result.getPatch()).isNull();
     }
 
     @Test
-    void shouldRejectRawDiffWithoutJsonEnvelope() {
+    void shouldFailRawDiffWithoutJsonEnvelope() {
         String content = """
                 diff --git a/src/main/java/Demo.java b/src/main/java/Demo.java
                 --- a/src/main/java/Demo.java
@@ -81,15 +82,13 @@ class CodeFixResultParserTest {
                 +new
                 """;
 
-        CodeFixResult result = parser.parse(content);
-
-        assertThat(result.getSummary()).isEqualTo("未生成补丁。");
-        assertThat(result.getPatch()).isNull();
-        assertThat(result.getCommitMessage()).isNull();
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Code fix result must be a JSON object");
     }
 
     @Test
-    void shouldRejectFencedRawDiffWithoutJsonEnvelope() {
+    void shouldFailFencedRawDiffWithoutJsonEnvelope() {
         String content = """
                 ```diff
                 diff --git a/src/main/java/Demo.java b/src/main/java/Demo.java
@@ -98,14 +97,13 @@ class CodeFixResultParserTest {
                 ```
                 """;
 
-        CodeFixResult result = parser.parse(content);
-
-        assertThat(result.getSummary()).isEqualTo("未生成补丁。");
-        assertThat(result.getPatch()).isNull();
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Code fix result must be a JSON object");
     }
 
     @Test
-    void shouldRejectInvalidJsonEvenWhenItContainsDiff() {
+    void shouldFailInvalidJsonEvenWhenItContainsDiff() {
         String content = """
                 {
                   "summary": "bad",
@@ -113,14 +111,13 @@ class CodeFixResultParserTest {
                 }
                 """;
 
-        CodeFixResult result = parser.parse(content);
-
-        assertThat(result.getSummary()).isEqualTo("未生成补丁。");
-        assertThat(result.getPatch()).isNull();
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse code fix result as JSON");
     }
 
     @Test
-    void shouldRejectJsonWithMissingRequiredField() {
+    void shouldFailJsonWithMissingRequiredField() {
         String content = """
                 {
                   "summary": "missing commit message",
@@ -128,14 +125,14 @@ class CodeFixResultParserTest {
                 }
                 """;
 
-        CodeFixResult result = parser.parse(content);
-
-        assertThat(result.getSummary()).isEqualTo("未生成补丁。");
-        assertThat(result.getPatch()).isNull();
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse code fix result as JSON")
+                .hasRootCauseMessage("Code fix result JSON must contain only summary, patch and commitMessage");
     }
 
     @Test
-    void shouldRejectJsonWithExtraField() {
+    void shouldFailJsonWithExtraField() {
         String content = """
                 {
                   "summary": "bad",
@@ -145,14 +142,14 @@ class CodeFixResultParserTest {
                 }
                 """;
 
-        CodeFixResult result = parser.parse(content);
-
-        assertThat(result.getSummary()).isEqualTo("未生成补丁。");
-        assertThat(result.getPatch()).isNull();
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse code fix result as JSON")
+                .hasRootCauseMessage("Code fix result JSON must contain only summary, patch and commitMessage");
     }
 
     @Test
-    void shouldRejectJsonWithNonStringField() {
+    void shouldFailJsonWithNonStringField() {
         String content = """
                 {
                   "summary": "bad",
@@ -161,14 +158,14 @@ class CodeFixResultParserTest {
                 }
                 """;
 
-        CodeFixResult result = parser.parse(content);
-
-        assertThat(result.getSummary()).isEqualTo("未生成补丁。");
-        assertThat(result.getPatch()).isNull();
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse code fix result as JSON")
+                .hasRootCauseMessage("Code fix result field must be a string: patch");
     }
 
     @Test
-    void shouldRejectNonEmptyPatchWithoutCommitMessage() {
+    void shouldFailNonEmptyPatchWithoutCommitMessage() {
         String content = """
                 {
                   "summary": "bad",
@@ -177,14 +174,14 @@ class CodeFixResultParserTest {
                 }
                 """;
 
-        CodeFixResult result = parser.parse(content);
-
-        assertThat(result.getSummary()).isEqualTo("未生成补丁。");
-        assertThat(result.getPatch()).isNull();
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse code fix result as JSON")
+                .hasRootCauseMessage("Code fix result commitMessage is required when patch is not empty");
     }
 
     @Test
-    void shouldRejectMultilineCommitMessage() {
+    void shouldFailMultilineCommitMessage() {
         String content = """
                 {
                   "summary": "bad",
@@ -193,9 +190,9 @@ class CodeFixResultParserTest {
                 }
                 """;
 
-        CodeFixResult result = parser.parse(content);
-
-        assertThat(result.getSummary()).isEqualTo("未生成补丁。");
-        assertThat(result.getPatch()).isNull();
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse code fix result as JSON")
+                .hasRootCauseMessage("Code fix result commitMessage must be a single line");
     }
 }

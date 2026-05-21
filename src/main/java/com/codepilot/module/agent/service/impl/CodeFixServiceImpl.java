@@ -53,8 +53,9 @@ public class CodeFixServiceImpl implements CodeFixService {
         try {
             Result<String> result = assistant.generateFix(promptSafe(issues), promptSafe(snippets), promptSafe(limits));
             responseText = result == null ? null : result.content();
-            success = StringUtils.hasText(responseText);
-            return codeFixResultParser.parse(responseText);
+            CodeFixResult fixResult = codeFixResultParser.parse(responseText);
+            success = true;
+            return fixResult;
         } catch (Exception exception) {
             errorMessage = SensitiveDataSanitizer.redact(exception.getMessage());
             log.warn("Code fix generation failed, commandTaskId={}, errorType={}, message={}",
