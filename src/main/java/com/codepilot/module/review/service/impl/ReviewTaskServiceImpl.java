@@ -26,6 +26,9 @@ import com.codepilot.module.review.service.ReviewTaskService;
 import com.codepilot.task.ReviewTaskProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.retry.RetryContext;
+import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -60,6 +63,9 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     private final ReviewCommentPublisher reviewCommentPublisher;
 
     private final GithubRepositoryPolicy githubRepositoryPolicy;
+
+    @Value("${spring.rabbitmq.listener.simple.retry.max-attempts:3}")
+    private int rabbitRetryMaxAttempts = 3;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -157,13 +163,15 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             reviewCommentPublisher.publish(task);
         } catch (Exception exception) {
             String errorMessage = sanitizedErrorMessage(exception);
-            task.setStatus(ReviewTaskStatus.FAILED.name());
-            task.setErrorMessage(errorMessage);
-            task.setFinishedAt(LocalDateTime.now());
-            task.setUpdatedAt(LocalDateTime.now());
-            updateById(task);
-            log.error("Review task failed, taskId={}, errorType={}, message={}",
-                    taskId, exception.getClass().getSimpleName(), errorMessage);
+            if (isFinalRetryAttempt()) {
+                markTaskFailed(task, errorMessage);
+                log.error("Review task failed, taskId={}, {}, message={}",
+                        taskId, retryDetail(exception), errorMessage);
+            } else {
+                markTaskRetrying(task, errorMessage);
+                log.warn("Review task failed and will be retried, taskId={}, {}, message={}",
+                        taskId, retryDetail(exception), errorMessage);
+            }
             throw new IllegalStateException("review task failed, taskId=" + taskId
                     + ", errorType=" + exception.getClass().getSimpleName());
         }
@@ -188,6 +196,38 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         task.setStartedAt(LocalDateTime.now());
         task.setUpdatedAt(LocalDateTime.now());
         updateById(task);
+    }
+
+    private void markTaskRetrying(ReviewTask task, String errorMessage) {
+        task.setStatus(ReviewTaskStatus.RUNNING.name());
+        task.setErrorMessage(errorMessage);
+        task.setUpdatedAt(LocalDateTime.now());
+        updateById(task);
+    }
+
+    private void markTaskFailed(ReviewTask task, String errorMessage) {
+        task.setStatus(ReviewTaskStatus.FAILED.name());
+        task.setErrorMessage(errorMessage);
+        task.setFinishedAt(LocalDateTime.now());
+        task.setUpdatedAt(LocalDateTime.now());
+        updateById(task);
+    }
+
+    private boolean isFinalRetryAttempt() {
+        RetryContext retryContext = RetrySynchronizationManager.getContext();
+        if (retryContext == null) {
+            return true;
+        }
+        int maxAttempts = Math.max(1, rabbitRetryMaxAttempts);
+        return retryContext.getRetryCount() >= maxAttempts - 1;
+    }
+
+    private String retryDetail(Exception exception) {
+        RetryContext retryContext = RetrySynchronizationManager.getContext();
+        String attempt = retryContext == null
+                ? "attempt=1/1"
+                : "attempt=" + (retryContext.getRetryCount() + 1) + "/" + Math.max(1, rabbitRetryMaxAttempts);
+        return attempt + ", errorType=" + exception.getClass().getSimpleName();
     }
 
     private void refreshTaskHeadSha(ReviewTask task) {

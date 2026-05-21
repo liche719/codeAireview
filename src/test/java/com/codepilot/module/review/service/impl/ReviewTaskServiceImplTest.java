@@ -19,7 +19,10 @@ import com.codepilot.module.review.publisher.ReviewCommentPublisher;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import com.codepilot.task.ReviewTaskProducer;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.retry.context.RetryContextSupport;
+import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -38,6 +41,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ReviewTaskServiceImplTest {
+
+    @AfterEach
+    void clearRetryContext() {
+        RetrySynchronizationManager.clear();
+    }
 
     @Test
     void shouldPersistInlineOnlyModeWhenCreatingTask() {
@@ -159,6 +167,56 @@ class ReviewTaskServiceImplTest {
                 .contains("[REDACTED]")
                 .doesNotContain("ghp_123456789012345678901234567890123456");
         verify(context.reviewCommentPublisher, never()).publish(any(ReviewTask.class));
+    }
+
+    @Test
+    void shouldKeepTaskRunningBeforeFinalRetryAttempt() {
+        TestContext context = new TestContext();
+        context.stubTask(ReviewCommentMode.SUMMARY_ONLY);
+        context.stubEmptyReviewFlow();
+        when(context.githubClient.listPullRequestFiles("liche719", "codeAireview", 123))
+                .thenThrow(new IllegalStateException("github temporary error"));
+        ReflectionTestUtils.setField(context.service, "rabbitRetryMaxAttempts", 3);
+        registerRetryContext(0);
+
+        assertThatThrownBy(() -> context.service.processTask(1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("review task failed, taskId=1");
+
+        verify(context.reviewTaskMapper, org.mockito.Mockito.atLeastOnce()).updateById(context.taskCaptor.capture());
+        ReviewTask lastTaskUpdate = context.taskCaptor.getAllValues().getLast();
+        assertThat(lastTaskUpdate.getStatus()).isEqualTo("RUNNING");
+        assertThat(lastTaskUpdate.getErrorMessage()).contains("github temporary error");
+        assertThat(lastTaskUpdate.getFinishedAt()).isNull();
+    }
+
+    @Test
+    void shouldMarkTaskFailedOnFinalRetryAttempt() {
+        TestContext context = new TestContext();
+        context.stubTask(ReviewCommentMode.SUMMARY_ONLY);
+        context.stubEmptyReviewFlow();
+        when(context.githubClient.listPullRequestFiles("liche719", "codeAireview", 123))
+                .thenThrow(new IllegalStateException("github final error"));
+        ReflectionTestUtils.setField(context.service, "rabbitRetryMaxAttempts", 3);
+        registerRetryContext(2);
+
+        assertThatThrownBy(() -> context.service.processTask(1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("review task failed, taskId=1");
+
+        verify(context.reviewTaskMapper, org.mockito.Mockito.atLeastOnce()).updateById(context.taskCaptor.capture());
+        ReviewTask lastTaskUpdate = context.taskCaptor.getAllValues().getLast();
+        assertThat(lastTaskUpdate.getStatus()).isEqualTo("FAILED");
+        assertThat(lastTaskUpdate.getErrorMessage()).contains("github final error");
+        assertThat(lastTaskUpdate.getFinishedAt()).isNotNull();
+    }
+
+    private void registerRetryContext(int retryCount) {
+        RetryContextSupport context = new RetryContextSupport(null);
+        for (int i = 0; i < retryCount; i++) {
+            context.registerThrowable(new RuntimeException("retry-" + i));
+        }
+        RetrySynchronizationManager.register(context);
     }
 
     private static class TestContext {
