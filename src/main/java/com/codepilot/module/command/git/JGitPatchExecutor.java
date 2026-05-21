@@ -12,8 +12,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -78,6 +80,8 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                 GitPatchExecutionResult validationResult = validate(
                         workDir,
                         request.getValidationCommand(),
+                        request.getAllowedValidationCommands(),
+                        request.isInheritValidationEnvironment(),
                         validationTimeoutSeconds
                 );
                 if (!validationResult.isSuccess()) {
@@ -159,15 +163,32 @@ public class JGitPatchExecutor implements GitPatchExecutor {
         }
     }
 
-    private GitPatchExecutionResult validate(Path workDir, String validationCommand, int timeoutSeconds)
+    private GitPatchExecutionResult validate(
+            Path workDir,
+            String validationCommand,
+            List<String> allowedValidationCommands,
+            boolean inheritValidationEnvironment,
+            int timeoutSeconds
+    )
             throws IOException, InterruptedException {
         if (!StringUtils.hasText(validationCommand)) {
             return GitPatchExecutionResult.success(null, "Validation skipped.", null);
         }
+        String normalizedCommand = normalizeCommand(validationCommand);
+        if (!isValidationCommandAllowed(normalizedCommand, allowedValidationCommands)) {
+            return GitPatchExecutionResult.failure(
+                    "Validation command is not allowed.",
+                    "command=" + normalizedCommand
+                            + ", allowedCommands=" + allowedValidationCommands
+            );
+        }
         Path outputFile = Files.createTempFile("codepilot-validation-", ".log");
         try {
-            ProcessBuilder processBuilder = new ProcessBuilder(splitCommand(validationCommand));
+            ProcessBuilder processBuilder = new ProcessBuilder(splitCommand(normalizedCommand));
             processBuilder.directory(workDir.toFile());
+            if (!inheritValidationEnvironment) {
+                sanitizeValidationEnvironment(processBuilder.environment(), workDir);
+            }
             processBuilder.redirectErrorStream(true);
             processBuilder.redirectOutput(outputFile.toFile());
             Process process = processBuilder.start();
@@ -209,9 +230,46 @@ public class JGitPatchExecutor implements GitPatchExecutor {
     }
 
     private List<String> splitCommand(String command) {
-        return java.util.Arrays.stream(command.trim().split("\\s+"))
+        return java.util.Arrays.stream(normalizeCommand(command).split("\\s+"))
                 .filter(StringUtils::hasText)
                 .toList();
+    }
+
+    boolean isValidationCommandAllowed(String validationCommand, List<String> allowedValidationCommands) {
+        if (!StringUtils.hasText(validationCommand) || allowedValidationCommands == null || allowedValidationCommands.isEmpty()) {
+            return false;
+        }
+        String normalizedCommand = normalizeCommand(validationCommand);
+        return allowedValidationCommands.stream()
+                .filter(StringUtils::hasText)
+                .map(this::normalizeCommand)
+                .anyMatch(normalizedCommand::equals);
+    }
+
+    private String normalizeCommand(String command) {
+        return command == null ? "" : command.trim().replaceAll("\\s+", " ");
+    }
+
+    private void sanitizeValidationEnvironment(Map<String, String> environment, Path workDir) {
+        Map<String, String> inheritedSafeValues = new HashMap<>();
+        keepEnvironmentValue(environment, inheritedSafeValues, "PATH");
+        keepEnvironmentValue(environment, inheritedSafeValues, "Path");
+        keepEnvironmentValue(environment, inheritedSafeValues, "SystemRoot");
+        keepEnvironmentValue(environment, inheritedSafeValues, "WINDIR");
+        keepEnvironmentValue(environment, inheritedSafeValues, "TEMP");
+        keepEnvironmentValue(environment, inheritedSafeValues, "TMP");
+        environment.clear();
+        environment.putAll(inheritedSafeValues);
+        String isolatedHome = workDir.resolve(".codepilot-validation-home").toString();
+        environment.put("HOME", isolatedHome);
+        environment.put("USERPROFILE", isolatedHome);
+    }
+
+    private void keepEnvironmentValue(Map<String, String> source, Map<String, String> target, String key) {
+        String value = source.get(key);
+        if (StringUtils.hasText(value)) {
+            target.put(key, value);
+        }
     }
 
     private void deleteQuietly(Path path) {

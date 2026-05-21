@@ -70,7 +70,7 @@ docker compose -f docker-compose.server.yml down
 - 如果你要放到 Nginx / Caddy 后面，可以只对外暴露反向代理端口。
 - RabbitMQ 管理界面默认已经映射到 `15672`，直接访问 `http://<host>:15672` 即可。
 - 当前统一端口为：PostgreSQL 容器内 `5432` / 宿主机 `15432`，Redis 容器内 `6379` / 宿主机 `16379`，RabbitMQ AMQP `5672`，RabbitMQ 管理界面 `15672`，应用 `8080`。
-- `@x-pilotx fix` 默认关闭，开启 `CODEPILOT_GITHUB_FIX_ENABLED=true` 后才会在临时检出的 PR 分支里执行校验命令。服务器部署会持久化 Maven 本地仓库到 `maven-cache` volume，避免每次校验都重新下载依赖。校验超时时间可通过 `CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS` 调整。
+- `@x-pilotx fix` 默认关闭，开启 `CODEPILOT_GITHUB_FIX_ENABLED=true` 后才会在临时检出的 PR 分支里执行校验命令。默认校验命令是 `git diff --check`，不会执行 PR 内构建脚本；如果改成 Maven/Gradle/npm 等构建命令，必须同时配置 `CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS`，并先准备隔离沙箱。校验超时时间可通过 `CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS` 调整。
 
 ## 6. 说明
 

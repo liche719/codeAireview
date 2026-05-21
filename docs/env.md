@@ -118,7 +118,11 @@
 - `CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES`
   - 单个补丁最多可包含的新增/删除行数，默认 `120`。
 - `CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND`
-  - 提交和推送前执行的校验命令，默认 `mvn -q -DskipTests compile`。
+  - 提交和推送前执行的校验命令，默认 `git diff --check`。默认值只做 diff 空白检查，不执行 PR 内构建脚本。
+- `CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS`
+  - 允许执行的校验命令白名单，默认只有 `git diff --check`。如果要使用 `mvn -q -DskipTests compile` 等命令，必须显式加入白名单，并意识到这会执行 PR 代码/构建插件。
+- `CODEPILOT_GITHUB_FIX_VALIDATION_INHERIT_ENVIRONMENT`
+  - 校验进程是否继承服务进程环境变量，默认 `false`，避免 LLM/GitHub Token 等敏感变量暴露给 PR 代码。
 - `CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS`
   - 修复补丁校验命令的最大等待时间，默认 `300` 秒。服务器首次运行 Maven 时可能需要下载依赖，超时过短会导致补丁已生成但不会提交。
 
@@ -128,4 +132,4 @@
 - `@x-pilotx fix dry-run`
 - `@x-pilotx fix`
 
-修复模式只会推送到同仓库的当前 PR head 分支。Fork PR 不支持自动修复。Fine-grained GitHub Token 在修复模式下需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`。
+修复模式只会推送到同仓库的当前 PR head 分支，且只会复用与当前 head sha 匹配的成功审查结果。Fork PR 不支持自动修复。Fine-grained GitHub Token 在修复模式下需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`。

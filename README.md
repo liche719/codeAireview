@@ -215,13 +215,13 @@ PR 评论支持以下命令：
 @x-pilotx fix
 ```
 
-`@x-pilotx review` 会复用普通审查流水线，并创建新的 PR 总结评论。`@x-pilotx fix dry-run` 会生成并校验一个小型 unified diff，但不会推送提交。`@x-pilotx fix` 会使用最近一次成功的审查结果，在临时检出目录中应用补丁，运行校验命令，通过后才向当前 PR 分支推送新提交。
+`@x-pilotx review` 会复用普通审查流水线，并创建新的 PR 总结评论。`@x-pilotx fix dry-run` 会生成并校验一个小型 unified diff，但不会推送提交。`@x-pilotx fix` 会使用与当前 PR head sha 匹配的最近一次成功审查结果，在临时检出目录中应用补丁，运行校验命令，通过后才向当前 PR 分支推送新提交。
 
 Fix 模式默认关闭。若要开启，请设置 `CODEPILOT_GITHUB_FIX_ENABLED=true`。它只会写回同仓库的 PR 分支，token 仍需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`。
 
 PR 评论命令默认只允许 GitHub `author_association` 为 `OWNER`、`MEMBER` 或 `COLLABORATOR` 的评论者触发。若确需调整，请设置 `CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS`。
 
-修复提交前的校验命令默认是 `mvn -q -DskipTests compile`，最大等待时间由 `CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS` 控制，默认 `300` 秒。服务器 Docker 部署会持久化 Maven 本地仓库，减少首次依赖下载导致的校验超时。
+修复提交前的校验命令默认是 `git diff --check`，只检查补丁空白错误，不执行 PR 内的构建脚本。若要改成 `mvn -q -DskipTests compile` 等命令，必须同时把它加入 `CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS`；这会执行 PR 代码和构建插件，生产环境必须先做隔离沙箱。默认 `CODEPILOT_GITHUB_FIX_VALIDATION_INHERIT_ENVIRONMENT=false`，校验进程不会继承服务进程里的 LLM/GitHub 等敏感环境变量。
 
 ## RAG 规范库使用说明
 

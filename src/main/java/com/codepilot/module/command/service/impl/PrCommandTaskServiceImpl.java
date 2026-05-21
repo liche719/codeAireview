@@ -374,6 +374,8 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         request.setToken(githubToken);
         request.setCommitMessage(resolveCommitMessage(commitMessage));
         request.setValidationCommand(properties.getFixValidationCommand());
+        request.setAllowedValidationCommands(properties.getFixAllowedValidationCommands());
+        request.setInheritValidationEnvironment(properties.isFixValidationInheritEnvironment());
         request.setValidationTimeoutSeconds(properties.getFixValidationTimeoutSeconds());
         request.setDryRun(Boolean.TRUE.equals(task.getDryRun()));
         return request;

@@ -66,7 +66,7 @@ PR 评论命令还支持：
 @x-pilotx fix
 ```
 
-`@x-pilotx fix dry-run` previews the generated patch without pushing a commit. `@x-pilotx fix` uses the latest successful review issues, generates a small unified diff, validates it, and only then pushes a new commit to the current PR branch. Automatic fix is only supported for PR branches in the same repository.
+`@x-pilotx fix dry-run` previews the generated patch without pushing a commit. `@x-pilotx fix` only reuses successful review issues from the current PR head sha, generates a small unified diff, validates it with the allowlisted validation command, and only then pushes a new commit to the current PR branch. Automatic fix is only supported for PR branches in the same repository.
 
 7. 提交一个包含 SQL 拼接和敏感信息的 PR。
 

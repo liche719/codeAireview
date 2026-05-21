@@ -26,7 +26,11 @@ public class GithubCommandProperties {
 
     private int fixMaxChangedLines = 120;
 
-    private String fixValidationCommand = "mvn -q -DskipTests compile";
+    private String fixValidationCommand = "git diff --check";
+
+    private List<String> fixAllowedValidationCommands = new ArrayList<>(List.of("git diff --check"));
+
+    private boolean fixValidationInheritEnvironment = false;
 
     private int fixValidationTimeoutSeconds = 300;
 }
