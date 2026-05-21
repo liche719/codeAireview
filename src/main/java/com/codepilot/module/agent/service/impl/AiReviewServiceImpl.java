@@ -1,6 +1,7 @@
 package com.codepilot.module.agent.service.impl;
 
 import com.codepilot.infrastructure.llm.LlmProperties;
+import com.codepilot.common.util.PromptInputSanitizer;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.agent.dto.AiReviewIssue;
 import com.codepilot.module.agent.dto.AiReviewResult;
@@ -92,7 +93,12 @@ public class AiReviewServiceImpl implements AiReviewService {
         long startTime = System.currentTimeMillis();
 
         try {
-            Result<String> result = codeReviewAiAssistant.review(filePath, patch, rulesContext, allChangedFilesText);
+            Result<String> result = codeReviewAiAssistant.review(
+                    promptSafe(filePath),
+                    promptSafe(patch),
+                    promptSafe(rulesContext),
+                    promptSafe(allChangedFilesText)
+            );
             responseText = result == null ? null : result.content();
             if (!StringUtils.hasText(responseText)) {
                 errorMessage = "empty model response";
@@ -151,6 +157,10 @@ public class AiReviewServiceImpl implements AiReviewService {
             return "No changed file list was provided.";
         }
         return String.join("\n", allChangedFiles);
+    }
+
+    private String promptSafe(String content) {
+        return PromptInputSanitizer.escapeUntrustedBlockDelimiters(content);
     }
 
     private AiReviewResult runDeterministicTools(String filePath, String patch, String allChangedFilesText) {

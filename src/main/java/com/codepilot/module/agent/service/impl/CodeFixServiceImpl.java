@@ -1,6 +1,7 @@
 package com.codepilot.module.agent.service.impl;
 
 import com.codepilot.infrastructure.llm.LlmProperties;
+import com.codepilot.common.util.PromptInputSanitizer;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.agent.dto.CodeFixResult;
 import com.codepilot.module.agent.parser.CodeFixResultParser;
@@ -50,7 +51,7 @@ public class CodeFixServiceImpl implements CodeFixService {
         String errorMessage = null;
         boolean success = false;
         try {
-            Result<String> result = assistant.generateFix(issues, snippets, limits);
+            Result<String> result = assistant.generateFix(promptSafe(issues), promptSafe(snippets), promptSafe(limits));
             responseText = result == null ? null : result.content();
             success = StringUtils.hasText(responseText);
             return codeFixResultParser.parse(responseText);
@@ -95,6 +96,10 @@ public class CodeFixServiceImpl implements CodeFixService {
 
     private int length(String value) {
         return value == null ? 0 : value.length();
+    }
+
+    private String promptSafe(String content) {
+        return PromptInputSanitizer.escapeUntrustedBlockDelimiters(content);
     }
 
     private String truncate(String content, int maxLength) {

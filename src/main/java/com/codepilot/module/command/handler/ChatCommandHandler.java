@@ -1,6 +1,8 @@
 package com.codepilot.module.command.handler;
 
 import com.codepilot.infrastructure.llm.LlmProperties;
+import com.codepilot.common.util.PromptInputSanitizer;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.command.dto.GithubCommandType;
 import com.codepilot.module.git.client.GithubClient;
@@ -43,8 +45,8 @@ public class ChatCommandHandler implements GithubCommandHandler {
             }
 
             String response = assistant.reply(
-                    safeText(payload.getCommentBody(), ""),
-                    safeText(payload.getCommandText(), ""),
+                    promptSafe(payload.getCommentBody()),
+                    promptSafe(payload.getCommandText()),
                     payload.getOwner(),
                     payload.getRepo(),
                     payload.getPullNumber()
@@ -56,8 +58,9 @@ public class ChatCommandHandler implements GithubCommandHandler {
                     formatCommentBody(response)
             );
         } catch (Exception exception) {
-            log.warn("GitHub command chat comment failed but ignored, owner={}, repo={}, pullNumber={}, message={}",
-                    payload.getOwner(), payload.getRepo(), payload.getPullNumber(), exception.getMessage());
+            log.warn("GitHub command chat comment failed but ignored, owner={}, repo={}, pullNumber={}, errorType={}, message={}",
+                    payload.getOwner(), payload.getRepo(), payload.getPullNumber(),
+                    exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
             try {
                 postUnavailableComment(payload);
             } catch (Exception ignored) {
@@ -103,5 +106,9 @@ public class ChatCommandHandler implements GithubCommandHandler {
 
     private String safeText(String value, String fallback) {
         return StringUtils.hasText(value) ? value : fallback;
+    }
+
+    private String promptSafe(String value) {
+        return PromptInputSanitizer.escapeUntrustedBlockDelimiters(safeText(value, ""));
     }
 }
