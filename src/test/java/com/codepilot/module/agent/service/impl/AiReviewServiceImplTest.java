@@ -49,6 +49,31 @@ class AiReviewServiceImplTest {
     }
 
     @Test
+    void shouldRedactSecretsFromLlmResponseSummary() {
+        TestContext context = new TestContext();
+        when(context.assistant.review(any(), any(), any(), any()))
+                .thenReturn(new Result<>("""
+                        {
+                          "issues": [],
+                          "summary": "token=ghp_123456789012345678901234567890123456"
+                        }
+                        """, null, List.of(), null, List.of()));
+        ArgumentCaptor<LlmCallLog> logCaptor = ArgumentCaptor.forClass(LlmCallLog.class);
+
+        context.service.reviewFile(
+                1L,
+                "src/main/java/Demo.java",
+                "@@ -1,1 +1,2 @@\n+class Demo {}",
+                List.of("src/main/java/Demo.java")
+        );
+
+        verify(context.llmCallLogService).save(logCaptor.capture());
+        assertThat(logCaptor.getValue().getResponseSummary())
+                .contains("[REDACTED]")
+                .doesNotContain("ghp_123456789012345678901234567890123456");
+    }
+
+    @Test
     void shouldSaveFailedCallLogAndThrowWhenModelResponseIsEmpty() {
         TestContext context = new TestContext();
         when(context.assistant.review(any(), any(), any(), any()))

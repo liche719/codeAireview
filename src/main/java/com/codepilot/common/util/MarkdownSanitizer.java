@@ -11,7 +11,8 @@ public final class MarkdownSanitizer {
         if (!StringUtils.hasText(content)) {
             return fallback;
         }
-        String compact = content.replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ")
+        String compact = SensitiveDataSanitizer.redact(content)
+                .replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
         if (compact.length() > maxLength) {
@@ -24,7 +25,8 @@ public final class MarkdownSanitizer {
         if (!StringUtils.hasText(content)) {
             return fallback;
         }
-        String safe = content.replace("\u0000", "")
+        String safe = SensitiveDataSanitizer.redact(content)
+                .replace("\u0000", "")
                 .replace("```", "`\u200b``");
         if (safe.length() > maxLength) {
             safe = safe.substring(0, maxLength) + "\n... truncated ...";

@@ -1,6 +1,7 @@
 package com.codepilot.module.agent.service.impl;
 
 import com.codepilot.infrastructure.llm.LlmProperties;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.agent.dto.AiReviewIssue;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.dto.ReviewRuleContext;
@@ -103,8 +104,9 @@ public class AiReviewServiceImpl implements AiReviewService {
             success = true;
             return mergeResults(parsedResult, deterministicResult);
         } catch (Exception exception) {
-            errorMessage = exception.getMessage();
-            log.warn("LangChain4j ai review failed, filePath={}, message={}", filePath, errorMessage, exception);
+            errorMessage = SensitiveDataSanitizer.redact(exception.getMessage());
+            log.warn("LangChain4j ai review failed, filePath={}, errorType={}, message={}",
+                    filePath, exception.getClass().getSimpleName(), errorMessage);
             throw exception;
         } finally {
             long costTimeMs = System.currentTimeMillis() - startTime;
@@ -128,13 +130,14 @@ public class AiReviewServiceImpl implements AiReviewService {
             logRecord.setModelName(llmProperties.getModel());
             logRecord.setCostTimeMs(costTimeMs);
             logRecord.setRequestSummary(buildRequestSummary(filePath, patch, ruleCount));
-            logRecord.setResponseSummary(truncate(responseText, RESPONSE_SUMMARY_LIMIT));
+            logRecord.setResponseSummary(SensitiveDataSanitizer.redactAndTruncate(responseText, RESPONSE_SUMMARY_LIMIT));
             logRecord.setSuccess(success);
-            logRecord.setErrorMessage(errorMessage);
+            logRecord.setErrorMessage(SensitiveDataSanitizer.redact(errorMessage));
             logRecord.setCreatedAt(LocalDateTime.now());
             llmCallLogService.save(logRecord);
         } catch (Exception exception) {
-            log.warn("Failed to save llm call log, taskId={}, filePath={}", taskId, filePath, exception);
+            log.warn("Failed to save llm call log, taskId={}, filePath={}, errorType={}, message={}",
+                    taskId, filePath, exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
         }
     }
 

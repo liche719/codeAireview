@@ -2,6 +2,8 @@ package com.codepilot.module.command.git;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -111,5 +113,51 @@ class JGitPatchExecutorTest {
         assertThat(executor.isRetryableExecutionStage("push")).isTrue();
         assertThat(executor.isRetryableExecutionStage("apply")).isFalse();
         assertThat(executor.isRetryableExecutionStage("validate")).isFalse();
+    }
+
+    @Test
+    void shouldRedactSecretsFromValidationOutput() throws Exception {
+        JGitPatchExecutor executor = new JGitPatchExecutor();
+        Path outputFile = Files.createTempFile("codepilot-validation-test-", ".log");
+        try {
+            Files.writeString(outputFile, "token=ghp_123456789012345678901234567890123456");
+
+            String output = executor.sanitizedValidationOutput(outputFile);
+
+            assertThat(output).contains("[REDACTED]");
+            assertThat(output).doesNotContain("ghp_123456789012345678901234567890123456");
+        } finally {
+            Files.deleteIfExists(outputFile);
+        }
+    }
+
+    @Test
+    void shouldRedactSecretsBeforeTruncatingValidationOutput() throws Exception {
+        JGitPatchExecutor executor = new JGitPatchExecutor();
+        Path outputFile = Files.createTempFile("codepilot-validation-test-", ".log");
+        try {
+            Files.writeString(
+                    outputFile,
+                    "x".repeat(11990) + " token=ghp_123456789012345678901234567890123456"
+            );
+
+            String output = executor.sanitizedValidationOutput(outputFile);
+
+            assertThat(output)
+                    .contains("[REDACTED]")
+                    .doesNotContain("ghp_")
+                    .doesNotContain("123456789012345678901234567890123456");
+        } finally {
+            Files.deleteIfExists(outputFile);
+        }
+    }
+
+    @Test
+    void shouldAvoidLoggingCredentialsFromRemoteUrl() {
+        JGitPatchExecutor executor = new JGitPatchExecutor();
+
+        String label = executor.safeRemoteLabel("https://user:token123456@example.com/owner/repo.git");
+
+        assertThat(label).isEqualTo("example.com");
     }
 }

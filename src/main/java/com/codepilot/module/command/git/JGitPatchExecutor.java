@@ -1,6 +1,7 @@
 package com.codepilot.module.command.git;
 
 import lombok.extern.slf4j.Slf4j;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
@@ -53,8 +54,8 @@ public class JGitPatchExecutor implements GitPatchExecutor {
 
             stage = "create-temp-dir";
             workDir = Files.createTempDirectory("codepilot-fix-");
-            log.info("Git patch execution started, stage={}, branch={}, dryRun={}, hasValidationCommand={}, cloneUrl={}",
-                    stage, branch, dryRun, StringUtils.hasText(request.getValidationCommand()), cloneUrl);
+            log.info("Git patch execution started, stage={}, branch={}, dryRun={}, hasValidationCommand={}, cloneUrlHost={}",
+                    stage, branch, dryRun, StringUtils.hasText(request.getValidationCommand()), safeRemoteLabel(cloneUrl));
 
             UsernamePasswordCredentialsProvider credentials = new UsernamePasswordCredentialsProvider(
                     "x-access-token",
@@ -62,7 +63,7 @@ public class JGitPatchExecutor implements GitPatchExecutor {
             );
 
             stage = "clone";
-            log.info("Git patch execution stage start, stage={}, branch={}, cloneUrl={}", stage, branch, cloneUrl);
+            log.info("Git patch execution stage start, stage={}, branch={}, cloneUrlHost={}", stage, branch, safeRemoteLabel(cloneUrl));
             try (Git git = Git.cloneRepository()
                     .setURI(request.getCloneUrl())
                     .setDirectory(workDir.toFile())
@@ -143,19 +144,18 @@ public class JGitPatchExecutor implements GitPatchExecutor {
         } catch (Exception exception) {
             String branch = request == null ? null : request.getBranch();
             String cloneUrl = request == null ? null : request.getCloneUrl();
-            log.warn("Git patch execution failed, stage={}, branch={}, cloneUrl={}, dryRun={}, errorType={}, message={}",
+            log.warn("Git patch execution failed, stage={}, branch={}, cloneUrlHost={}, dryRun={}, errorType={}, message={}",
                     stage,
                     branch,
-                    cloneUrl,
+                    safeRemoteLabel(cloneUrl),
                     request != null && request.isDryRun(),
                     exception.getClass().getSimpleName(),
-                    exception.getMessage(),
-                    exception);
-            String message = "Git patch execution failed at stage " + stage + ": " + exception.getMessage();
+                    SensitiveDataSanitizer.redact(exception.getMessage()));
+            String message = SensitiveDataSanitizer.redact("Git patch execution failed at stage " + stage + ": " + exception.getMessage());
             String detail = "stage=" + stage
                     + ", errorType=" + exception.getClass().getSimpleName()
                     + ", branch=" + branch
-                    + ", cloneUrl=" + cloneUrl;
+                    + ", cloneUrlHost=" + safeRemoteLabel(cloneUrl);
             return isRetryableExecutionStage(stage)
                     ? GitPatchExecutionResult.retryableFailure(message, detail)
                     : GitPatchExecutionResult.failure(message, detail);
@@ -209,8 +209,9 @@ public class JGitPatchExecutor implements GitPatchExecutor {
         if (!isValidationCommandAllowed(parsedCommand, allowedValidationCommands)) {
             return GitPatchExecutionResult.failure(
                     "Validation command is not allowed.",
-                    "command=" + parsedCommand.normalized()
+                    SensitiveDataSanitizer.redact("command=" + parsedCommand.normalized()
                             + ", allowedCommands=" + allowedValidationCommands
+                    )
             );
         }
         Path outputFile = Files.createTempFile("codepilot-validation-", ".log");
@@ -229,10 +230,10 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                 process.waitFor(5, TimeUnit.SECONDS);
                 return GitPatchExecutionResult.failure(
                         "Validation command timed out after " + timeoutSeconds + " seconds.",
-                        readValidationOutput(outputFile)
+                        sanitizedValidationOutput(outputFile)
                 );
             }
-            String output = readValidationOutput(outputFile);
+            String output = sanitizedValidationOutput(outputFile);
             if (process.exitValue() != 0) {
                 return GitPatchExecutionResult.failure("Validation command failed with exit code " + process.exitValue(), output);
             }
@@ -253,11 +254,36 @@ public class JGitPatchExecutor implements GitPatchExecutor {
         if (outputFile == null || !Files.exists(outputFile)) {
             return "";
         }
-        String output = Files.readString(outputFile, StandardCharsets.UTF_8);
+        return Files.readString(outputFile, StandardCharsets.UTF_8);
+    }
+
+    private String truncateValidationOutput(String output) {
         if (output.length() <= MAX_VALIDATION_OUTPUT_CHARS) {
             return output;
         }
-        return output.substring(0, MAX_VALIDATION_OUTPUT_CHARS) + "\n... output truncated ...";
+        return SensitiveDataSanitizer.truncatePreservingRedactionMarker(output, MAX_VALIDATION_OUTPUT_CHARS)
+                + "\n... output truncated ...";
+    }
+
+    String sanitizedValidationOutput(Path outputFile) throws IOException {
+        return truncateValidationOutput(SensitiveDataSanitizer.redact(readValidationOutput(outputFile)));
+    }
+
+    String safeRemoteLabel(String cloneUrl) {
+        if (!StringUtils.hasText(cloneUrl)) {
+            return "unknown";
+        }
+        try {
+            java.net.URI uri = java.net.URI.create(cloneUrl);
+            if (StringUtils.hasText(uri.getHost())) {
+                return uri.getHost();
+            }
+        } catch (IllegalArgumentException ignored) {
+            // Fall back to a redacted, truncated label for non-URI Git remotes.
+        }
+        String redacted = SensitiveDataSanitizer.redact(cloneUrl);
+        int maxLength = 80;
+        return redacted.length() <= maxLength ? redacted : redacted.substring(0, maxLength);
     }
 
     private List<String> splitCommand(String command) {

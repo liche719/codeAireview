@@ -32,6 +32,17 @@ class MarkdownSanitizerTest {
     }
 
     @Test
+    void shouldRedactSecretsBeforeRenderingMarkdown() {
+        assertThat(MarkdownSanitizer.sanitizeInlineText("token=ghp_123456789012345678901234567890123456", 500, "N/A"))
+                .contains("REDACTED")
+                .doesNotContain("ghp_123456789012345678901234567890123456");
+
+        assertThat(MarkdownSanitizer.sanitizeCodeBlockText("+password=\"plain-secret\"", 500, "N/A"))
+                .contains("[REDACTED]")
+                .doesNotContain("plain-secret");
+    }
+
+    @Test
     void shouldReturnFallbackWhenTextIsBlank() {
         assertThat(MarkdownSanitizer.sanitizeInlineText("  ", 500, "N/A")).isEqualTo("N/A");
         assertThat(MarkdownSanitizer.sanitizeCodeBlockText(null, 500, "N/A")).isEqualTo("N/A");

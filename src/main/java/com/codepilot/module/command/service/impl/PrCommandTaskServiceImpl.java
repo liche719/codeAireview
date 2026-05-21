@@ -3,6 +3,7 @@ package com.codepilot.module.command.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.codepilot.common.enums.ReviewTaskStatus;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.common.util.MarkdownSanitizer;
 import com.codepilot.module.agent.dto.AiReviewIssue;
 import com.codepilot.module.agent.dto.AiReviewResult;
@@ -230,9 +231,10 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                         + (StringUtils.hasText(task.getCommitSha()) ? "：`" + task.getCommitSha() + "`" : "。"));
             }
         } catch (NonRetryableFixTaskException exception) {
-            completeFailed(task, exception.getMessage());
-            commandTaskLogService.record(task.getId(), "FAILED", false, exception.getMessage(), null);
-            comment(task, "我没能完成这次修复请求。\n\n" + truncate(exception.getMessage(), 500));
+            String message = SensitiveDataSanitizer.redact(exception.getMessage());
+            completeFailed(task, message);
+            commandTaskLogService.record(task.getId(), "FAILED", false, message, null);
+            comment(task, "我没能完成这次修复请求。\n\n" + truncate(message, 500));
         } catch (Exception exception) {
             handleRetryableFailure(task, exception);
         }
@@ -258,7 +260,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     }
 
     private void handleRetryableFailure(PrCommandTask task, Exception exception) {
-        String message = exception.getMessage();
+        String message = SensitiveDataSanitizer.redact(exception.getMessage());
         if (isFinalRetryAttempt()) {
             completeFailed(task, message);
             commandTaskLogService.record(task.getId(), "FAILED", false, message, retryDetail(exception));

@@ -1,6 +1,7 @@
 package com.codepilot.module.agent.service.impl;
 
 import com.codepilot.infrastructure.llm.LlmProperties;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.agent.dto.CodeFixResult;
 import com.codepilot.module.agent.parser.CodeFixResultParser;
 import com.codepilot.module.agent.service.CodeFixAiAssistant;
@@ -54,8 +55,9 @@ public class CodeFixServiceImpl implements CodeFixService {
             success = StringUtils.hasText(responseText);
             return codeFixResultParser.parse(responseText);
         } catch (Exception exception) {
-            errorMessage = exception.getMessage();
-            log.warn("Code fix generation failed, commandTaskId={}, message={}", commandTaskId, errorMessage, exception);
+            errorMessage = SensitiveDataSanitizer.redact(exception.getMessage());
+            log.warn("Code fix generation failed, commandTaskId={}, errorType={}, message={}",
+                    commandTaskId, exception.getClass().getSimpleName(), errorMessage);
             throw new IllegalStateException("code fix generation failed", exception);
         } finally {
             saveCallLog(commandTaskId, issues, snippets, limits, System.currentTimeMillis() - startTime, success, errorMessage, responseText);
@@ -80,13 +82,14 @@ public class CodeFixServiceImpl implements CodeFixService {
             logRecord.setRequestSummary("codeFix issuesLength=" + length(issues)
                     + ", snippetsLength=" + length(snippets)
                     + ", limits=" + limits);
-            logRecord.setResponseSummary(truncate(responseText, RESPONSE_SUMMARY_LIMIT));
+            logRecord.setResponseSummary(SensitiveDataSanitizer.redactAndTruncate(responseText, RESPONSE_SUMMARY_LIMIT));
             logRecord.setSuccess(success);
-            logRecord.setErrorMessage(errorMessage);
+            logRecord.setErrorMessage(SensitiveDataSanitizer.redact(errorMessage));
             logRecord.setCreatedAt(LocalDateTime.now());
             llmCallLogService.save(logRecord);
         } catch (Exception exception) {
-            log.warn("Failed to save code fix llm call log, commandTaskId={}", commandTaskId, exception);
+            log.warn("Failed to save code fix llm call log, commandTaskId={}, errorType={}, message={}",
+                    commandTaskId, exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
         }
     }
 
