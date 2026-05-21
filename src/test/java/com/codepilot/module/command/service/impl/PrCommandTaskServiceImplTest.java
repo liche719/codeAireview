@@ -2,13 +2,24 @@ package com.codepilot.module.command.service.impl;
 
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.config.GithubCommandProperties;
+import com.codepilot.module.command.mapper.PrCommandTaskMapper;
+import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
 import com.codepilot.module.review.entity.ReviewTask;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class PrCommandTaskServiceImplTest {
 
@@ -125,6 +136,59 @@ class PrCommandTaskServiceImplTest {
                 .hasMessageContaining("补丁修改的行数过多");
     }
 
+    @Test
+    void shouldReuseExistingFixTaskForSameCommentId() {
+        TestContext context = new TestContext();
+        PrCommandTask existingTask = existingFixTask(99L, "PENDING");
+        when(context.mapper.selectList(any())).thenReturn(List.of(existingTask));
+
+        PrCommandTask task = context.service.createFixTask(payload());
+
+        assertThat(task).isSameAs(existingTask);
+        verify(context.mapper, never()).insert(any(PrCommandTask.class));
+    }
+
+    @Test
+    void shouldReuseConcurrentlyCreatedFixTaskWhenUniqueIndexRejectsDuplicate() {
+        TestContext context = new TestContext();
+        PrCommandTask existingTask = existingFixTask(99L, "PENDING");
+        when(context.mapper.selectList(any())).thenReturn(List.of(), List.of(existingTask));
+        when(context.mapper.insert(any(PrCommandTask.class))).thenThrow(new DuplicateKeyException("duplicate"));
+
+        PrCommandTask task = context.service.createFixTask(payload());
+
+        assertThat(task).isSameAs(existingTask);
+    }
+
+    @Test
+    void shouldInsertNewFixTaskWhenCommentHasNotBeenHandled() {
+        TestContext context = new TestContext();
+        when(context.mapper.selectList(any())).thenReturn(List.of());
+        when(context.mapper.insert(any(PrCommandTask.class))).thenAnswer(invocation -> {
+            PrCommandTask task = invocation.getArgument(0);
+            task.setId(100L);
+            return 1;
+        });
+
+        PrCommandTask task = context.service.createFixTask(payload());
+
+        assertThat(task.getId()).isEqualTo(100L);
+        assertThat(task.getCommandType()).isEqualTo("FIX");
+        assertThat(task.getStatus()).isEqualTo("PENDING");
+        assertThat(task.getCommentId()).isEqualTo(99L);
+    }
+
+    @Test
+    void shouldSkipTerminalFixTaskMessage() {
+        TestContext context = new TestContext();
+        when(context.mapper.selectById(1L)).thenReturn(existingFixTask(99L, "SUCCESS"));
+
+        context.service.processFixTask(1L);
+
+        verify(context.mapper, never()).updateById(any(PrCommandTask.class));
+        verify(context.githubClient, never()).getPullRequestDetail(any(), any(), any());
+    }
+
     private PrCommandTaskServiceImpl serviceWithDefaultProperties() {
         return serviceWithProperties(new GithubCommandProperties());
     }
@@ -141,5 +205,56 @@ class PrCommandTaskServiceImplTest {
                 null,
                 null
         );
+    }
+
+    private GitHubPullRequestWebhookPayload payload() {
+        GitHubPullRequestWebhookPayload payload = new GitHubPullRequestWebhookPayload();
+        payload.setOwner("liche719");
+        payload.setRepo("codeAireview");
+        payload.setPullNumber(12);
+        payload.setPrUrl("https://github.com/liche719/codeAireview/pull/12");
+        payload.setTitle("Fix SQL risk");
+        payload.setHeadSha("abc123");
+        payload.setCommentId(99L);
+        payload.setCommentBody("@x-pilotx fix");
+        payload.setCommentUserLogin("reviewer");
+        payload.setDryRun(true);
+        return payload;
+    }
+
+    private PrCommandTask existingFixTask(Long commentId, String status) {
+        PrCommandTask task = new PrCommandTask();
+        task.setId(1L);
+        task.setCommandType("FIX");
+        task.setStatus(status);
+        task.setRepoOwner("liche719");
+        task.setRepoName("codeAireview");
+        task.setPrNumber(12);
+        task.setCommentId(commentId);
+        return task;
+    }
+
+    private static class TestContext {
+
+        private final PrCommandTaskMapper mapper = mock(PrCommandTaskMapper.class);
+
+        private final GithubClient githubClient = mock(GithubClient.class);
+
+        private final PrCommandTaskServiceImpl service;
+
+        private TestContext() {
+            service = new PrCommandTaskServiceImpl(
+                    new GithubCommandProperties(),
+                    githubClient,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+            );
+            ReflectionTestUtils.setField(service, "baseMapper", mapper);
+        }
     }
 }

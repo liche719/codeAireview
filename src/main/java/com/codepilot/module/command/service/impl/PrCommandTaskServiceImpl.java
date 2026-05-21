@@ -29,6 +29,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -98,6 +99,18 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PrCommandTask createFixTask(GitHubPullRequestWebhookPayload payload) {
+        PrCommandTask existingTask = findExistingFixTask(payload);
+        if (existingTask != null) {
+            log.info("Reuse existing PR fix command task, commandTaskId={}, owner={}, repo={}, pullNumber={}, commentId={}, status={}",
+                    existingTask.getId(),
+                    payload.getOwner(),
+                    payload.getRepo(),
+                    payload.getPullNumber(),
+                    payload.getCommentId(),
+                    existingTask.getStatus());
+            return existingTask;
+        }
+
         PrCommandTask task = new PrCommandTask();
         task.setCommandType("FIX");
         task.setStatus("PENDING");
@@ -113,7 +126,21 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         task.setDryRun(Boolean.TRUE.equals(payload.getDryRun()));
         task.setCreatedAt(LocalDateTime.now());
         task.setUpdatedAt(LocalDateTime.now());
-        save(task);
+        try {
+            save(task);
+        } catch (DuplicateKeyException exception) {
+            PrCommandTask duplicateTask = findExistingFixTask(payload);
+            if (duplicateTask != null) {
+                log.info("Reuse concurrently created PR fix command task, commandTaskId={}, owner={}, repo={}, pullNumber={}, commentId={}",
+                        duplicateTask.getId(),
+                        payload.getOwner(),
+                        payload.getRepo(),
+                        payload.getPullNumber(),
+                        payload.getCommentId());
+                return duplicateTask;
+            }
+            throw exception;
+        }
         return task;
     }
 
@@ -122,6 +149,12 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         PrCommandTask task = getById(commandTaskId);
         if (task == null) {
             log.warn("PR command task not found, commandTaskId={}", commandTaskId);
+            return;
+        }
+
+        if (isTerminalStatus(task.getStatus())) {
+            log.info("Skip terminal PR command task message, commandTaskId={}, status={}",
+                    commandTaskId, task.getStatus());
             return;
         }
 
@@ -193,6 +226,25 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             commandTaskLogService.record(task.getId(), "FAILED", false, exception.getMessage(), null);
             comment(task, "我没能完成这次修复请求。\n\n" + truncate(exception.getMessage(), 500));
         }
+    }
+
+    private PrCommandTask findExistingFixTask(GitHubPullRequestWebhookPayload payload) {
+        if (payload == null || payload.getCommentId() == null) {
+            return null;
+        }
+        List<PrCommandTask> tasks = list(new LambdaQueryWrapper<PrCommandTask>()
+                .eq(PrCommandTask::getCommandType, "FIX")
+                .eq(PrCommandTask::getRepoOwner, payload.getOwner())
+                .eq(PrCommandTask::getRepoName, payload.getRepo())
+                .eq(PrCommandTask::getPrNumber, payload.getPullNumber())
+                .eq(PrCommandTask::getCommentId, payload.getCommentId())
+                .orderByDesc(PrCommandTask::getId)
+                .last("LIMIT 1"));
+        return tasks == null || tasks.isEmpty() ? null : tasks.getFirst();
+    }
+
+    private boolean isTerminalStatus(String status) {
+        return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status);
     }
 
     private void assertWritableSameRepo(PrCommandTask task, GithubPullRequestDetail detail) {

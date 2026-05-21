@@ -29,4 +29,18 @@ class DatabaseMigrationResourceTest {
         assertThat(migration.split("NOT VALID", -1).length - 1).isEqualTo(5);
         assertThat(migration.split("ON DELETE CASCADE", -1).length - 1).isEqualTo(4);
     }
+
+    @Test
+    void shouldEnforcePrCommandCommentIdempotencyAfterCleaningLegacyDuplicates() throws Exception {
+        String migration = new ClassPathResource("db/migration/V8__dedupe_pr_command_task_comments.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(migration)
+                .contains("ROW_NUMBER() OVER")
+                .contains("PARTITION BY command_type, repo_owner, repo_name, pr_number, comment_id")
+                .contains("SET comment_id = NULL")
+                .contains("CREATE UNIQUE INDEX IF NOT EXISTS uq_pr_command_task_fix_comment_id")
+                .contains("WHERE command_type = 'FIX'")
+                .contains("AND comment_id IS NOT NULL");
+    }
 }

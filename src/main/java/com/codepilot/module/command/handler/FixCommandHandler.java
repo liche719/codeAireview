@@ -48,7 +48,16 @@ public class FixCommandHandler implements GithubCommandHandler {
         }
 
         PrCommandTask task = prCommandTaskService.createFixTask(payload);
+        if (isTerminalStatus(task.getStatus())) {
+            log.info("Skip enqueueing terminal PR fix command task, commandTaskId={}, status={}",
+                    task.getId(), task.getStatus());
+            return GithubCommandHandleResult.processed(task.getId(), payload.getAction());
+        }
         prCommandTaskProducer.send(task.getId());
         return GithubCommandHandleResult.processed(task.getId(), payload.getAction());
+    }
+
+    private boolean isTerminalStatus(String status) {
+        return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status);
     }
 }
