@@ -10,8 +10,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 @Slf4j
 @Component
@@ -41,9 +43,10 @@ public class SecretScanTool {
             }
 
             List<ToolCheckResult> results = new ArrayList<>();
+            Set<String> reportedLines = new LinkedHashSet<>();
             for (String line : DiffToolUtils.addedLines(patch)) {
                 String normalized = line.toLowerCase(Locale.ROOT).replace("_", "").replace("-", "");
-                if (containsSensitiveKeyword(normalized)) {
+                if (containsSensitiveKeyword(normalized) && reportedLines.add(normalized.trim())) {
                     results.add(ToolCheckResult.of(
                             "SECURITY",
                             likelyHardcodedValue(line) ? "HIGH" : "MEDIUM",
@@ -51,7 +54,6 @@ public class SecretScanTool {
                             "新增行中出现 password、token、secret、apiKey 等敏感字段，存在硬编码或泄露风险。",
                             "请使用环境变量、配置中心、密钥管理服务，并避免在日志或代码中明文保存敏感信息。"
                     ));
-                    break;
                 }
             }
 

@@ -25,6 +25,25 @@ class SecretScanToolTest {
     }
 
     @Test
+    void shouldReportMultipleDistinctSecretLines() {
+        var results = secretScanTool.scanSecrets(
+                "src/main/java/Demo.java",
+                """
+                        +String token = "abc123";
+                        +String password = "change-me";
+                        +String token = "abc123";
+                        """
+        );
+
+        assertThat(results).hasSize(2);
+        assertThat(results)
+                .allSatisfy(result -> {
+                    assertThat(result.getIssueType()).isEqualTo("SECURITY");
+                    assertThat(result.getSeverity()).isEqualTo("HIGH");
+                });
+    }
+
+    @Test
     void shouldIgnoreDeletedSecretLine() {
         var results = secretScanTool.scanSecrets(
                 "src/main/java/Demo.java",
