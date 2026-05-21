@@ -5,6 +5,7 @@ import org.springframework.util.StringUtils;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -128,13 +129,14 @@ public final class ApplyPatchFormatApplier {
     private static boolean applySection(Path repoRoot, PatchSection section) throws IOException {
         Path targetPath = resolveTargetPath(repoRoot, section.path());
         return switch (section.type()) {
-            case UPDATE -> applyUpdateSection(targetPath, section.blocks());
-            case ADD -> applyAddSection(targetPath, section.blocks());
-            case DELETE -> applyDeleteSection(targetPath);
+            case UPDATE -> applyUpdateSection(repoRoot, targetPath, section.blocks());
+            case ADD -> applyAddSection(repoRoot, targetPath, section.blocks());
+            case DELETE -> applyDeleteSection(repoRoot, targetPath);
         };
     }
 
-    private static boolean applyUpdateSection(Path targetPath, List<List<String>> blocks) throws IOException {
+    private static boolean applyUpdateSection(Path repoRoot, Path targetPath, List<List<String>> blocks) throws IOException {
+        ensureRealPathWithinRoot(repoRoot, targetPath);
         if (!Files.exists(targetPath)) {
             throw new IllegalStateException("Target file does not exist: " + targetPath);
         }
@@ -157,7 +159,8 @@ public final class ApplyPatchFormatApplier {
         return true;
     }
 
-    private static boolean applyAddSection(Path targetPath, List<List<String>> blocks) throws IOException {
+    private static boolean applyAddSection(Path repoRoot, Path targetPath, List<List<String>> blocks) throws IOException {
+        ensureRealPathWithinRoot(repoRoot, targetPath);
         List<String> contentLines = new ArrayList<>();
         for (List<String> block : blocks) {
             contentLines.addAll(extractContentLines(block));
@@ -179,7 +182,8 @@ public final class ApplyPatchFormatApplier {
         return true;
     }
 
-    private static boolean applyDeleteSection(Path targetPath) throws IOException {
+    private static boolean applyDeleteSection(Path repoRoot, Path targetPath) throws IOException {
+        ensureRealPathWithinRoot(repoRoot, targetPath);
         if (!Files.exists(targetPath)) {
             throw new IllegalStateException("Target file does not exist: " + targetPath);
         }
@@ -291,11 +295,47 @@ public final class ApplyPatchFormatApplier {
         if (!StringUtils.hasText(relativePath)) {
             throw new IllegalStateException("Patch file path is missing");
         }
-        Path targetPath = repoRoot.resolve(relativePath.trim()).normalize();
-        if (!targetPath.startsWith(repoRoot)) {
+        Path normalizedRoot = repoRoot.toAbsolutePath().normalize();
+        Path targetPath = normalizedRoot.resolve(relativePath.trim()).normalize();
+        if (!targetPath.startsWith(normalizedRoot)) {
             throw new IllegalStateException("Patch path escapes repository root: " + relativePath);
         }
         return targetPath;
+    }
+
+    private static void ensureRealPathWithinRoot(Path repoRoot, Path targetPath) throws IOException {
+        Path normalizedRoot = repoRoot.toAbsolutePath().normalize();
+        Path rootRealPath = normalizedRoot.toRealPath();
+        Path normalizedTarget = targetPath.toAbsolutePath().normalize();
+        if (!normalizedTarget.startsWith(normalizedRoot)) {
+            throw new IllegalStateException("Patch path escapes repository root: " + normalizedTarget);
+        }
+
+        Path realTarget;
+        if (Files.exists(normalizedTarget, LinkOption.NOFOLLOW_LINKS)) {
+            realTarget = normalizedTarget.toRealPath();
+        } else {
+            Path existingParent = nearestExistingParent(normalizedRoot, normalizedTarget);
+            Path realParent = existingParent.toRealPath();
+            Path remaining = existingParent.relativize(normalizedTarget);
+            realTarget = realParent.resolve(remaining).normalize();
+        }
+
+        if (!realTarget.startsWith(rootRealPath)) {
+            throw new IllegalStateException("Patch path escapes repository root through a symbolic link: "
+                    + normalizedRoot.relativize(normalizedTarget));
+        }
+    }
+
+    private static Path nearestExistingParent(Path repoRoot, Path targetPath) {
+        Path current = targetPath;
+        while (current != null && !Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
+            current = current.getParent();
+        }
+        if (current == null || !current.startsWith(repoRoot)) {
+            throw new IllegalStateException("Patch path has no existing parent inside repository root: " + targetPath);
+        }
+        return current;
     }
 
     private static void writeLines(Path targetPath, List<String> lines) throws IOException {

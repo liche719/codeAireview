@@ -8,6 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class ApplyPatchFormatApplierTest {
 
@@ -109,6 +111,43 @@ class ApplyPatchFormatApplierTest {
                 +hello
                 *** End Patch
                 """)).isTrue();
+    }
+
+    @Test
+    void shouldRejectPatchPathThatEscapesRepositoryRoot() {
+        String patch = """
+                *** Begin Patch
+                *** Add File: ../outside.txt
+                +owned
+                *** End Patch
+                """;
+
+        assertThatThrownBy(() -> ApplyPatchFormatApplier.apply(tempDir, patch))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Patch path escapes repository root");
+    }
+
+    @Test
+    void shouldRejectPatchPathThatEscapesRepositoryRootThroughSymlink() throws Exception {
+        Path outsideDir = Files.createTempDirectory(tempDir.getParent(), "codepilot-outside-");
+        Path link = tempDir.resolve("linked");
+        try {
+            Files.createSymbolicLink(link, outsideDir);
+        } catch (UnsupportedOperationException | java.io.IOException exception) {
+            assumeTrue(false, "symbolic links are not available in this environment: " + exception.getMessage());
+        }
+
+        String patch = """
+                *** Begin Patch
+                *** Add File: linked/owned.txt
+                +owned
+                *** End Patch
+                """;
+
+        assertThatThrownBy(() -> ApplyPatchFormatApplier.apply(tempDir, patch))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("symbolic link");
+        assertThat(Files.exists(outsideDir.resolve("owned.txt"))).isFalse();
     }
 
     private void write(Path path, String content) throws Exception {
