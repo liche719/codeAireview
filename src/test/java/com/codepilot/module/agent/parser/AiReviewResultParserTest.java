@@ -70,6 +70,50 @@ class AiReviewResultParserTest {
     }
 
     @Test
+    void shouldThrowWhenIssuesFieldIsMissing() {
+        String content = """
+                {
+                  "summary": "未发现问题"
+                }
+                """;
+
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse AI review result as JSON")
+                .hasRootCauseMessage("AI review result JSON must contain issues array");
+    }
+
+    @Test
+    void shouldThrowWhenIssuesFieldIsNotArray() {
+        String content = """
+                {
+                  "issues": {},
+                  "summary": "invalid"
+                }
+                """;
+
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse AI review result as JSON")
+                .hasRootCauseMessage("AI review result issues must be an array");
+    }
+
+    @Test
+    void shouldThrowWhenIssueEntryIsNotObject() {
+        String content = """
+                {
+                  "issues": ["bad"],
+                  "summary": "invalid"
+                }
+                """;
+
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse AI review result as JSON")
+                .hasRootCauseMessage("AI review result issues must contain objects only");
+    }
+
+    @Test
     void shouldThrowWhenContentIsEmpty() {
         assertThatThrownBy(() -> parser.parse(" "))
                 .isInstanceOf(IllegalArgumentException.class)
