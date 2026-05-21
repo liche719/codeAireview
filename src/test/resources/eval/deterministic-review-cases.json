@@ -1,0 +1,55 @@
+[
+  {
+    "name": "sql-select-star-and-concat",
+    "filePath": "src/main/java/com/example/UserRepository.java",
+    "patch": "@@ -1,2 +1,4 @@\n class UserRepository {\n+  String sql = \"select * from users where name = '\" + name + \"'\";\n }\n",
+    "allChangedFiles": [
+      "src/main/java/com/example/UserRepository.java"
+    ],
+    "expectedIssueTypes": [
+      "SQL_RISK"
+    ],
+    "minimumSeverityByIssueType": {
+      "SQL_RISK": "HIGH"
+    }
+  },
+  {
+    "name": "secret-and-token-lines",
+    "filePath": "src/main/java/com/example/AuthConfig.java",
+    "patch": "@@ -1,2 +1,4 @@\n class AuthConfig {\n+  String password = \"root\";\n+  String apiToken = \"secret-token\";\n }\n",
+    "allChangedFiles": [
+      "src/main/java/com/example/AuthConfig.java"
+    ],
+    "expectedIssueTypes": [
+      "SECURITY"
+    ],
+    "minimumSeverityByIssueType": {
+      "SECURITY": "HIGH"
+    }
+  },
+  {
+    "name": "business-service-without-tests",
+    "filePath": "src/main/java/com/example/service/UserService.java",
+    "patch": "@@ -1,2 +1,5 @@\n class UserService {\n+  void createUser(String name) {\n+    repository.save(name);\n+  }\n }\n",
+    "allChangedFiles": [
+      "src/main/java/com/example/service/UserService.java"
+    ],
+    "expectedIssueTypes": [
+      "TEST_MISSING"
+    ],
+    "minimumSeverityByIssueType": {
+      "TEST_MISSING": "LOW"
+    }
+  },
+  {
+    "name": "business-service-with-tests",
+    "filePath": "src/main/java/com/example/service/UserService.java",
+    "patch": "@@ -1,2 +1,5 @@\n class UserService {\n+  void createUser(String name) {\n+    repository.save(name);\n+  }\n }\n",
+    "allChangedFiles": [
+      "src/main/java/com/example/service/UserService.java",
+      "src/test/java/com/example/service/UserServiceTest.java"
+    ],
+    "expectedIssueTypes": [],
+    "minimumSeverityByIssueType": {}
+  }
+]
