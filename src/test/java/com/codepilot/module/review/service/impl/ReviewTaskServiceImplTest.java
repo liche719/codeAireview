@@ -13,6 +13,7 @@ import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
+import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.planner.ReviewFilePlanner;
 import com.codepilot.module.review.service.GitHubInlineCommentResult;
 import com.codepilot.module.review.service.GitHubCommentService;
@@ -203,6 +204,8 @@ class ReviewTaskServiceImplTest {
 
         private final ReviewFilePlanner reviewFilePlanner = new ReviewFilePlanner(reviewProperties);
 
+        private final ReviewIssueAssembler reviewIssueAssembler = new ReviewIssueAssembler();
+
         private final GithubRepositoryPolicy githubRepositoryPolicy = mock(GithubRepositoryPolicy.class);
 
         private final org.mockito.ArgumentCaptor<ReviewTask> taskCaptor =
@@ -221,6 +224,7 @@ class ReviewTaskServiceImplTest {
                     gitHubInlineCommentService,
                     reviewTaskProducer,
                     reviewFilePlanner,
+                    reviewIssueAssembler,
                     githubRepositoryPolicy
             );
             ReflectionTestUtils.setField(service, "baseMapper", reviewTaskMapper);

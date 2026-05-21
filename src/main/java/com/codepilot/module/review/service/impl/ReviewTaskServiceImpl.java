@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.common.enums.ReviewTaskStatus;
 import com.codepilot.common.exception.BusinessException;
-import com.codepilot.module.agent.dto.AiReviewIssue;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.git.client.GithubClient;
@@ -12,6 +11,7 @@ import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.git.dto.GithubPrInfo;
 import com.codepilot.module.git.parser.GithubPrUrlParser;
 import com.codepilot.module.git.policy.GithubRepositoryPolicy;
+import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
@@ -35,9 +35,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 
 @Slf4j
 @Service
@@ -61,6 +59,8 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     private final ReviewTaskProducer reviewTaskProducer;
 
     private final ReviewFilePlanner reviewFilePlanner;
+
+    private final ReviewIssueAssembler reviewIssueAssembler;
 
     private final GithubRepositoryPolicy githubRepositoryPolicy;
 
@@ -150,7 +150,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             task.setStatus(ReviewTaskStatus.SUCCESS.name());
             task.setTotalFiles(changedFiles.size());
             task.setTotalIssues(reviewIssues.size());
-            task.setRiskLevel(calculateRiskLevel(reviewIssues));
+            task.setRiskLevel(reviewIssueAssembler.calculateRiskLevel(reviewIssues));
             task.setErrorMessage(null);
             task.setFinishedAt(LocalDateTime.now());
             task.setUpdatedAt(LocalDateTime.now());
@@ -241,71 +241,13 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
                     reviewFile.getPatch(),
                     allChangedFiles
             );
-            return mapToReviewIssues(taskId, reviewFile.getFilePath(), aiReviewResult);
+            return reviewIssueAssembler.toReviewIssues(taskId, reviewFile.getFilePath(), aiReviewResult);
         } catch (Exception exception) {
             throw new IllegalStateException("AI review failed for file " + reviewFile.getFilePath(), exception);
         }
     }
 
-    private List<ReviewIssue> mapToReviewIssues(Long taskId, String defaultFilePath, AiReviewResult aiReviewResult) {
-        if (aiReviewResult == null || aiReviewResult.getIssues() == null || aiReviewResult.getIssues().isEmpty()) {
-            return List.of();
-        }
-
-        List<ReviewIssue> reviewIssues = new ArrayList<>();
-        for (AiReviewIssue issue : aiReviewResult.getIssues()) {
-            ReviewIssue reviewIssue = new ReviewIssue();
-            reviewIssue.setTaskId(taskId);
-            reviewIssue.setFilePath(StringUtils.hasText(issue.getFilePath()) ? issue.getFilePath() : defaultFilePath);
-            reviewIssue.setLineNumber(issue.getLineNumber());
-            reviewIssue.setIssueType(issue.getIssueType());
-            reviewIssue.setIssueTypeZh(issue.getIssueTypeZh());
-            reviewIssue.setSeverity(normalizeSeverity(issue.getSeverity()));
-            reviewIssue.setTitle(issue.getTitle());
-            reviewIssue.setDescription(issue.getDescription());
-            reviewIssue.setSuggestion(issue.getSuggestion());
-            reviewIssue.setSource(normalizeSource(issue.getSource()));
-            reviewIssue.setRuleReference(issue.getRuleReference());
-            reviewIssue.setCreatedAt(LocalDateTime.now());
-            reviewIssues.add(reviewIssue);
-        }
-        return reviewIssues;
-    }
-
-    private String normalizeSource(String source) {
-        if (!StringUtils.hasText(source)) {
-            return "LLM";
-        }
-        String normalizedSource = source.trim().toUpperCase(Locale.ROOT);
-        return "TOOL".equals(normalizedSource) ? "TOOL" : "LLM";
-    }
-
     private ReviewCommentMode normalizeReviewCommentMode(ReviewCommentMode reviewCommentMode) {
         return reviewCommentMode == null ? ReviewCommentMode.SUMMARY_ONLY : reviewCommentMode;
-    }
-
-    private String calculateRiskLevel(List<ReviewIssue> reviewIssues) {
-        return reviewIssues.stream()
-                .map(ReviewIssue::getSeverity)
-                .filter(StringUtils::hasText)
-                .map(this::normalizeSeverity)
-                .min(Comparator.comparingInt(this::severityRank))
-                .orElse("PASS");
-    }
-
-    private String normalizeSeverity(String severity) {
-        if (!StringUtils.hasText(severity)) {
-            return "LOW";
-        }
-        return severity.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private int severityRank(String severity) {
-        return switch (severity) {
-            case "HIGH" -> 1;
-            case "MEDIUM" -> 2;
-            case "LOW" -> 3;
-            default -> 4;
-        };
     }
 }
