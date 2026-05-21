@@ -14,9 +14,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SERVER_HOST: 121.43.251.65
-  SERVER_USER: root
-  SERVER_DIR: /opt/codeAireview
+  SERVER_HOST: ${{ vars.CODEPILOT_DEPLOY_HOST }}
+  SERVER_USER: ${{ vars.CODEPILOT_DEPLOY_USER }}
+  SERVER_DIR: ${{ vars.CODEPILOT_DEPLOY_DIR }}
 
 jobs:
   deploy:
@@ -26,11 +26,51 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install SSH tools
+      - name: Validate deployment configuration
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.CODEPILOT_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.CODEPILOT_DEPLOY_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y sshpass
+          if [ -z "${SERVER_HOST:-}" ]; then
+            echo "Repository variable CODEPILOT_DEPLOY_HOST is required." >&2
+            exit 1
+          fi
+          if [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "Secret CODEPILOT_DEPLOY_SSH_KEY is required." >&2
+            exit 1
+          fi
+          if [ -z "${KNOWN_HOSTS:-}" ]; then
+            echo "Secret CODEPILOT_DEPLOY_KNOWN_HOSTS is required for SSH host key pinning." >&2
+            exit 1
+          fi
+          {
+            echo "SERVER_HOST=${SERVER_HOST}"
+            echo "SERVER_USER=${SERVER_USER:-deploy}"
+            echo "SERVER_DIR=${SERVER_DIR:-/opt/codeAireview}"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.CODEPILOT_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.CODEPILOT_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/codepilot_deploy_key"
+          chmod 600 "$HOME/.ssh/codepilot_deploy_key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          cat > "$HOME/.ssh/config" <<EOF
+          Host codepilot-deploy
+            HostName ${SERVER_HOST}
+            User ${SERVER_USER}
+            IdentityFile ~/.ssh/codepilot_deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+          EOF
+          chmod 600 "$HOME/.ssh/config"
 
       - name: Create deployment archive
         run: |
@@ -38,28 +78,19 @@ jobs:
           git archive --format=tar -o "$RUNNER_TEMP/codepilot-deploy.tar" HEAD
 
       - name: Upload archive to server
-        env:
-          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
         run: |
           set -euo pipefail
-          sshpass -p "$SERVER_PASSWORD" scp \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
+          scp \
             "$RUNNER_TEMP/codepilot-deploy.tar" \
-            "${SERVER_USER}@${SERVER_HOST}:/tmp/codepilot-deploy.tar"
+            "codepilot-deploy:/tmp/codepilot-deploy.tar"
 
       - name: Deploy on server
-        env:
-          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
         run: |
           set -euo pipefail
-          sshpass -p "$SERVER_PASSWORD" ssh \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            "${SERVER_USER}@${SERVER_HOST}" <<'EOF'
+          DEPLOY_DIR_ESCAPED="$(printf '%q' "$SERVER_DIR")"
+          ssh codepilot-deploy "DEPLOY_DIR=${DEPLOY_DIR_ESCAPED} bash -s" <<'EOF'
           set -euo pipefail
 
-          DEPLOY_DIR="/opt/codeAireview"
           ARCHIVE="/tmp/codepilot-deploy.tar"
 
           mkdir -p "$DEPLOY_DIR"
@@ -77,15 +108,6 @@ jobs:
           docker compose -f docker-compose.server.yml down --remove-orphans || true
           docker rm -f codepilot-app >/dev/null 2>&1 || true
           docker compose -f docker-compose.server.yml up -d --build --remove-orphans
-          DB_USER="$(grep -E '^CODEPILOT_DB_USERNAME=' .env | head -n1 | cut -d= -f2- | tr -d '\r')"
-          DB_NAME="$(grep -E '^CODEPILOT_DB_NAME=' .env | head -n1 | cut -d= -f2- | tr -d '\r')"
-          DB_USER="${DB_USER:-codepilot}"
-          DB_NAME="${DB_NAME:-codepilot}"
-          echo "Current Flyway checksum:"
-          docker compose -f docker-compose.server.yml exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "select version, checksum from flyway_schema_history where version = '1';" || true
-          echo "Repairing Flyway checksum for migration version 1..."
-          docker compose -f docker-compose.server.yml exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -c "update flyway_schema_history set checksum = -1411607468 where version = '1';" || true
-          docker compose -f docker-compose.server.yml restart app || true
           echo "Waiting for app to answer on localhost:8080..."
           for i in $(seq 1 12); do
             HTTP_CODE=$(curl --connect-timeout 2 --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/api/github/webhook || true)
