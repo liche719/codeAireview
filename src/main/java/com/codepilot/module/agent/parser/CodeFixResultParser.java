@@ -25,14 +25,9 @@ public class CodeFixResultParser {
                 return objectMapper.readValue(json, CodeFixResult.class);
             }
         } catch (Exception exception) {
-            log.warn("Failed to parse code fix JSON, fallback to raw diff, message={}", exception.getMessage());
+            log.warn("Failed to parse code fix JSON, reject model response, message={}", exception.getMessage());
         }
-        if (content.contains("diff --git") || content.contains("@@")) {
-            CodeFixResult result = new CodeFixResult();
-            result.setSummary("已生成统一 diff。");
-            result.setPatch(stripCodeFence(content));
-            return result;
-        }
+        log.warn("Code fix response rejected because it does not contain valid JSON");
         return CodeFixResult.empty();
     }
 

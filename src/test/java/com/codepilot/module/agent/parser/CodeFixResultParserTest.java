@@ -52,4 +52,53 @@ class CodeFixResultParserTest {
         assertThat(result.getSummary()).isEqualTo("未生成补丁。");
         assertThat(result.getPatch()).isNull();
     }
+
+    @Test
+    void shouldRejectRawDiffWithoutJsonEnvelope() {
+        String content = """
+                diff --git a/src/main/java/Demo.java b/src/main/java/Demo.java
+                --- a/src/main/java/Demo.java
+                +++ b/src/main/java/Demo.java
+                @@ -1 +1 @@
+                -old
+                +new
+                """;
+
+        CodeFixResult result = parser.parse(content);
+
+        assertThat(result.getSummary()).isEqualTo("未生成补丁。");
+        assertThat(result.getPatch()).isNull();
+        assertThat(result.getCommitMessage()).isNull();
+    }
+
+    @Test
+    void shouldRejectFencedRawDiffWithoutJsonEnvelope() {
+        String content = """
+                ```diff
+                diff --git a/src/main/java/Demo.java b/src/main/java/Demo.java
+                --- a/src/main/java/Demo.java
+                +++ b/src/main/java/Demo.java
+                ```
+                """;
+
+        CodeFixResult result = parser.parse(content);
+
+        assertThat(result.getSummary()).isEqualTo("未生成补丁。");
+        assertThat(result.getPatch()).isNull();
+    }
+
+    @Test
+    void shouldRejectInvalidJsonEvenWhenItContainsDiff() {
+        String content = """
+                {
+                  "summary": "bad",
+                  "patch": "diff --git a/Demo.java b/Demo.java",
+                }
+                """;
+
+        CodeFixResult result = parser.parse(content);
+
+        assertThat(result.getSummary()).isEqualTo("未生成补丁。");
+        assertThat(result.getPatch()).isNull();
+    }
 }
