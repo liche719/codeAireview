@@ -15,9 +15,7 @@ import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.planner.ReviewFilePlanner;
-import com.codepilot.module.review.service.GitHubInlineCommentResult;
-import com.codepilot.module.review.service.GitHubCommentService;
-import com.codepilot.module.review.service.GitHubInlineCommentService;
+import com.codepilot.module.review.publisher.ReviewCommentPublisher;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import com.codepilot.task.ReviewTaskProducer;
@@ -102,58 +100,17 @@ class ReviewTaskServiceImplTest {
     }
 
     @Test
-    void shouldCallInlineCommentServiceForInlineOnlyTask() {
+    void shouldPublishReviewCommentAfterSuccessfulTask() {
         TestContext context = new TestContext();
         context.stubTask(ReviewCommentMode.INLINE_ONLY);
         context.stubEmptyReviewFlow();
-        when(context.gitHubInlineCommentService.commentInlineIssues(1L))
-                .thenReturn(new GitHubInlineCommentResult(1, 0, 0));
 
         context.service.processTask(1L);
 
-        verify(context.gitHubInlineCommentService).commentInlineIssues(1L);
-        verify(context.githubCommentService, never()).commentReviewResult(anyLong());
-    }
-
-    @Test
-    void shouldCallSummaryCommentServiceForSummaryOnlyTask() {
-        TestContext context = new TestContext();
-        context.stubTask(ReviewCommentMode.SUMMARY_ONLY);
-        context.stubEmptyReviewFlow();
-
-        context.service.processTask(1L);
-
-        verify(context.githubCommentService).commentReviewResult(1L);
-        verify(context.gitHubInlineCommentService, never()).commentInlineIssues(anyLong());
-    }
-
-    @Test
-    void shouldFallbackToSummaryWhenInlineReviewProducesNoComment() {
-        TestContext context = new TestContext();
-        context.stubTask(ReviewCommentMode.INLINE_ONLY);
-        context.stubEmptyReviewFlow();
-        when(context.gitHubInlineCommentService.commentInlineIssues(1L))
-                .thenReturn(new GitHubInlineCommentResult(0, 0, 0));
-
-        context.service.processTask(1L);
-
-        verify(context.gitHubInlineCommentService).commentInlineIssues(1L);
-        verify(context.githubCommentService).commentReviewResult(1L);
-    }
-
-    @Test
-    void shouldFallbackToSummaryWhenInlineReviewThrows() {
-        TestContext context = new TestContext();
-        context.stubTask(ReviewCommentMode.INLINE_ONLY);
-        context.stubEmptyReviewFlow();
-        doThrow(new RuntimeException("inline error"))
-                .when(context.gitHubInlineCommentService)
-                .commentInlineIssues(1L);
-
-        context.service.processTask(1L);
-
-        verify(context.gitHubInlineCommentService).commentInlineIssues(1L);
-        verify(context.githubCommentService).commentReviewResult(1L);
+        verify(context.reviewCommentPublisher).publish(context.publishTaskCaptor.capture());
+        ReviewTask publishedTask = context.publishTaskCaptor.getValue();
+        assertThat(publishedTask.getId()).isEqualTo(1L);
+        assertThat(publishedTask.getStatus()).isEqualTo("SUCCESS");
     }
 
     @Test
@@ -176,7 +133,7 @@ class ReviewTaskServiceImplTest {
         assertThat(lastTaskUpdate.getStatus()).isEqualTo("FAILED");
         assertThat(lastTaskUpdate.getErrorMessage()).contains("AI review failed for file src/main/java/Demo.java");
         assertThat(lastTaskUpdate.getHeadSha()).isEqualTo("head-sha");
-        verify(context.githubCommentService, never()).commentReviewResult(anyLong());
+        verify(context.reviewCommentPublisher, never()).publish(any(ReviewTask.class));
         verify(context.reviewIssueService, never()).saveBatch(anyList());
     }
 
@@ -194,10 +151,6 @@ class ReviewTaskServiceImplTest {
 
         private final AiReviewService aiReviewService = mock(AiReviewService.class);
 
-        private final GitHubCommentService githubCommentService = mock(GitHubCommentService.class);
-
-        private final GitHubInlineCommentService gitHubInlineCommentService = mock(GitHubInlineCommentService.class);
-
         private final ReviewTaskProducer reviewTaskProducer = mock(ReviewTaskProducer.class);
 
         private final ReviewProperties reviewProperties = new ReviewProperties();
@@ -206,9 +159,14 @@ class ReviewTaskServiceImplTest {
 
         private final ReviewIssueAssembler reviewIssueAssembler = new ReviewIssueAssembler();
 
+        private final ReviewCommentPublisher reviewCommentPublisher = mock(ReviewCommentPublisher.class);
+
         private final GithubRepositoryPolicy githubRepositoryPolicy = mock(GithubRepositoryPolicy.class);
 
         private final org.mockito.ArgumentCaptor<ReviewTask> taskCaptor =
+                org.mockito.ArgumentCaptor.forClass(ReviewTask.class);
+
+        private final org.mockito.ArgumentCaptor<ReviewTask> publishTaskCaptor =
                 org.mockito.ArgumentCaptor.forClass(ReviewTask.class);
 
         private final ReviewTaskServiceImpl service;
@@ -220,11 +178,10 @@ class ReviewTaskServiceImplTest {
                     reviewFileService,
                     reviewIssueService,
                     aiReviewService,
-                    githubCommentService,
-                    gitHubInlineCommentService,
                     reviewTaskProducer,
                     reviewFilePlanner,
                     reviewIssueAssembler,
+                    reviewCommentPublisher,
                     githubRepositoryPolicy
             );
             ReflectionTestUtils.setField(service, "baseMapper", reviewTaskMapper);

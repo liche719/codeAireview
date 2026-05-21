@@ -18,10 +18,8 @@ import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.planner.ReviewFilePlanner;
-import com.codepilot.module.review.service.GitHubInlineCommentResult;
+import com.codepilot.module.review.publisher.ReviewCommentPublisher;
 import com.codepilot.module.review.service.ReviewFileService;
-import com.codepilot.module.review.service.GitHubCommentService;
-import com.codepilot.module.review.service.GitHubInlineCommentService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import com.codepilot.module.review.service.ReviewTaskService;
 import com.codepilot.task.ReviewTaskProducer;
@@ -52,15 +50,13 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
 
     private final AiReviewService aiReviewService;
 
-    private final GitHubCommentService githubCommentService;
-
-    private final GitHubInlineCommentService gitHubInlineCommentService;
-
     private final ReviewTaskProducer reviewTaskProducer;
 
     private final ReviewFilePlanner reviewFilePlanner;
 
     private final ReviewIssueAssembler reviewIssueAssembler;
+
+    private final ReviewCommentPublisher reviewCommentPublisher;
 
     private final GithubRepositoryPolicy githubRepositoryPolicy;
 
@@ -157,7 +153,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             updateById(task);
             log.info("Review task processed successfully, taskId={}, totalFiles={}, totalIssues={}",
                     taskId, changedFiles.size(), reviewIssues.size());
-            commentReviewResult(task);
+            reviewCommentPublisher.publish(task);
         } catch (Exception exception) {
             task.setStatus(ReviewTaskStatus.FAILED.name());
             task.setErrorMessage(exception.getMessage());
@@ -166,31 +162,6 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             updateById(task);
             log.error("Review task failed, taskId={}", taskId, exception);
             throw new IllegalStateException("review task failed, taskId=" + taskId, exception);
-        }
-    }
-
-    private void commentReviewResult(ReviewTask task) {
-        ReviewCommentMode reviewCommentMode = ReviewCommentMode.fromValue(task.getReviewCommentMode());
-        if (reviewCommentMode.isInlineOnly()) {
-            GitHubInlineCommentResult result = null;
-            try {
-                result = gitHubInlineCommentService.commentInlineIssues(task.getId());
-            } catch (Exception exception) {
-                log.warn("GitHub PR inline comment failed unexpectedly, taskId={}", task.getId(), exception);
-            }
-            if (result == null || !result.hasSuccess()) {
-                try {
-                    githubCommentService.commentReviewResult(task.getId());
-                } catch (Exception exception) {
-                    log.warn("GitHub PR summary comment failed unexpectedly, taskId={}", task.getId(), exception);
-                }
-            }
-            return;
-        }
-        try {
-            githubCommentService.commentReviewResult(task.getId());
-        } catch (Exception exception) {
-            log.warn("GitHub PR summary comment failed unexpectedly, taskId={}", task.getId(), exception);
         }
     }
 
