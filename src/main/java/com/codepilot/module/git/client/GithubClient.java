@@ -150,6 +150,25 @@ public class GithubClient {
                 owner, repo, commentId, body.length());
     }
 
+    public List<GithubIssueComment> listPullRequestReviewComments(String owner, String repo, Integer pullNumber) {
+        List<GithubIssueComment> allComments = new ArrayList<>();
+        int page = 1;
+
+        while (true) {
+            List<GithubIssueComment> pageComments = requestPullRequestReviewCommentsPage(owner, repo, pullNumber, page);
+            allComments.addAll(pageComments);
+
+            if (pageComments.size() < PER_PAGE) {
+                break;
+            }
+            page++;
+        }
+
+        log.info("GitHub PR review comments fetched, owner={}, repo={}, pullNumber={}, totalComments={}",
+                owner, repo, pullNumber, allComments.size());
+        return allComments;
+    }
+
     public GithubPullRequestDetail getPullRequestDetail(String owner, String repo, Integer pullNumber) {
         GithubPullRequestDetail detail = executeGithubRequest("failed to get GitHub PR detail", () ->
                 restClient.get()
@@ -294,6 +313,27 @@ public class GithubClient {
                 restClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/repos/{owner}/{repo}/issues/{issueNumber}/comments")
+                        .queryParam("per_page", PER_PAGE)
+                        .queryParam("page", page)
+                        .build(owner, repo, pullNumber))
+                .headers(this::setAuthorization)
+                .retrieve()
+                .body(new ParameterizedTypeReference<List<GithubIssueComment>>() {
+                })
+        );
+        return comments == null ? List.of() : comments;
+    }
+
+    private List<GithubIssueComment> requestPullRequestReviewCommentsPage(
+            String owner,
+            String repo,
+            Integer pullNumber,
+            int page
+    ) {
+        List<GithubIssueComment> comments = executeGithubRequest("failed to list GitHub PR review comments", () ->
+                restClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/repos/{owner}/{repo}/pulls/{pullNumber}/comments")
                         .queryParam("per_page", PER_PAGE)
                         .queryParam("page", page)
                         .build(owner, repo, pullNumber))

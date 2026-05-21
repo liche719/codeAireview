@@ -2,6 +2,7 @@ package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.review.diff.DiffLineMapper;
 import com.codepilot.module.review.entity.ReviewFile;
@@ -47,6 +48,7 @@ class GitHubInlineCommentServiceImplTest {
         when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
                 .thenReturn(List.of(reviewFile()));
         when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
 
         context.service.commentInlineIssues(1L);
 
@@ -62,6 +64,7 @@ class GitHubInlineCommentServiceImplTest {
         when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
                 .thenReturn(List.of(reviewFile()));
         when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
 
         context.service.commentInlineIssues(1L);
 
@@ -77,6 +80,7 @@ class GitHubInlineCommentServiceImplTest {
         when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
                 .thenReturn(List.of(reviewFile()));
         when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
         doThrow(new RuntimeException("github inline error"))
                 .when(context.githubClient)
                 .createPullRequestInlineComment(eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
@@ -94,6 +98,7 @@ class GitHubInlineCommentServiceImplTest {
         when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
                 .thenReturn(List.of(reviewFile()));
         when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
 
         context.service.commentInlineIssues(1L);
 
@@ -111,6 +116,7 @@ class GitHubInlineCommentServiceImplTest {
         when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
                 .thenReturn(List.of(reviewFile()));
         when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
 
         context.service.commentInlineIssues(1L);
@@ -121,6 +127,7 @@ class GitHubInlineCommentServiceImplTest {
         );
         String body = bodyCaptor.getValue();
         org.assertj.core.api.Assertions.assertThat(body).contains("<!-- codepilot-inline-review -->");
+        org.assertj.core.api.Assertions.assertThat(body).containsPattern("<!-- codepilot-inline-review:[a-f0-9]{32} -->");
         org.assertj.core.api.Assertions.assertThat(body).contains("Description:");
         org.assertj.core.api.Assertions.assertThat(body).contains("Suggestion:");
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("SQL_RISK");
@@ -128,6 +135,30 @@ class GitHubInlineCommentServiceImplTest {
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("Source:");
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("Rule:");
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("CodePilot AI found a potential issue");
+    }
+
+    @Test
+    void shouldSkipIssueWhenExistingInlineFingerprintWasAlreadyPosted() {
+        TestContext context = new TestContext(true, 10, "token");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
+                .thenReturn(List.of(issue(11)));
+        when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
+                .thenReturn(List.of(reviewFile()));
+        when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        GithubIssueComment existingComment = new GithubIssueComment();
+        existingComment.setBody("""
+                <!-- codepilot-inline-review -->
+
+                <!-- codepilot-inline-review:9317972e05251538a296263a54a11f8b -->
+                """);
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123))
+                .thenReturn(List.of(existingComment));
+
+        context.service.commentInlineIssues(1L);
+
+        verify(context.githubClient, never())
+                .createPullRequestInlineComment(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     private ReviewTask reviewTask() {

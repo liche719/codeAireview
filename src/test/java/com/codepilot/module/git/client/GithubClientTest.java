@@ -2,6 +2,7 @@ package com.codepilot.module.git.client;
 
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.module.git.dto.GithubChangedFile;
+import com.codepilot.module.git.dto.GithubIssueComment;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -96,6 +97,38 @@ class GithubClientTest {
                 .hasMessageContaining("failed to get GitHub PR detail")
                 .hasMessageNotContaining("GitHub API rate limit exceeded");
         assertThat(context.retryDelays).isEmpty();
+        context.server.verify();
+    }
+
+    @Test
+    void shouldListPullRequestReviewComments() {
+        TestContext context = new TestContext();
+        context.server.expect(once(), requestTo("https://api.github.test/repos/liche719/codeAireview/pulls/123/comments?per_page=100&page=1"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer token"))
+                .andRespond(withSuccess(
+                        """
+                        [
+                          {
+                            "id": 1001,
+                            "body": "<!-- codepilot-inline-review:abc123 -->",
+                            "user": {
+                              "login": "x-pilotx"
+                            },
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "updated_at": "2026-01-01T00:00:00Z"
+                          }
+                        ]
+                        """,
+                        MediaType.APPLICATION_JSON
+                ));
+
+        List<GithubIssueComment> comments = context.client.listPullRequestReviewComments("liche719", "codeAireview", 123);
+
+        assertThat(comments).hasSize(1);
+        assertThat(comments.getFirst().getId()).isEqualTo(1001L);
+        assertThat(comments.getFirst().getBody()).contains("codepilot-inline-review");
+        assertThat(comments.getFirst().getUserLogin()).isEqualTo("x-pilotx");
         context.server.verify();
     }
 

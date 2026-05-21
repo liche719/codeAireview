@@ -2,6 +2,7 @@ package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.review.diff.DiffLineMapper;
 import com.codepilot.module.review.diff.DiffLineMapping;
@@ -18,11 +19,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -31,6 +37,9 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
     private static final int MAX_TEXT_LENGTH = 500;
 
     private static final String INLINE_MARKER = "<!-- codepilot-inline-review -->";
+
+    private static final Pattern INLINE_FINGERPRINT_PATTERN =
+            Pattern.compile("<!--\\s*codepilot-inline-review:([a-f0-9]{16,64})\\s*-->", Pattern.CASE_INSENSITIVE);
 
     private final ReviewTaskMapper reviewTaskMapper;
 
@@ -113,6 +122,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                 log.warn("Skip GitHub PR inline comments because PR head sha is missing, taskId={}", taskId);
                 return new GitHubInlineCommentResult(0, 0, 0);
             }
+            Set<String> existingFingerprints = existingInlineCommentFingerprints(task);
 
             Set<String> sentIssueKeys = new HashSet<>();
             for (ReviewIssue issue : issues) {
@@ -141,6 +151,12 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                     continue;
                 }
 
+                String fingerprint = issueFingerprint(task, headSha, issue);
+                if (existingFingerprints.contains(fingerprint)) {
+                    skippedCount++;
+                    continue;
+                }
+
                 try {
                     githubClient.createPullRequestInlineComment(
                             task.getRepoOwner(),
@@ -150,8 +166,9 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                             issue.getFilePath(),
                             mapping.line(),
                             mapping.side(),
-                            buildInlineCommentBody(issue)
+                            buildInlineCommentBody(issue, fingerprint)
                     );
+                    existingFingerprints.add(fingerprint);
                     successCount++;
                 } catch (Exception exception) {
                     failedCount++;
@@ -181,6 +198,34 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
         return result;
     }
 
+    private Set<String> existingInlineCommentFingerprints(ReviewTask task) {
+        try {
+            List<GithubIssueComment> comments = githubClient.listPullRequestReviewComments(
+                    task.getRepoOwner(),
+                    task.getRepoName(),
+                    task.getPrNumber()
+            );
+            if (comments == null || comments.isEmpty()) {
+                return new HashSet<>();
+            }
+            Set<String> fingerprints = new HashSet<>();
+            for (GithubIssueComment comment : comments) {
+                if (comment == null || !StringUtils.hasText(comment.getBody())) {
+                    continue;
+                }
+                Matcher matcher = INLINE_FINGERPRINT_PATTERN.matcher(comment.getBody());
+                while (matcher.find()) {
+                    fingerprints.add(matcher.group(1).toLowerCase());
+                }
+            }
+            return fingerprints;
+        } catch (Exception exception) {
+            log.warn("Failed to list existing GitHub PR inline comments, continue without cross-task dedup, owner={}, repo={}, pullNumber={}, message={}",
+                    task.getRepoOwner(), task.getRepoName(), task.getPrNumber(), exception.getMessage());
+            return new HashSet<>();
+        }
+    }
+
     private String issueKey(ReviewIssue issue) {
         return nullToDash(issue.getFilePath())
                 + ":"
@@ -189,9 +234,23 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                 + nullToDash(issue.getIssueType());
     }
 
-    private String buildInlineCommentBody(ReviewIssue issue) {
+    private String issueFingerprint(ReviewTask task, String headSha, ReviewIssue issue) {
+        String rawFingerprint = nullToDash(task.getRepoOwner())
+                + "/"
+                + nullToDash(task.getRepoName())
+                + ":"
+                + task.getPrNumber()
+                + ":"
+                + nullToDash(headSha)
+                + ":"
+                + issueKey(issue);
+        return sha256Hex(rawFingerprint);
+    }
+
+    private String buildInlineCommentBody(ReviewIssue issue, String fingerprint) {
         StringBuilder body = new StringBuilder();
         body.append(INLINE_MARKER).append("\n\n");
+        body.append("<!-- codepilot-inline-review:").append(fingerprint).append(" -->").append("\n\n");
         body.append("Description:\n");
         body.append(truncate(issue.getDescription())).append("\n\n");
         body.append("Suggestion:\n");
@@ -212,5 +271,19 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
 
     private String nullToDash(String content) {
         return StringUtils.hasText(content) ? content : "N/A";
+    }
+
+    private String sha256Hex(String content) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(content.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (int i = 0; i < 16; i++) {
+                hex.append(String.format("%02x", digest[i]));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is not available", exception);
+        }
     }
 }
