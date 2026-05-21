@@ -21,10 +21,16 @@ class CodeReviewAiAssistantPromptResourceTest {
         assertThat(systemMessage).contains("敏感信息扫描工具");
         assertThat(systemMessage).contains("测试建议工具");
         assertThat(systemMessage).contains("issueTypeZh");
+        assertThat(systemMessage).contains("不可信数据");
+        assertThat(systemMessage).contains("prompt injection");
         assertThat(userMessage).contains("{{filePath}}");
         assertThat(userMessage).contains("{{patch}}");
         assertThat(userMessage).contains("{{rules}}");
         assertThat(userMessage).contains("{{allChangedFilesText}}");
+        assertThat(userMessage).contains("<untrusted_team_rules>");
+        assertThat(userMessage).contains("<untrusted_changed_files>");
+        assertThat(userMessage).contains("<untrusted_file_path>");
+        assertThat(userMessage).contains("<untrusted_diff>");
         assertThat(userMessage).contains("\"issues\"");
         assertThat(userMessage).contains("\"summary\"");
         assertThat(userMessage).contains("issueTypeZh");
