@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AiReviewResultParserTest {
 
@@ -58,14 +59,20 @@ class AiReviewResultParserTest {
     }
 
     @Test
-    void shouldReturnEmptyIssuesWhenJsonIsInvalid() {
+    void shouldThrowWhenJsonIsInvalid() {
         String content = """
                 { invalid json }
                 """;
 
-        var result = parser.parse(content);
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse AI review result as JSON");
+    }
 
-        assertThat(result.getIssues()).isEmpty();
-        assertThat(result.getSummary()).isNull();
+    @Test
+    void shouldThrowWhenContentIsEmpty() {
+        assertThatThrownBy(() -> parser.parse(" "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("AI review result is empty");
     }
 }

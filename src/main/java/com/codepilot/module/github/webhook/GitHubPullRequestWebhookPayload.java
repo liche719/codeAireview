@@ -36,6 +36,8 @@ public class GitHubPullRequestWebhookPayload {
 
     private String commentUserLogin;
 
+    private String commentAuthorAssociation;
+
     private String commandType;
 
     private String commandText;
@@ -93,6 +95,7 @@ public class GitHubPullRequestWebhookPayload {
             Long commentId,
             String commentBody,
             String commentUserLogin,
+            String commentAuthorAssociation,
             String commandType,
             String commandText,
             boolean mentionedBot,
@@ -110,6 +113,7 @@ public class GitHubPullRequestWebhookPayload {
         payload.setCommentId(commentId);
         payload.setCommentBody(StringUtils.hasText(commentBody) ? commentBody : null);
         payload.setCommentUserLogin(StringUtils.hasText(commentUserLogin) ? commentUserLogin : null);
+        payload.setCommentAuthorAssociation(StringUtils.hasText(commentAuthorAssociation) ? commentAuthorAssociation : null);
         payload.setCommandType(commandType);
         payload.setCommandText(StringUtils.hasText(commandText) ? commandText : null);
         payload.setMentionedBot(mentionedBot);

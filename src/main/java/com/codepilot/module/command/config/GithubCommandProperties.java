@@ -14,6 +14,12 @@ public class GithubCommandProperties {
 
     private List<String> botMentionAliases = new ArrayList<>(List.of("@x-pilotx", "@X-PilotX"));
 
+    private List<String> allowedCommentAuthorAssociations = new ArrayList<>(List.of(
+            "OWNER",
+            "MEMBER",
+            "COLLABORATOR"
+    ));
+
     private boolean fixEnabled = false;
 
     private int fixMaxFiles = 3;

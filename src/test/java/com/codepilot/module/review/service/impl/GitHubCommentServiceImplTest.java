@@ -2,6 +2,7 @@ package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
@@ -57,31 +58,49 @@ class GitHubCommentServiceImplTest {
         TestContext context = new TestContext(true, "token");
         when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
         when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any())).thenReturn(List.of());
+        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123)).thenReturn(List.of());
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
 
         context.service.commentReviewResult(1L);
 
         verify(context.githubClient).createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(123), bodyCaptor.capture());
-        verify(context.githubClient, never()).listPullRequestComments(any(), any(), any());
         verify(context.githubClient, never()).updateIssueComment(any(), any(), any(), any());
         assertThat(bodyCaptor.getValue()).contains(COMMENT_MARKER);
         assertThat(bodyCaptor.getValue()).contains("未发现问题");
     }
 
     @Test
-    void shouldCreateNewCommentWhenMarkerExists() {
+    void shouldUpdateExistingCommentWhenMarkerExists() {
         TestContext context = new TestContext(true, "token");
         when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
         when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any())).thenReturn(List.of());
+        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123))
+                .thenReturn(List.of(githubComment(1001L, COMMENT_MARKER + "\nold body", "2026-01-01T00:00:00Z")));
         ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
 
         context.service.commentReviewResult(1L);
 
-        verify(context.githubClient).createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(123), bodyCaptor.capture());
-        verify(context.githubClient, never()).listPullRequestComments(any(), any(), any());
-        verify(context.githubClient, never()).updateIssueComment(any(), any(), any(), any());
+        verify(context.githubClient, never()).createPullRequestComment(any(), any(), any(), any());
+        verify(context.githubClient).updateIssueComment(eq("liche719"), eq("codeAireview"), eq(1001L), bodyCaptor.capture());
         assertThat(bodyCaptor.getValue()).contains(COMMENT_MARKER);
         assertThat(bodyCaptor.getValue()).contains("未发现问题");
+    }
+
+    @Test
+    void shouldUpdateLatestExistingCommentWhenMultipleMarkersExist() {
+        TestContext context = new TestContext(true, "token");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any())).thenReturn(List.of());
+        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123))
+                .thenReturn(List.of(
+                        githubComment(1001L, COMMENT_MARKER + "\nold body", "2026-01-01T00:00:00Z"),
+                        githubComment(1002L, COMMENT_MARKER + "\nnew body", "2026-01-02T00:00:00Z")
+                ));
+
+        context.service.commentReviewResult(1L);
+
+        verify(context.githubClient).updateIssueComment(eq("liche719"), eq("codeAireview"), eq(1002L), any());
+        verify(context.githubClient, never()).createPullRequestComment(any(), any(), any(), any());
     }
 
     @Test
@@ -89,6 +108,7 @@ class GitHubCommentServiceImplTest {
         TestContext context = new TestContext(true, "token");
         when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
         when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any())).thenReturn(List.of());
+        when(context.githubClient.listPullRequestComments("liche719", "codeAireview", 123)).thenReturn(List.of());
         doThrow(new RuntimeException("github create error"))
                 .when(context.githubClient)
                 .createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(123), any());
@@ -105,6 +125,14 @@ class GitHubCommentServiceImplTest {
         task.setRiskLevel("PASS");
         task.setTotalIssues(0);
         return task;
+    }
+
+    private GithubIssueComment githubComment(Long id, String body, String updatedAt) {
+        GithubIssueComment comment = new GithubIssueComment();
+        comment.setId(id);
+        comment.setBody(body);
+        comment.setUpdatedAt(updatedAt);
+        return comment;
     }
 
     private static class TestContext {

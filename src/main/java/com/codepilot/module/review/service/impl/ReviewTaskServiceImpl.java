@@ -125,10 +125,12 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
                     .map(ReviewFile::getFilePath)
                     .filter(StringUtils::hasText)
                     .toList();
-            List<ReviewIssue> reviewIssues = reviewFiles.stream()
-                    .filter(reviewFile -> !Boolean.TRUE.equals(reviewFile.getSkipped()))
-                    .flatMap(reviewFile -> reviewFileWithAi(taskId, reviewFile, allChangedFiles).stream())
-                    .toList();
+            List<ReviewIssue> reviewIssues = new ArrayList<>();
+            for (ReviewFile reviewFile : reviewFiles) {
+                if (!Boolean.TRUE.equals(reviewFile.getSkipped())) {
+                    reviewIssues.addAll(reviewFileWithAi(taskId, reviewFile, allChangedFiles));
+                }
+            }
 
             if (!reviewIssues.isEmpty()) {
                 reviewIssueService.saveBatch(reviewIssues);
@@ -322,8 +324,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             );
             return mapToReviewIssues(taskId, reviewFile.getFilePath(), aiReviewResult);
         } catch (Exception exception) {
-            log.warn("Ai review failed unexpectedly, taskId={}, filePath={}", taskId, reviewFile.getFilePath(), exception);
-            return List.of();
+            throw new IllegalStateException("AI review failed for file " + reviewFile.getFilePath(), exception);
         }
     }
 

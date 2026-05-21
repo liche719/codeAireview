@@ -76,6 +76,7 @@ class GitHubWebhookPayloadParserTest {
         assertThat(payload.getCommentId()).isEqualTo(1001L);
         assertThat(payload.getCommentBody()).isEqualTo("/review");
         assertThat(payload.getCommentUserLogin()).isEqualTo("reviewer");
+        assertThat(payload.getCommentAuthorAssociation()).isEqualTo("COLLABORATOR");
         assertThat(payload.getCommandType()).isEqualTo(GithubCommandType.REVIEW.name());
         assertThat(payload.getMentionedBot()).isFalse();
     }
@@ -261,6 +262,10 @@ class GitHubWebhookPayloadParserTest {
     }
 
     private String issueCommentPayload(String action, String body, boolean pullRequestComment) {
+        return issueCommentPayload(action, body, pullRequestComment, "COLLABORATOR");
+    }
+
+    private String issueCommentPayload(String action, String body, boolean pullRequestComment, String authorAssociation) {
         String pullRequestNode = pullRequestComment
                 ? """
                     "pull_request": {
@@ -289,12 +294,13 @@ class GitHubWebhookPayloadParserTest {
                   "comment": {
                     "id": 1001,
                     "body": "%s",
+                    "author_association": "%s",
                     "user": {
                       "login": "reviewer"
                     }
                   }
                 }
-                """.formatted(action, pullRequestNode, body);
+                """.formatted(action, pullRequestNode, body, authorAssociation);
     }
 
     private LlmProperties enabledLlmProperties() {

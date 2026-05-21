@@ -3,14 +3,12 @@ package com.codepilot.module.agent.parser;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class AiReviewResultParser {
@@ -21,7 +19,7 @@ public class AiReviewResultParser {
 
     public AiReviewResult parse(String content) {
         if (!StringUtils.hasText(content)) {
-            return AiReviewResult.empty();
+            throw new IllegalArgumentException("AI review result is empty");
         }
 
         String normalizedContent = normalize(content);
@@ -32,8 +30,7 @@ public class AiReviewResultParser {
             }
             return result;
         } catch (Exception exception) {
-            log.warn("Failed to parse ai review result", exception);
-            return AiReviewResult.empty();
+            throw new IllegalArgumentException("Failed to parse AI review result as JSON", exception);
         }
     }
 

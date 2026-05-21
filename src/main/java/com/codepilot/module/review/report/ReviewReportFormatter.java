@@ -29,6 +29,10 @@ public class ReviewReportFormatter {
                 : DEFAULT_COMMENT_MARKER;
     }
 
+    public String getCommentMarker() {
+        return commentMarker;
+    }
+
     public String formatMarkdown(ReviewTask task, List<ReviewIssue> issues) {
         List<ReviewIssue> sortedIssues = (issues == null ? List.<ReviewIssue>of() : issues).stream()
                 .sorted(Comparator.comparingInt(issue -> severityRank(issue.getSeverity())))

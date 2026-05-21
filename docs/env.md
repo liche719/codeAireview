@@ -94,7 +94,9 @@
 - `CODEPILOT_GITHUB_BOT_MENTION_ALIASES`
   - PR 评论中的机器人 mention 别名，默认 `@x-pilotx,@X-PilotX`。
 - `CODEPILOT_GITHUB_FIX_ENABLED`
-  - 是否启用 `@x-pilotx fix` 和 `@x-pilotx fix dry-run`，默认 `true`。
+  - 是否启用 `@x-pilotx fix` 和 `@x-pilotx fix dry-run`，默认 `false`。
+- `CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS`
+  - 允许触发 PR 评论命令的 GitHub author association，默认 `OWNER,MEMBER,COLLABORATOR`。
 - `CODEPILOT_GITHUB_FIX_MAX_FILES`
   - 单个补丁最多可修改的文件数，默认 `3`。
 - `CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES`

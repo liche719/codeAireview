@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubPrInfo;
 import com.codepilot.module.git.parser.GithubPrUrlParser;
 import com.codepilot.module.review.config.ReviewProperties;
@@ -22,6 +23,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -111,6 +113,26 @@ class ReviewTaskServiceImplTest {
         verify(context.githubCommentService).commentReviewResult(1L);
     }
 
+    @Test
+    void shouldMarkTaskFailedWhenAiReviewFails() {
+        TestContext context = new TestContext();
+        context.stubTask(ReviewCommentMode.SUMMARY_ONLY);
+        context.stubEmptyReviewFlow();
+        when(context.githubClient.listPullRequestFiles("liche719", "codeAireview", 123))
+                .thenReturn(List.of(context.changedFile()));
+        when(context.aiReviewService.reviewFile(eq(1L), eq("src/main/java/Demo.java"), any(), anyList()))
+                .thenThrow(new IllegalArgumentException("bad ai json"));
+
+        assertThatCode(() -> context.service.processTask(1L)).doesNotThrowAnyException();
+
+        verify(context.reviewTaskMapper, org.mockito.Mockito.atLeastOnce()).updateById(context.taskCaptor.capture());
+        ReviewTask lastTaskUpdate = context.taskCaptor.getAllValues().getLast();
+        assertThat(lastTaskUpdate.getStatus()).isEqualTo("FAILED");
+        assertThat(lastTaskUpdate.getErrorMessage()).contains("AI review failed for file src/main/java/Demo.java");
+        verify(context.githubCommentService, never()).commentReviewResult(anyLong());
+        verify(context.reviewIssueService, never()).saveBatch(anyList());
+    }
+
     private static class TestContext {
 
         private final ReviewTaskMapper reviewTaskMapper = mock(ReviewTaskMapper.class);
@@ -169,6 +191,20 @@ class ReviewTaskServiceImplTest {
             when(reviewIssueService.remove(any(LambdaQueryWrapper.class))).thenReturn(true);
             when(reviewFileService.saveBatch(anyList())).thenReturn(true);
             when(reviewTaskMapper.updateById(any(ReviewTask.class))).thenReturn(1);
+        }
+
+        private GithubChangedFile changedFile() {
+            GithubChangedFile changedFile = new GithubChangedFile();
+            changedFile.setFilename("src/main/java/Demo.java");
+            changedFile.setStatus("modified");
+            changedFile.setPatch("""
+                    @@ -1,1 +1,2 @@
+                     class Demo {
+                    +  void run() {}
+                    """);
+            changedFile.setAdditions(1);
+            changedFile.setDeletions(0);
+            return changedFile;
         }
     }
 }

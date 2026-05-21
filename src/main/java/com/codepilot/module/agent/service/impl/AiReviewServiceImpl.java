@@ -77,15 +77,16 @@ public class AiReviewServiceImpl implements AiReviewService {
             if (!StringUtils.hasText(responseText)) {
                 errorMessage = "empty model response";
                 log.warn("LangChain4j review returned empty content, filePath={}", filePath);
-                return AiReviewResult.empty();
+                throw new IllegalStateException(errorMessage);
             }
 
+            AiReviewResult parsedResult = aiReviewResultParser.parse(responseText);
             success = true;
-            return aiReviewResultParser.parse(responseText);
+            return parsedResult;
         } catch (Exception exception) {
             errorMessage = exception.getMessage();
             log.warn("LangChain4j ai review failed, filePath={}, message={}", filePath, errorMessage, exception);
-            return AiReviewResult.empty();
+            throw exception;
         } finally {
             long costTimeMs = System.currentTimeMillis() - startTime;
             saveCallLog(taskId, filePath, patch, rules.size(), costTimeMs, success, errorMessage, responseText);

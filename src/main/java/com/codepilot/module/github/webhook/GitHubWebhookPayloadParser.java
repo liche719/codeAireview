@@ -98,6 +98,7 @@ public class GitHubWebhookPayloadParser {
             String title = text(root, "issue", "title");
             Long commentId = longValue(root, "comment", "id");
             String commentUserLogin = text(root.at("/comment/user"), "login");
+            String commentAuthorAssociation = text(root, "comment", "author_association");
 
             if (!StringUtils.hasText(owner) || !StringUtils.hasText(repo) || pullNumber == null) {
                 throw new BusinessException("invalid GitHub issue_comment webhook payload");
@@ -116,6 +117,7 @@ public class GitHubWebhookPayloadParser {
                     commentId,
                     commentBody,
                     commentUserLogin,
+                    commentAuthorAssociation,
                     command.getType().name(),
                     command.getText(),
                     command.isMentionedBot(),

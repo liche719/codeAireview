@@ -224,6 +224,7 @@ class GitHubWebhookServiceTest {
                   "comment": {
                     "id": 1001,
                     "body": "%s",
+                    "author_association": "COLLABORATOR",
                     "user": {
                       "login": "%s"
                     }

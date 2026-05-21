@@ -13,7 +13,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -68,11 +70,34 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
             List<ReviewIssue> issues = reviewIssueService.list(new LambdaQueryWrapper<ReviewIssue>()
                     .eq(ReviewIssue::getTaskId, taskId));
             String body = reviewReportFormatter.formatMarkdown(task, issues);
+            Optional<Long> existingCommentId = findExistingCommentId(task);
+            if (existingCommentId.isPresent()) {
+                githubClient.updateIssueComment(task.getRepoOwner(), task.getRepoName(), existingCommentId.get(), body);
+                log.info("Updated CodePilot GitHub PR comment, taskId={}, owner={}, repo={}, pullNumber={}, commentId={}",
+                        task.getId(), task.getRepoOwner(), task.getRepoName(), task.getPrNumber(), existingCommentId.get());
+                return;
+            }
             githubClient.createPullRequestComment(task.getRepoOwner(), task.getRepoName(), task.getPrNumber(), body);
             log.info("Created CodePilot GitHub PR comment, taskId={}, owner={}, repo={}, pullNumber={}",
                     task.getId(), task.getRepoOwner(), task.getRepoName(), task.getPrNumber());
         } catch (Exception exception) {
             log.warn("GitHub PR comment failed but ignored, taskId={}, message={}", taskId, exception.getMessage());
         }
+    }
+
+    private Optional<Long> findExistingCommentId(ReviewTask task) {
+        String marker = reviewReportFormatter.getCommentMarker();
+        if (!StringUtils.hasText(marker)) {
+            return Optional.empty();
+        }
+        return githubClient.listPullRequestComments(task.getRepoOwner(), task.getRepoName(), task.getPrNumber()).stream()
+                .filter(comment -> comment != null && comment.getId() != null)
+                .filter(comment -> StringUtils.hasText(comment.getBody()) && comment.getBody().contains(marker))
+                .max(Comparator.comparing(comment -> nullToEmpty(comment.getUpdatedAt())))
+                .map(com.codepilot.module.git.dto.GithubIssueComment::getId);
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 }
