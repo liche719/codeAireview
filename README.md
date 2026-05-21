@@ -227,7 +227,7 @@ PR 评论命令默认只允许 GitHub `author_association` 为 `OWNER`、`MEMBER
 
 如果服务面向多个仓库或暴露到公网，建议设置 `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES=owner/repo`。该 allowlist 会同时限制手动 `/api/reviews`、PR Webhook 自动审查和 PR 评论命令，未在列表内的仓库不会创建审查任务，也不会执行 `review/fix/chat` 命令。
 
-修复提交前的校验命令默认是 `git diff --check`，只检查补丁空白错误，不执行 PR 内的构建脚本。若要改成 `mvn -q -DskipTests compile` 等命令，必须同时把它加入 `CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS`；这会执行 PR 代码和构建插件，生产环境必须先做隔离沙箱。默认 `CODEPILOT_GITHUB_FIX_VALIDATION_INHERIT_ENVIRONMENT=false`，校验进程不会继承服务进程里的 LLM/GitHub 等敏感环境变量。
+修复提交前的校验命令默认是 `git diff --check`，只检查补丁空白错误，不执行 PR 内的构建脚本。若要改成 `mvn -q -DskipTests compile` 等命令，必须同时把它加入 `CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS`；命令会被解析为固定 argv 并精确匹配白名单，不会通过 shell 执行，也不允许 `./gradlew`、绝对路径、管道、重定向或控制字符。构建类命令仍会执行 PR 代码和构建插件，生产环境必须先做隔离沙箱。默认 `CODEPILOT_GITHUB_FIX_VALIDATION_INHERIT_ENVIRONMENT=false`，校验进程不会继承服务进程里的 LLM/GitHub 等敏感环境变量。
 
 ## RAG 规范库使用说明
 

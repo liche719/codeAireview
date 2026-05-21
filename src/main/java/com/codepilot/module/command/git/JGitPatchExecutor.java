@@ -16,7 +16,9 @@ import java.util.HashMap;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
@@ -25,6 +27,19 @@ public class JGitPatchExecutor implements GitPatchExecutor {
     private static final int DEFAULT_VALIDATION_TIMEOUT_SECONDS = 300;
 
     private static final int MAX_VALIDATION_OUTPUT_CHARS = 12000;
+
+    private static final Pattern SAFE_VALIDATION_TOKEN_PATTERN = Pattern.compile("[A-Za-z0-9._:/=+%,~-]+");
+
+    private static final Set<String> BLOCKED_VALIDATION_EXECUTABLES = Set.of(
+            "sh",
+            "bash",
+            "cmd",
+            "cmd.exe",
+            "powershell",
+            "powershell.exe",
+            "pwsh",
+            "pwsh.exe"
+    );
 
     @Override
     public GitPatchExecutionResult execute(GitPatchExecutionRequest request) {
@@ -174,17 +189,25 @@ public class JGitPatchExecutor implements GitPatchExecutor {
         if (!StringUtils.hasText(validationCommand)) {
             return GitPatchExecutionResult.success(null, "Validation skipped.", null);
         }
-        String normalizedCommand = normalizeCommand(validationCommand);
-        if (!isValidationCommandAllowed(normalizedCommand, allowedValidationCommands)) {
+        ValidationCommand parsedCommand;
+        try {
+            parsedCommand = parseValidationCommand(validationCommand);
+        } catch (IllegalArgumentException exception) {
+            return GitPatchExecutionResult.failure(
+                    "Validation command is unsafe.",
+                    exception.getMessage()
+            );
+        }
+        if (!isValidationCommandAllowed(parsedCommand, allowedValidationCommands)) {
             return GitPatchExecutionResult.failure(
                     "Validation command is not allowed.",
-                    "command=" + normalizedCommand
+                    "command=" + parsedCommand.normalized()
                             + ", allowedCommands=" + allowedValidationCommands
             );
         }
         Path outputFile = Files.createTempFile("codepilot-validation-", ".log");
         try {
-            ProcessBuilder processBuilder = new ProcessBuilder(splitCommand(normalizedCommand));
+            ProcessBuilder processBuilder = new ProcessBuilder(parsedCommand.tokens());
             processBuilder.directory(workDir.toFile());
             if (!inheritValidationEnvironment) {
                 sanitizeValidationEnvironment(processBuilder.environment(), workDir);
@@ -236,18 +259,72 @@ public class JGitPatchExecutor implements GitPatchExecutor {
     }
 
     boolean isValidationCommandAllowed(String validationCommand, List<String> allowedValidationCommands) {
-        if (!StringUtils.hasText(validationCommand) || allowedValidationCommands == null || allowedValidationCommands.isEmpty()) {
+        try {
+            return isValidationCommandAllowed(parseValidationCommand(validationCommand), allowedValidationCommands);
+        } catch (IllegalArgumentException exception) {
             return false;
         }
-        String normalizedCommand = normalizeCommand(validationCommand);
+    }
+
+    private boolean isValidationCommandAllowed(ValidationCommand validationCommand, List<String> allowedValidationCommands) {
+        if (validationCommand == null || allowedValidationCommands == null || allowedValidationCommands.isEmpty()) {
+            return false;
+        }
         return allowedValidationCommands.stream()
                 .filter(StringUtils::hasText)
-                .map(this::normalizeCommand)
-                .anyMatch(normalizedCommand::equals);
+                .map(this::parseAllowedValidationCommand)
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(validationCommand::equals);
     }
 
     private String normalizeCommand(String command) {
         return command == null ? "" : command.trim().replaceAll("\\s+", " ");
+    }
+
+    private ValidationCommand parseAllowedValidationCommand(String command) {
+        try {
+            return parseValidationCommand(command);
+        } catch (IllegalArgumentException exception) {
+            log.warn("Ignored unsafe allowed validation command, command={}, reason={}", command, exception.getMessage());
+            return null;
+        }
+    }
+
+    private ValidationCommand parseValidationCommand(String command) {
+        if (!StringUtils.hasText(command)) {
+            throw new IllegalArgumentException("validation command is blank");
+        }
+        if (command.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("validation command contains control characters");
+        }
+        List<String> tokens = splitCommand(command);
+        if (tokens.isEmpty()) {
+            throw new IllegalArgumentException("validation command has no executable");
+        }
+        String executable = tokens.get(0);
+        String executableLowerCase = executable.toLowerCase(java.util.Locale.ROOT);
+        if (BLOCKED_VALIDATION_EXECUTABLES.contains(executableLowerCase)) {
+            throw new IllegalArgumentException("validation command must not invoke a shell executable");
+        }
+        if (executable.contains("/") || executable.contains("\\")) {
+            throw new IllegalArgumentException("validation command executable must be resolved from PATH, not from a file path");
+        }
+        for (String token : tokens) {
+            if (!SAFE_VALIDATION_TOKEN_PATTERN.matcher(token).matches()) {
+                throw new IllegalArgumentException("validation command contains unsafe token: " + token);
+            }
+            if (token.contains("..")) {
+                throw new IllegalArgumentException("validation command must not contain path traversal tokens");
+            }
+        }
+        return new ValidationCommand(List.copyOf(tokens));
+    }
+
+    private record ValidationCommand(List<String> tokens) {
+
+        private String normalized() {
+            return String.join(" ", tokens);
+        }
     }
 
     private void sanitizeValidationEnvironment(Map<String, String> environment, Path workDir) {

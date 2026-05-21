@@ -122,9 +122,9 @@
 - `CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES`
   - 单个补丁最多可包含的新增/删除行数，默认 `120`。
 - `CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND`
-  - 提交和推送前执行的校验命令，默认 `git diff --check`。默认值只做 diff 空白检查，不执行 PR 内构建脚本。
+  - 提交和推送前执行的校验命令，默认 `git diff --check`。默认值只做 diff 空白检查，不执行 PR 内构建脚本。命令会被解析为固定 argv，不通过 shell 执行。
 - `CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS`
-  - 允许执行的校验命令白名单，默认只有 `git diff --check`。如果要使用 `mvn -q -DskipTests compile` 等命令，必须显式加入白名单，并意识到这会执行 PR 代码/构建插件。
+  - 允许执行的校验命令白名单，默认只有 `git diff --check`。白名单精确匹配规范化后的 argv，不允许 shell、仓库内 wrapper（如 `./gradlew`）、任意路径可执行文件、管道、重定向或控制字符。如果要使用 `mvn -q -DskipTests compile` 等命令，必须显式加入白名单，并意识到这会执行 PR 代码/构建插件。
 - `CODEPILOT_GITHUB_FIX_VALIDATION_INHERIT_ENVIRONMENT`
   - 校验进程是否继承服务进程环境变量，默认 `false`，避免 LLM/GitHub Token 等敏感变量暴露给 PR 代码。
 - `CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS`
