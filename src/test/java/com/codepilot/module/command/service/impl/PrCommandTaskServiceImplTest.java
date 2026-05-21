@@ -256,6 +256,35 @@ class PrCommandTaskServiceImplTest {
                 eq("validation failed"), org.mockito.ArgumentMatchers.contains("attempt=3/3"));
     }
 
+    @Test
+    void shouldPersistOnlyRedactedGeneratedPatchPreview() {
+        TestContext context = new TestContext();
+        context.stubRunnableFixTaskWithPatch("""
+                diff --git a/src/main/java/Demo.java b/src/main/java/Demo.java
+                --- a/src/main/java/Demo.java
+                +++ b/src/main/java/Demo.java
+                @@ -1 +1 @@
+                -old
+                +String token = "ghp_123456789012345678901234567890123456";
+                """);
+        when(context.gitPatchExecutor.execute(any(GitPatchExecutionRequest.class)))
+                .thenReturn(GitPatchExecutionResult.success("commit-sha", "pushed", "detail"));
+
+        context.service.processFixTask(1L);
+
+        verify(context.gitPatchExecutor).execute(context.executionRequestCaptor.capture());
+        assertThat(context.executionRequestCaptor.getValue().getPatch())
+                .contains("ghp_123456789012345678901234567890123456");
+        verify(context.mapper, atLeastOnce()).updateById(context.taskCaptor.capture());
+        PrCommandTask patchUpdate = context.taskCaptor.getAllValues().stream()
+                .filter(task -> task.getGeneratedPatch() != null)
+                .findFirst()
+                .orElseThrow();
+        assertThat(patchUpdate.getGeneratedPatch())
+                .contains("[REDACTED]")
+                .doesNotContain("ghp_123456789012345678901234567890123456");
+    }
+
     private PrCommandTaskServiceImpl serviceWithDefaultProperties() {
         return serviceWithProperties(new GithubCommandProperties());
     }
@@ -333,6 +362,9 @@ class PrCommandTaskServiceImplTest {
         private final org.mockito.ArgumentCaptor<PrCommandTask> taskCaptor =
                 org.mockito.ArgumentCaptor.forClass(PrCommandTask.class);
 
+        private final org.mockito.ArgumentCaptor<GitPatchExecutionRequest> executionRequestCaptor =
+                org.mockito.ArgumentCaptor.forClass(GitPatchExecutionRequest.class);
+
         private final PrCommandTaskServiceImpl service;
 
         private TestContext() {
@@ -352,6 +384,10 @@ class PrCommandTaskServiceImplTest {
         }
 
         private void stubRunnableFixTask() {
+            stubRunnableFixTaskWithPatch(defaultPatch());
+        }
+
+        private void stubRunnableFixTaskWithPatch(String patch) {
             when(mapper.selectById(1L)).thenReturn(buildExistingFixTask(99L, "PENDING"));
             when(githubClient.getPullRequestDetail("liche719", "codeAireview", 12)).thenReturn(prDetail());
             ReviewTask reviewTask = new ReviewTask();
@@ -360,7 +396,6 @@ class PrCommandTaskServiceImplTest {
             when(reviewTaskService.getOne(any())).thenReturn(reviewTask);
             when(reviewIssueService.list(org.mockito.ArgumentMatchers.<com.baomidou.mybatisplus.core.conditions.Wrapper<ReviewIssue>>any()))
                     .thenReturn(List.of(fixableIssue()));
-            when(codeFixService.generateFix(eq(1L), any(), any(), any())).thenReturn(fixResult());
             when(githubClient.getFileContent("liche719", "codeAireview", "src/main/java/Demo.java", "head-sha"))
                     .thenReturn("""
                             class Demo {
@@ -369,6 +404,7 @@ class PrCommandTaskServiceImplTest {
                                 }
                             }
                             """);
+            when(codeFixService.generateFix(eq(1L), any(), any(), any())).thenReturn(fixResult(patch));
         }
 
         private GithubPullRequestDetail prDetail() {
@@ -393,17 +429,21 @@ class PrCommandTaskServiceImplTest {
             return issue;
         }
 
-        private CodeFixResult fixResult() {
-            CodeFixResult result = new CodeFixResult();
-            result.setSummary("Fix demo bug");
-            result.setPatch("""
+        private String defaultPatch() {
+            return """
                     diff --git a/src/main/java/Demo.java b/src/main/java/Demo.java
                     --- a/src/main/java/Demo.java
                     +++ b/src/main/java/Demo.java
                     @@ -1 +1 @@
                     -old
                     +new
-                    """);
+                    """;
+        }
+
+        private CodeFixResult fixResult(String patch) {
+            CodeFixResult result = new CodeFixResult();
+            result.setSummary("Fix demo bug");
+            result.setPatch(patch);
             result.setCommitMessage("fix: demo bug");
             return result;
         }

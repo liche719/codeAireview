@@ -62,6 +62,8 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
 
     private static final int SNIPPET_RADIUS = 20;
 
+    private static final int GENERATED_PATCH_AUDIT_LIMIT = 4000;
+
     private static final Set<String> BLOCKED_FIX_PATHS = Set.of(
             ".env",
             ".env.local",
@@ -205,7 +207,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             }
 
             PatchStats stats = validatePatchScope(patch, allowedFixPaths(fixableIssues));
-            task.setGeneratedPatch(patch);
+            task.setGeneratedPatch(generatedPatchAuditPreview(patch));
             updateById(task);
             commandTaskLogService.record(task.getId(), "PATCH_GENERATED", true, "补丁已生成。", stats.toString());
 
@@ -612,8 +614,13 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         try {
             githubClient.createPullRequestComment(task.getRepoOwner(), task.getRepoName(), task.getPrNumber(), body);
         } catch (Exception exception) {
-            log.warn("Failed to comment PR command result, commandTaskId={}, message={}", task.getId(), exception.getMessage());
+            log.warn("Failed to comment PR command result, commandTaskId={}, message={}",
+                    task.getId(), SensitiveDataSanitizer.redact(exception.getMessage()));
         }
+    }
+
+    private String generatedPatchAuditPreview(String patch) {
+        return SensitiveDataSanitizer.redactAndTruncate(patch, GENERATED_PATCH_AUDIT_LIMIT);
     }
 
     private String truncate(String content, int maxLength) {
