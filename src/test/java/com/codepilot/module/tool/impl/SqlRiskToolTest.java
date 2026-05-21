@@ -51,4 +51,54 @@ class SqlRiskToolTest {
                     assertThat(result.getTitle()).contains("DELETE");
                 });
     }
+
+    @Test
+    void shouldNotFlagUpdateWhenAstFindsWhereClause() {
+        var results = sqlRiskTool.checkSqlRisk(
+                "src/main/resources/mapper/UserMapper.xml",
+                "+update user set name = #{name} where id = #{id}"
+        );
+
+        assertThat(results)
+                .noneSatisfy(result -> assertThat(result.getTitle()).contains("UPDATE"));
+    }
+
+    @Test
+    void shouldNotFlagDeleteWhenAstFindsWhereClause() {
+        var results = sqlRiskTool.checkSqlRisk(
+                "src/main/resources/mapper/UserMapper.xml",
+                "+delete from user where id = #{id}"
+        );
+
+        assertThat(results)
+                .noneSatisfy(result -> assertThat(result.getTitle()).contains("DELETE"));
+    }
+
+    @Test
+    void shouldDetectSelectAllInsideUnionWithAst() {
+        var results = sqlRiskTool.checkSqlRisk(
+                "src/main/resources/mapper/UserMapper.xml",
+                """
+                        +select id, name from user where status = #{status}
+                        +union all
+                        +select * from archived_user where status = #{status}
+                        """
+        );
+
+        assertThat(results)
+                .anySatisfy(result -> assertThat(result.getTitle()).contains("SELECT *"));
+    }
+
+    @Test
+    void shouldAnalyzeSqlExtractedFromSimpleJavaStringLiteral() {
+        var results = sqlRiskTool.checkSqlRisk(
+                "src/main/java/DemoRepository.java",
+                """
+                        +String sql = "delete from user";
+                        """
+        );
+
+        assertThat(results)
+                .anySatisfy(result -> assertThat(result.getTitle()).contains("DELETE"));
+    }
 }
