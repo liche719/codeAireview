@@ -20,15 +20,15 @@
 
 ### `Agent`
 
-负责构造 AI Review Prompt、注入 RAG 上下文、调用 LangChain4j `@AiService`，并把模型输出解析成结构化 JSON。
+负责构造 AI Review Prompt、注入 RAG 上下文、调用 LangChain4j `@AiService`，并把模型输出解析成结构化 JSON。AI 结果会和确定性工具结果去重合并。
 
 ### `工具`
 
-负责 SQL 风险、敏感信息、单测建议等确定性检测。通过 LangChain4j `@Tool` 暴露给模型，由模型自主决定是否调用。
+负责 SQL 风险、敏感信息、单测建议等确定性检测。工具在 LLM 调用前由 pipeline 强制执行，不依赖模型自主决定是否调用。
 
 ### `评论`
 
-负责把最终审查结果格式化成 Markdown，并创建 GitHub PR 顶部评论。当前策略是追加式：每次审查成功都新建评论，不更新旧评论。
+负责把最终审查结果格式化成 Markdown，并回写 GitHub PR 顶部评论或 inline review comment。顶部 Summary Comment 通过 marker 幂等更新，inline comment 通过指纹 marker 避免重复发布同一问题。
 
 ### `消息队列`
 
@@ -45,11 +45,12 @@ flowchart TD
     A["Webhook / 手动请求"] --> B["审查任务"]
     B --> C["消息队列"]
     C --> D["GitHub 客户端"]
-    D --> E["RAG"]
-    E --> F["Agent"]
-    F --> G["工具"]
-    F --> H["数据库"]
-    H --> I["评论"]
+    D --> E["确定性工具"]
+    E --> F["RAG"]
+    F --> G["Agent"]
+    G --> H["结果合并"]
+    H --> I["数据库"]
+    I --> J["评论"]
 ```
 
 ## 设计原则
@@ -60,15 +61,15 @@ flowchart TD
 
 ### 2. 模型能力和确定性规则分离
 
-`agent` 负责语言理解和结构化输出，`tool` 负责确定性的规则检测，两者组合后既有灵活性，也有稳定性。
+`tool` 在 LLM 前强制执行，负责确定性的规则检测；`agent` 负责语言理解和结构化输出；最终由系统合并两类结果。这样确定性检查不会因为模型没有调用工具而漏跑。
 
 ### 3. 规范检索和业务审查解耦
 
-`rag` 只负责召回规则上下文，不直接决定审查结论。最终结论仍由 AI Review Prompt 和工具结果综合生成。
+`rag` 只负责召回规则上下文，不直接决定审查结论。最终结论由确定性工具结果、AI Review Prompt 输出和去重合并逻辑共同生成。
 
 ### 4. 评论输出保持可追溯
 
-`comment` 不做旧评论覆盖，而是将新的审查结果追加到 PR 顶部评论中，保留历史轨迹，便于人工复核。
+`comment` 使用 marker 更新同一条顶部 Summary Comment，避免每次审查都污染 PR Conversation；inline review comment 使用指纹 marker 做跨任务去重。历史轨迹保留在数据库任务、文件和 issue 记录中。
 
 ### 5. 数据持久化优先
 
