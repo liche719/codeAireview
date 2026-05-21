@@ -1,6 +1,8 @@
 package com.codepilot.module.command.parser;
 
 import com.codepilot.infrastructure.llm.LlmProperties;
+import com.codepilot.common.util.PromptInputSanitizer;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.dto.GithubCommand;
 import com.codepilot.module.command.dto.GithubCommandIntentResult;
@@ -82,7 +84,11 @@ public class GithubCommandParser {
             return unavailable(commandText, true);
         }
         try {
-            String response = assistant.classify(body, commandText, String.join(",", safeAliases()));
+            String response = assistant.classify(
+                    promptSafe(body),
+                    promptSafe(commandText),
+                    String.join(",", safeAliases())
+            );
             GithubCommandIntentResult result = intentResultParser.parse(response);
             if (result == null) {
                 return unavailable(commandText, true);
@@ -95,7 +101,8 @@ public class GithubCommandParser {
                     Boolean.TRUE.equals(result.getDryRun())
             );
         } catch (Exception exception) {
-            log.warn("GitHub command intent classification failed, return unavailable command, message={}", exception.getMessage());
+            log.warn("GitHub command intent classification failed, return unavailable command, message={}",
+                    SensitiveDataSanitizer.redact(exception.getMessage()));
             return unavailable(commandText, true);
         }
     }
@@ -148,5 +155,9 @@ public class GithubCommandParser {
 
     private String removeMention(String body, String mention) {
         return body.replaceFirst("(?i)" + java.util.regex.Pattern.quote(mention), "");
+    }
+
+    private String promptSafe(String content) {
+        return PromptInputSanitizer.escapeUntrustedBlockDelimiters(content);
     }
 }
