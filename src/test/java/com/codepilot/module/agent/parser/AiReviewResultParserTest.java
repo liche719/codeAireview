@@ -18,6 +18,7 @@ class AiReviewResultParserTest {
                       "filePath": "src/main/java/com/example/Demo.java",
                       "lineNumber": 12,
                       "issueType": "BUG_RISK",
+                      "issueTypeZh": "潜在缺陷",
                       "severity": "HIGH",
                       "title": "Potential null pointer",
                       "description": "Object may be null before invocation.",
@@ -34,6 +35,7 @@ class AiReviewResultParserTest {
 
         assertThat(result.getIssues()).hasSize(1);
         assertThat(result.getIssues().getFirst().getSeverity()).isEqualTo("HIGH");
+        assertThat(result.getIssues().getFirst().getIssueTypeZh()).isEqualTo("潜在缺陷");
         assertThat(result.getIssues().getFirst().getSource()).isEqualTo("TOOL");
         assertThat(result.getSummary()).isEqualTo("Found one issue");
     }

@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS review_issue (
     file_path VARCHAR(512),
     line_number INT,
     issue_type VARCHAR(64),
+    issue_type_zh VARCHAR(64),
     severity VARCHAR(32),
     title VARCHAR(255),
     description TEXT,

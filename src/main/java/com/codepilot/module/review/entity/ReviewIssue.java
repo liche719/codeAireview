@@ -22,6 +22,8 @@ public class ReviewIssue {
 
     private String issueType;
 
+    private String issueTypeZh;
+
     private String severity;
 
     private String title;
@@ -36,4 +38,3 @@ public class ReviewIssue {
 
     private LocalDateTime createdAt;
 }
-

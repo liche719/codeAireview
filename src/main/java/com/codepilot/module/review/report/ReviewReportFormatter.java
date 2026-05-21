@@ -36,24 +36,20 @@ public class ReviewReportFormatter {
 
         StringBuilder markdown = new StringBuilder();
         markdown.append(commentMarker).append("\n\n");
-        markdown.append("## CodePilot AI 审查报告\n\n");
 
         if (sortedIssues.isEmpty()) {
             markdown.append("未发现问题。\n");
             return markdown.toString();
         }
 
-        markdown.append("### 问题列表\n\n");
         int visibleCount = Math.min(sortedIssues.size(), MAX_VISIBLE_ISSUES);
         for (int i = 0; i < visibleCount; i++) {
             appendIssue(markdown, i + 1, sortedIssues.get(i));
         }
         if (sortedIssues.size() > MAX_VISIBLE_ISSUES) {
-            markdown.append("发现的问题较多，但这里只展示前 ")
-                    .append(MAX_VISIBLE_ISSUES)
-                    .append(" 条。剩余问题数：")
+            markdown.append("另外还有 ")
                     .append(sortedIssues.size() - MAX_VISIBLE_ISSUES)
-                    .append("。\n");
+                    .append(" 条问题未展示。\n");
         }
 
         return markdown.toString();
@@ -63,9 +59,9 @@ public class ReviewReportFormatter {
         markdown.append("#### ")
                 .append(index)
                 .append(". [")
-                .append(normalizeSeverity(issue.getSeverity()))
+                .append(displaySeverity(issue.getSeverity()))
                 .append("] ")
-                .append(nullToDash(issue.getIssueType()))
+                .append(displayIssueType(issue))
                 .append("\n\n");
         markdown.append("- **文件**: `").append(nullToDash(issue.getFilePath())).append("`\n");
         markdown.append("- **行号**: ").append(issue.getLineNumber() == null ? "无" : issue.getLineNumber()).append("\n");
@@ -85,6 +81,25 @@ public class ReviewReportFormatter {
 
     private String normalizeSeverity(String severity) {
         return StringUtils.hasText(severity) ? severity.trim().toUpperCase(Locale.ROOT) : "LOW";
+    }
+
+    private String displaySeverity(String severity) {
+        return switch (normalizeSeverity(severity)) {
+            case "HIGH" -> "高";
+            case "MEDIUM" -> "中";
+            case "LOW" -> "低";
+            default -> "低";
+        };
+    }
+
+    private String displayIssueType(ReviewIssue issue) {
+        if (issue == null) {
+            return "问题";
+        }
+        if (StringUtils.hasText(issue.getIssueTypeZh())) {
+            return issue.getIssueTypeZh().trim();
+        }
+        return "问题";
     }
 
     private String truncate(String content) {

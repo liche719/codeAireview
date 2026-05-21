@@ -29,7 +29,7 @@ public class CodeFixResultParser {
         }
         if (content.contains("diff --git") || content.contains("@@")) {
             CodeFixResult result = new CodeFixResult();
-            result.setSummary("Generated unified diff.");
+            result.setSummary("已生成统一 diff。");
             result.setPatch(stripCodeFence(content));
             return result;
         }

@@ -11,9 +11,11 @@ public class CodeFixResult {
 
     private String patch;
 
+    private String commitMessage;
+
     public static CodeFixResult empty() {
         CodeFixResult result = new CodeFixResult();
-        result.setSummary("No patch generated.");
+        result.setSummary("未生成补丁。");
         return result;
     }
 }

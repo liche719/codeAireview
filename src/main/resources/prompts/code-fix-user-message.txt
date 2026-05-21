@@ -1,14 +1,12 @@
-限制：
-{{limits}}
+限制：{{limits}}
 
-需要修复的 review 问题：
-{{issues}}
+需要修复的 review 问题：{{issues}}
 
-附近代码片段：
-{{snippets}}
+附近代码片段：{{snippets}}
 
-请仅返回 JSON：
+请仅返回 JSON，格式如下：
 {
-  "summary": "简短说明",
-  "patch": "统一 diff"
+  "summary": "简短说明本次修复做了什么",
+  "patch": "统一 diff",
+  "commitMessage": "fix(scope): 简短具体的提交信息"
 }

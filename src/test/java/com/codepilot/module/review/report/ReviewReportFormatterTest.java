@@ -20,39 +20,56 @@ class ReviewReportFormatterTest {
         String markdown = formatter.formatMarkdown(reviewTask("PASS"), List.of());
 
         assertThat(markdown).contains(COMMENT_MARKER);
-        assertThat(markdown).contains("CodePilot AI 审查报告");
         assertThat(markdown).contains("未发现问题");
+        assertThat(markdown).doesNotContain("审查报告");
+        assertThat(markdown).doesNotContain("问题列表");
     }
 
     @Test
     void shouldSortIssuesBySeverity() {
         List<ReviewIssue> issues = List.of(
-                issue("LOW", "STYLE", "low issue"),
-                issue("HIGH", "SQL_RISK", "high issue"),
-                issue("MEDIUM", "SECURITY", "medium issue")
+                issue("LOW", "STYLE", "样式问题", "low issue"),
+                issue("HIGH", "SQL_RISK", "数据库问题", "high issue"),
+                issue("MEDIUM", "SECURITY", "权限问题", "medium issue")
         );
 
         String markdown = formatter.formatMarkdown(reviewTask("HIGH"), issues);
 
-        assertThat(markdown).contains("#### 1. [HIGH] SQL_RISK");
-        assertThat(markdown).contains("#### 2. [MEDIUM] SECURITY");
-        assertThat(markdown).contains("#### 3. [LOW] STYLE");
-        assertThat(markdown.indexOf("[HIGH]")).isLessThan(markdown.indexOf("[MEDIUM]"));
-        assertThat(markdown.indexOf("[MEDIUM]")).isLessThan(markdown.indexOf("[LOW]"));
+        assertThat(markdown).contains("#### 1. [高] 数据库问题");
+        assertThat(markdown).contains("#### 2. [中] 权限问题");
+        assertThat(markdown).contains("#### 3. [低] 样式问题");
+        assertThat(markdown.indexOf("[高]")).isLessThan(markdown.indexOf("[中]"));
+        assertThat(markdown.indexOf("[中]")).isLessThan(markdown.indexOf("[低]"));
+        assertThat(markdown).doesNotContain("SQL 风险");
+        assertThat(markdown).doesNotContain("安全风险");
+        assertThat(markdown).doesNotContain("代码风格");
+        assertThat(markdown).doesNotContain("审查报告");
+        assertThat(markdown).doesNotContain("问题列表");
+    }
+
+    @Test
+    void shouldFallbackToGenericLabelWhenIssueTypeZhIsMissing() {
+        ReviewIssue issue = issue("HIGH", "SQL_RISK", null, "missing zh issue");
+
+        String markdown = formatter.formatMarkdown(reviewTask("HIGH"), List.of(issue));
+
+        assertThat(markdown).contains("#### 1. [高] 问题");
+        assertThat(markdown).doesNotContain("SQL_RISK");
+        assertThat(markdown).doesNotContain("SQL 风险");
     }
 
     @Test
     void shouldLimitVisibleIssuesToTwenty() {
         List<ReviewIssue> issues = new ArrayList<>();
         for (int i = 1; i <= 21; i++) {
-            issues.add(issue("LOW", "STYLE", "issue " + i));
+            issues.add(issue("LOW", "STYLE", "样式问题", "issue " + i));
         }
 
         String markdown = formatter.formatMarkdown(reviewTask("LOW"), issues);
 
-        assertThat(markdown).contains("#### 20. [LOW] STYLE");
-        assertThat(markdown).doesNotContain("#### 21. [LOW] STYLE");
-        assertThat(markdown).contains("剩余问题数：1");
+        assertThat(markdown).contains("#### 20. [低] 样式问题");
+        assertThat(markdown).doesNotContain("#### 21. [低] 样式问题");
+        assertThat(markdown).contains("另外还有 1 条问题未展示");
     }
 
     private ReviewTask reviewTask(String riskLevel) {
@@ -64,11 +81,12 @@ class ReviewReportFormatterTest {
         return task;
     }
 
-    private ReviewIssue issue(String severity, String issueType, String title) {
+    private ReviewIssue issue(String severity, String issueType, String issueTypeZh, String title) {
         ReviewIssue issue = new ReviewIssue();
         issue.setFilePath("src/main/java/Demo.java");
         issue.setLineNumber(42);
         issue.setIssueType(issueType);
+        issue.setIssueTypeZh(issueTypeZh);
         issue.setSeverity(severity);
         issue.setTitle(title);
         issue.setDescription("description");

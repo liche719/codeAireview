@@ -150,7 +150,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             updateById(task);
             commandTaskLogService.record(task.getId(), "PATCH_GENERATED", true, "补丁已生成。", stats.toString());
 
-            GitPatchExecutionRequest request = buildExecutionRequest(task, detail, patch);
+            GitPatchExecutionRequest request = buildExecutionRequest(task, detail, patch, fixResult == null ? null : fixResult.getCommitMessage());
             GitPatchExecutionResult executionResult = gitPatchExecutor.execute(request);
             if (!executionResult.isSuccess()) {
                 completeFailed(task, executionResult.getMessage());
@@ -249,6 +249,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 issue.setFilePath(StringUtils.hasText(aiIssue.getFilePath()) ? aiIssue.getFilePath() : file.getFilename());
                 issue.setLineNumber(aiIssue.getLineNumber());
                 issue.setIssueType(aiIssue.getIssueType());
+                issue.setIssueTypeZh(aiIssue.getIssueTypeZh());
                 issue.setSeverity(aiIssue.getSeverity());
                 issue.setTitle(aiIssue.getTitle());
                 issue.setDescription(aiIssue.getDescription());
@@ -278,6 +279,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             item.put("filePath", issue.getFilePath());
             item.put("lineNumber", issue.getLineNumber());
             item.put("issueType", issue.getIssueType());
+            item.put("issueTypeZh", issue.getIssueTypeZh());
             item.put("severity", issue.getSeverity());
             item.put("title", issue.getTitle());
             item.put("description", issue.getDescription());
@@ -339,16 +341,33 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     }
 
     private GitPatchExecutionRequest buildExecutionRequest(PrCommandTask task, GithubPullRequestDetail detail, String patch) {
+        return buildExecutionRequest(task, detail, patch, null);
+    }
+
+    private GitPatchExecutionRequest buildExecutionRequest(PrCommandTask task, GithubPullRequestDetail detail, String patch, String commitMessage) {
         GitPatchExecutionRequest request = new GitPatchExecutionRequest();
         request.setCloneUrl(detail.getHeadRepoCloneUrl());
         request.setBranch(detail.getHeadRef());
         request.setPatch(patch);
         request.setToken(githubToken);
-        request.setCommitMessage("fix: 应用 CodePilot AI 建议");
+        request.setCommitMessage(resolveCommitMessage(commitMessage));
         request.setValidationCommand(properties.getFixValidationCommand());
         request.setValidationTimeoutSeconds(properties.getFixValidationTimeoutSeconds());
         request.setDryRun(Boolean.TRUE.equals(task.getDryRun()));
         return request;
+    }
+
+    private String resolveCommitMessage(String modelCommitMessage) {
+        if (StringUtils.hasText(modelCommitMessage)) {
+            String normalized = modelCommitMessage.replaceAll("\\s+", " ").trim();
+            if (normalized.length() > 120) {
+                normalized = normalized.substring(0, 120).trim();
+            }
+            if (StringUtils.hasText(normalized)) {
+                return normalized;
+            }
+        }
+        return "fix: CodePilot AI 自动修复";
     }
 
     private String buildDryRunComment(PatchStats stats, String summary, String patch) {

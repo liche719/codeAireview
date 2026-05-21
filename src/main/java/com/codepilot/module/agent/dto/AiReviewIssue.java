@@ -13,6 +13,8 @@ public class AiReviewIssue {
 
     private String issueType;
 
+    private String issueTypeZh;
+
     private String severity;
 
     private String title;

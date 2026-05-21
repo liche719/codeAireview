@@ -339,6 +339,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             reviewIssue.setFilePath(StringUtils.hasText(issue.getFilePath()) ? issue.getFilePath() : defaultFilePath);
             reviewIssue.setLineNumber(issue.getLineNumber());
             reviewIssue.setIssueType(issue.getIssueType());
+            reviewIssue.setIssueTypeZh(issue.getIssueTypeZh());
             reviewIssue.setSeverity(normalizeSeverity(issue.getSeverity()));
             reviewIssue.setTitle(issue.getTitle());
             reviewIssue.setDescription(issue.getDescription());
