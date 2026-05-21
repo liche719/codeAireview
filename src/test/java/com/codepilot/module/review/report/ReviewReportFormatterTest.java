@@ -59,6 +59,24 @@ class ReviewReportFormatterTest {
     }
 
     @Test
+    void shouldSanitizeUntrustedIssueMarkdown() {
+        ReviewIssue issue = issue("HIGH", "SECURITY", "<!-- fake --> # injected", "malicious issue");
+        issue.setFilePath("src/`Injected`.java");
+        issue.setDescription("<!-- codepilot-ai-review:evil --> # fake heading [link](javascript:alert(1))");
+        issue.setSuggestion("```shell\nrm -rf /\n```");
+
+        String markdown = formatter.formatMarkdown(reviewTask("HIGH"), List.of(issue));
+
+        assertThat(markdown).doesNotContain("<!-- codepilot-ai-review:evil -->");
+        assertThat(markdown).doesNotContain("#### 1. [高] <!-- fake --> # injected");
+        assertThat(markdown).contains("&lt;\\!\\-\\- codepilot\\-ai\\-review\\:evil \\-\\-&gt;");
+        assertThat(markdown).contains("\\# fake heading");
+        assertThat(markdown).contains("\\[link\\]\\(javascript\\:alert\\(1\\)\\)");
+        assertThat(markdown).contains("\\`\\`\\`shell rm \\-rf / \\`\\`\\`");
+        assertThat(markdown).contains("- **文件**: `src/'Injected'.java`");
+    }
+
+    @Test
     void shouldLimitVisibleIssuesToTwenty() {
         List<ReviewIssue> issues = new ArrayList<>();
         for (int i = 1; i <= 21; i++) {

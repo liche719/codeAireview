@@ -1,6 +1,7 @@
 package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.codepilot.common.util.MarkdownSanitizer;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
@@ -252,21 +253,14 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
         body.append(INLINE_MARKER).append("\n\n");
         body.append("<!-- codepilot-inline-review:").append(fingerprint).append(" -->").append("\n\n");
         body.append("Description:\n");
-        body.append(truncate(issue.getDescription())).append("\n\n");
+        body.append(sanitizeIssueText(issue.getDescription())).append("\n\n");
         body.append("Suggestion:\n");
-        body.append(truncate(issue.getSuggestion())).append("\n");
+        body.append(sanitizeIssueText(issue.getSuggestion())).append("\n");
         return body.toString();
     }
 
-    private String truncate(String content) {
-        if (!StringUtils.hasText(content)) {
-            return "N/A";
-        }
-        String compact = content.replaceAll("\\s+", " ").trim();
-        if (compact.length() <= MAX_TEXT_LENGTH) {
-            return compact;
-        }
-        return compact.substring(0, MAX_TEXT_LENGTH) + "...";
+    private String sanitizeIssueText(String content) {
+        return MarkdownSanitizer.sanitizeInlineText(content, MAX_TEXT_LENGTH, "N/A");
     }
 
     private String nullToDash(String content) {

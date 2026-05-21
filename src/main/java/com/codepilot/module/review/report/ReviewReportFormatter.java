@@ -1,5 +1,6 @@
 package com.codepilot.module.review.report;
 
+import com.codepilot.common.util.MarkdownSanitizer;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import org.springframework.beans.factory.annotation.Value;
@@ -67,10 +68,10 @@ public class ReviewReportFormatter {
                 .append("] ")
                 .append(displayIssueType(issue))
                 .append("\n\n");
-        markdown.append("- **文件**: `").append(nullToDash(issue.getFilePath())).append("`\n");
+        markdown.append("- **文件**: `").append(sanitizeCodeSpan(issue.getFilePath())).append("`\n");
         markdown.append("- **行号**: ").append(issue.getLineNumber() == null ? "无" : issue.getLineNumber()).append("\n");
-        markdown.append("- **描述**: ").append(truncate(issue.getDescription())).append("\n");
-        markdown.append("- **建议**: ").append(truncate(issue.getSuggestion())).append("\n\n");
+        markdown.append("- **描述**: ").append(sanitizeIssueText(issue.getDescription())).append("\n");
+        markdown.append("- **建议**: ").append(sanitizeIssueText(issue.getSuggestion())).append("\n\n");
         markdown.append("---\n\n");
     }
 
@@ -101,23 +102,19 @@ public class ReviewReportFormatter {
             return "问题";
         }
         if (StringUtils.hasText(issue.getIssueTypeZh())) {
-            return issue.getIssueTypeZh().trim();
+            return MarkdownSanitizer.sanitizeInlineText(issue.getIssueTypeZh(), 80, "问题");
         }
         return "问题";
     }
 
-    private String truncate(String content) {
+    private String sanitizeIssueText(String content) {
+        return MarkdownSanitizer.sanitizeInlineText(content, MAX_TEXT_LENGTH, "无");
+    }
+
+    private String sanitizeCodeSpan(String content) {
         if (!StringUtils.hasText(content)) {
             return "无";
         }
-        String compact = content.replaceAll("\\s+", " ").trim();
-        if (compact.length() <= MAX_TEXT_LENGTH) {
-            return compact;
-        }
-        return compact.substring(0, MAX_TEXT_LENGTH) + "...";
-    }
-
-    private String nullToDash(String content) {
-        return StringUtils.hasText(content) ? content : "无";
+        return content.replace('`', '\'').replaceAll("\\s+", " ").trim();
     }
 }

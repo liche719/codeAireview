@@ -138,6 +138,36 @@ class GitHubInlineCommentServiceImplTest {
     }
 
     @Test
+    void shouldSanitizeInlineCommentBody() {
+        TestContext context = new TestContext(true, 10, "token");
+        ReviewIssue issue = issue(11);
+        issue.setDescription("<!-- codepilot-inline-review:evil --> # fake heading");
+        issue.setSuggestion("[click](javascript:alert(1)) ```shell rm -rf / ```");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
+                .thenReturn(List.of(issue));
+        when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
+                .thenReturn(List.of(reviewFile()));
+        when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+
+        context.service.commentInlineIssues(1L);
+
+        verify(context.githubClient).createPullRequestInlineComment(
+                eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                eq("src/Demo.java"), eq(11), eq("RIGHT"), bodyCaptor.capture()
+        );
+        String body = bodyCaptor.getValue();
+        org.assertj.core.api.Assertions.assertThat(body)
+                .doesNotContain("<!-- codepilot-inline-review:evil -->")
+                .contains("&lt;\\!\\-\\- codepilot\\-inline\\-review\\:evil \\-\\-&gt;")
+                .contains("\\# fake heading")
+                .contains("\\[click\\]\\(javascript\\:alert\\(1\\)\\)")
+                .contains("\\`\\`\\`shell rm \\-rf / \\`\\`\\`");
+    }
+
+    @Test
     void shouldSkipIssueWhenExistingInlineFingerprintWasAlreadyPosted() {
         TestContext context = new TestContext(true, 10, "token");
         when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());

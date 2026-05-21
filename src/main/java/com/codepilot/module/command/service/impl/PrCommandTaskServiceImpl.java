@@ -3,6 +3,7 @@ package com.codepilot.module.command.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.codepilot.common.enums.ReviewTaskStatus;
+import com.codepilot.common.util.MarkdownSanitizer;
 import com.codepilot.module.agent.dto.AiReviewIssue;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.dto.CodeFixResult;
@@ -408,10 +409,10 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 %s
                 ```
                 """.formatted(
-                StringUtils.hasText(summary) ? truncate(summary, 500) : "补丁已生成。",
+                MarkdownSanitizer.sanitizeInlineText(summary, 500, "补丁已生成。"),
                 stats.filesChanged(),
                 stats.changedLines(),
-                truncate(patch, 2500)
+                MarkdownSanitizer.sanitizeCodeBlockText(patch, 2500, "")
         );
     }
 
