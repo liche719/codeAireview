@@ -203,7 +203,7 @@ public class JGitPatchExecutor implements GitPatchExecutor {
         } catch (IllegalArgumentException exception) {
             return GitPatchExecutionResult.failure(
                     "Validation command is unsafe.",
-                    exception.getMessage()
+                    SensitiveDataSanitizer.redact(exception.getMessage())
             );
         }
         if (!isValidationCommandAllowed(parsedCommand, allowedValidationCommands)) {
@@ -319,7 +319,9 @@ public class JGitPatchExecutor implements GitPatchExecutor {
         try {
             return parseValidationCommand(command);
         } catch (IllegalArgumentException exception) {
-            log.warn("Ignored unsafe allowed validation command, command={}, reason={}", command, exception.getMessage());
+            log.warn("Ignored unsafe allowed validation command, command={}, reason={}",
+                    SensitiveDataSanitizer.redact(command),
+                    SensitiveDataSanitizer.redact(exception.getMessage()));
             return null;
         }
     }

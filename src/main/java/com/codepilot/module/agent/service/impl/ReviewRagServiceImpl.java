@@ -1,5 +1,6 @@
 package com.codepilot.module.agent.service.impl;
 
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.agent.config.RagProperties;
 import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.service.ReviewRagService;
@@ -58,7 +59,7 @@ public class ReviewRagServiceImpl implements ReviewRagService {
             return contexts;
         } catch (Exception exception) {
             log.warn("RAG retrieval failed, fallback to plain ai review, filePath={}, message={}",
-                    filePath, exception.getMessage());
+                    filePath, SensitiveDataSanitizer.redact(exception.getMessage()));
             return List.of();
         }
     }

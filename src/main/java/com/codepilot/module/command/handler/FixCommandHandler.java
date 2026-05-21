@@ -1,5 +1,6 @@
 package com.codepilot.module.command.handler;
 
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.command.dto.GithubCommandType;
@@ -42,7 +43,8 @@ public class FixCommandHandler implements GithubCommandHandler {
                 );
             } catch (Exception exception) {
                 log.warn("GitHub fix disabled comment failed but ignored, owner={}, repo={}, pullNumber={}, message={}",
-                        payload.getOwner(), payload.getRepo(), payload.getPullNumber(), exception.getMessage());
+                        payload.getOwner(), payload.getRepo(), payload.getPullNumber(),
+                        SensitiveDataSanitizer.redact(exception.getMessage()));
             }
             return GithubCommandHandleResult.processed(null, payload.getAction());
         }

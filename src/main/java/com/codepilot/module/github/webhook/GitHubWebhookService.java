@@ -2,6 +2,7 @@ package com.codepilot.module.github.webhook;
 
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.common.enums.ReviewCommentMode;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.command.router.GithubCommandRouter;
 import com.codepilot.module.git.client.GithubClient;
@@ -147,7 +148,8 @@ public class GitHubWebhookService {
             return Boolean.FALSE.equals(acquired);
         } catch (Exception exception) {
             log.warn("GitHub webhook dedup check failed, continue creating review task, owner={}, repo={}, pullNumber={}, message={}",
-                    payload.getOwner(), payload.getRepo(), payload.getPullNumber(), exception.getMessage());
+                    payload.getOwner(), payload.getRepo(), payload.getPullNumber(),
+                    SensitiveDataSanitizer.redact(exception.getMessage()));
             return false;
         }
     }

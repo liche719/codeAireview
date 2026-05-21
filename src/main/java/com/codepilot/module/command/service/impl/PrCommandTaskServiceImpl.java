@@ -440,7 +440,8 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 }
             } catch (Exception exception) {
                 commandTaskLogService.record(task.getId(), "SNIPPET", false,
-                        "Failed to load snippet for " + issue.getFilePath(), exception.getMessage());
+                        "Failed to load snippet for " + issue.getFilePath(),
+                        SensitiveDataSanitizer.redact(exception.getMessage()));
             }
         }
         return builder.toString();
