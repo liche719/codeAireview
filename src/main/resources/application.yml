@@ -31,6 +31,7 @@ spring:
     listener:
       simple:
         acknowledge-mode: auto
+        default-requeue-rejected: ${CODEPILOT_RABBITMQ_DEFAULT_REQUEUE_REJECTED:false}
         retry:
           enabled: true
           max-attempts: 3

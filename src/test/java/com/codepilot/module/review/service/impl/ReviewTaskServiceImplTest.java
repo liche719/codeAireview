@@ -23,7 +23,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -123,7 +123,10 @@ class ReviewTaskServiceImplTest {
         when(context.aiReviewService.reviewFile(eq(1L), eq("src/main/java/Demo.java"), any(), anyList()))
                 .thenThrow(new IllegalArgumentException("bad ai json"));
 
-        assertThatCode(() -> context.service.processTask(1L)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> context.service.processTask(1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("review task failed, taskId=1")
+                .hasRootCauseInstanceOf(IllegalArgumentException.class);
 
         verify(context.reviewTaskMapper, org.mockito.Mockito.atLeastOnce()).updateById(context.taskCaptor.capture());
         ReviewTask lastTaskUpdate = context.taskCaptor.getAllValues().getLast();

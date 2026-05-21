@@ -154,6 +154,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             task.setUpdatedAt(LocalDateTime.now());
             updateById(task);
             log.error("Review task failed, taskId={}", taskId, exception);
+            throw new IllegalStateException("review task failed, taskId=" + taskId, exception);
         }
     }
 

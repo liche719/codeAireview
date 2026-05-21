@@ -69,6 +69,8 @@
   - RabbitMQ 密码，默认 `codepilot123`，仅建议本地开发使用。
 - `CODEPILOT_RABBITMQ_VIRTUAL_HOST`
   - RabbitMQ virtual host，默认 `/`。
+- `CODEPILOT_RABBITMQ_DEFAULT_REQUEUE_REJECTED`
+  - Listener 重试耗尽后是否重新入队，默认 `false`。不要在未配置 DLQ 的情况下设为 `true`，否则永久失败消息可能无限循环。
 
 ## Embedding
 
