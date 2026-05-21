@@ -1,6 +1,7 @@
 package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
@@ -81,7 +82,8 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
             log.info("Created CodePilot GitHub PR comment, taskId={}, owner={}, repo={}, pullNumber={}",
                     task.getId(), task.getRepoOwner(), task.getRepoName(), task.getPrNumber());
         } catch (Exception exception) {
-            log.warn("GitHub PR comment failed but ignored, taskId={}, message={}", taskId, exception.getMessage());
+            log.warn("GitHub PR comment failed but ignored, taskId={}, errorType={}, message={}",
+                    taskId, exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
         }
     }
 

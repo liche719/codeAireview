@@ -1,6 +1,7 @@
 package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.common.util.MarkdownSanitizer;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubIssueComment;
@@ -173,13 +174,15 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                     successCount++;
                 } catch (Exception exception) {
                     failedCount++;
-                    log.warn("GitHub PR inline comment failed but ignored, taskId={}, filePath={}, line={}, message={}",
-                            taskId, issue.getFilePath(), issue.getLineNumber(), exception.getMessage());
+                    log.warn("GitHub PR inline comment failed but ignored, taskId={}, filePath={}, line={}, errorType={}, message={}",
+                            taskId, issue.getFilePath(), issue.getLineNumber(),
+                            exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
                 }
             }
         } catch (Exception exception) {
             failedCount++;
-            log.warn("GitHub PR inline comments failed but ignored, taskId={}, message={}", taskId, exception.getMessage());
+            log.warn("GitHub PR inline comments failed but ignored, taskId={}, errorType={}, message={}",
+                    taskId, exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
         } finally {
             log.info("GitHub PR inline comments completed, taskId={}, successCount={}, failedCount={}, skippedCount={}, maxPerTask={}",
                     taskId, successCount, failedCount, skippedCount, inlineCommentMaxPerTask);
@@ -221,8 +224,9 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
             }
             return fingerprints;
         } catch (Exception exception) {
-            log.warn("Failed to list existing GitHub PR inline comments, continue without cross-task dedup, owner={}, repo={}, pullNumber={}, message={}",
-                    task.getRepoOwner(), task.getRepoName(), task.getPrNumber(), exception.getMessage());
+            log.warn("Failed to list existing GitHub PR inline comments, continue without cross-task dedup, owner={}, repo={}, pullNumber={}, errorType={}, message={}",
+                    task.getRepoOwner(), task.getRepoName(), task.getPrNumber(),
+                    exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
             return new HashSet<>();
         }
     }

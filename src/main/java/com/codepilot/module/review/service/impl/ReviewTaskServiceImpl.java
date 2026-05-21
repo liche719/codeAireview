@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.common.enums.ReviewTaskStatus;
 import com.codepilot.common.exception.BusinessException;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.git.client.GithubClient;
@@ -155,13 +156,16 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
                     taskId, changedFiles.size(), reviewIssues.size());
             reviewCommentPublisher.publish(task);
         } catch (Exception exception) {
+            String errorMessage = sanitizedErrorMessage(exception);
             task.setStatus(ReviewTaskStatus.FAILED.name());
-            task.setErrorMessage(exception.getMessage());
+            task.setErrorMessage(errorMessage);
             task.setFinishedAt(LocalDateTime.now());
             task.setUpdatedAt(LocalDateTime.now());
             updateById(task);
-            log.error("Review task failed, taskId={}", taskId, exception);
-            throw new IllegalStateException("review task failed, taskId=" + taskId, exception);
+            log.error("Review task failed, taskId={}, errorType={}, message={}",
+                    taskId, exception.getClass().getSimpleName(), errorMessage);
+            throw new IllegalStateException("review task failed, taskId=" + taskId
+                    + ", errorType=" + exception.getClass().getSimpleName());
         }
     }
 
@@ -220,5 +224,13 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
 
     private ReviewCommentMode normalizeReviewCommentMode(ReviewCommentMode reviewCommentMode) {
         return reviewCommentMode == null ? ReviewCommentMode.SUMMARY_ONLY : reviewCommentMode;
+    }
+
+    private String sanitizedErrorMessage(Exception exception) {
+        String message = exception == null ? null : exception.getMessage();
+        String sanitized = SensitiveDataSanitizer.redactAndTruncate(message, 2000);
+        return StringUtils.hasText(sanitized)
+                ? sanitized
+                : (exception == null ? "unknown error" : exception.getClass().getSimpleName());
     }
 }

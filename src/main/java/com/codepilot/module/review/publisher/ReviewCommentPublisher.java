@@ -1,6 +1,7 @@
 package com.codepilot.module.review.publisher;
 
 import com.codepilot.common.enums.ReviewCommentMode;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.service.GitHubCommentService;
 import com.codepilot.module.review.service.GitHubInlineCommentResult;
@@ -32,7 +33,8 @@ public class ReviewCommentPublisher {
         try {
             result = gitHubInlineCommentService.commentInlineIssues(task.getId());
         } catch (Exception exception) {
-            log.warn("GitHub PR inline comment failed unexpectedly, taskId={}", task.getId(), exception);
+            log.warn("GitHub PR inline comment failed unexpectedly, taskId={}, errorType={}, message={}",
+                    task.getId(), exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
         }
         if (result == null || !result.hasSuccess()) {
             publishSummary(task);
@@ -43,7 +45,8 @@ public class ReviewCommentPublisher {
         try {
             githubCommentService.commentReviewResult(task.getId());
         } catch (Exception exception) {
-            log.warn("GitHub PR summary comment failed unexpectedly, taskId={}", task.getId(), exception);
+            log.warn("GitHub PR summary comment failed unexpectedly, taskId={}, errorType={}, message={}",
+                    task.getId(), exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
         }
     }
 }

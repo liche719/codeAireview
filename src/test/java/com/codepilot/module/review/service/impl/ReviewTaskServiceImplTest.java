@@ -26,6 +26,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -126,7 +127,7 @@ class ReviewTaskServiceImplTest {
         assertThatThrownBy(() -> context.service.processTask(1L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("review task failed, taskId=1")
-                .hasRootCauseInstanceOf(IllegalArgumentException.class);
+                .hasMessageContaining("errorType=IllegalStateException");
 
         verify(context.reviewTaskMapper, org.mockito.Mockito.atLeastOnce()).updateById(context.taskCaptor.capture());
         ReviewTask lastTaskUpdate = context.taskCaptor.getAllValues().getLast();
@@ -135,6 +136,29 @@ class ReviewTaskServiceImplTest {
         assertThat(lastTaskUpdate.getHeadSha()).isEqualTo("head-sha");
         verify(context.reviewCommentPublisher, never()).publish(any(ReviewTask.class));
         verify(context.reviewIssueService, never()).saveBatch(anyList());
+    }
+
+    @Test
+    void shouldRedactSecretsBeforePersistingTaskFailure() {
+        TestContext context = new TestContext();
+        context.stubTask(ReviewCommentMode.SUMMARY_ONLY);
+        context.stubEmptyReviewFlow();
+        when(context.githubClient.listPullRequestFiles("liche719", "codeAireview", 123))
+                .thenThrow(new IllegalStateException("github token=ghp_123456789012345678901234567890123456 rejected"));
+
+        Throwable thrown = catchThrowable(() -> context.service.processTask(1L));
+        assertThat(thrown)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("review task failed, taskId=1");
+        assertThat(thrown.getCause()).isNull();
+
+        verify(context.reviewTaskMapper, org.mockito.Mockito.atLeastOnce()).updateById(context.taskCaptor.capture());
+        ReviewTask lastTaskUpdate = context.taskCaptor.getAllValues().getLast();
+        assertThat(lastTaskUpdate.getStatus()).isEqualTo("FAILED");
+        assertThat(lastTaskUpdate.getErrorMessage())
+                .contains("[REDACTED]")
+                .doesNotContain("ghp_123456789012345678901234567890123456");
+        verify(context.reviewCommentPublisher, never()).publish(any(ReviewTask.class));
     }
 
     private static class TestContext {
