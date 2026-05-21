@@ -23,12 +23,25 @@ public class RabbitMqConfig {
 
     @Bean
     public Queue reviewTaskQueue() {
-        return QueueBuilder.durable(ReviewTaskProducer.REVIEW_TASK_QUEUE).build();
+        return QueueBuilder.durable(ReviewTaskProducer.REVIEW_TASK_QUEUE)
+                .deadLetterExchange(ReviewTaskProducer.REVIEW_TASK_DEAD_LETTER_EXCHANGE)
+                .deadLetterRoutingKey(ReviewTaskProducer.REVIEW_TASK_DEAD_LETTER_ROUTING_KEY)
+                .build();
     }
 
     @Bean
     public DirectExchange reviewTaskExchange() {
         return new DirectExchange(ReviewTaskProducer.REVIEW_TASK_EXCHANGE, true, false);
+    }
+
+    @Bean
+    public Queue reviewTaskDeadLetterQueue() {
+        return QueueBuilder.durable(ReviewTaskProducer.REVIEW_TASK_DEAD_LETTER_QUEUE).build();
+    }
+
+    @Bean
+    public DirectExchange reviewTaskDeadLetterExchange() {
+        return new DirectExchange(ReviewTaskProducer.REVIEW_TASK_DEAD_LETTER_EXCHANGE, true, false);
     }
 
     @Bean
@@ -42,13 +55,36 @@ public class RabbitMqConfig {
     }
 
     @Bean
+    public Binding reviewTaskDeadLetterBinding(
+            @Qualifier("reviewTaskDeadLetterQueue") Queue reviewTaskDeadLetterQueue,
+            @Qualifier("reviewTaskDeadLetterExchange") DirectExchange reviewTaskDeadLetterExchange
+    ) {
+        return BindingBuilder.bind(reviewTaskDeadLetterQueue)
+                .to(reviewTaskDeadLetterExchange)
+                .with(ReviewTaskProducer.REVIEW_TASK_DEAD_LETTER_ROUTING_KEY);
+    }
+
+    @Bean
     public Queue prCommandTaskQueue() {
-        return QueueBuilder.durable(PrCommandTaskProducer.PR_COMMAND_TASK_QUEUE).build();
+        return QueueBuilder.durable(PrCommandTaskProducer.PR_COMMAND_TASK_QUEUE)
+                .deadLetterExchange(PrCommandTaskProducer.PR_COMMAND_TASK_DEAD_LETTER_EXCHANGE)
+                .deadLetterRoutingKey(PrCommandTaskProducer.PR_COMMAND_TASK_DEAD_LETTER_ROUTING_KEY)
+                .build();
     }
 
     @Bean
     public DirectExchange prCommandTaskExchange() {
         return new DirectExchange(PrCommandTaskProducer.PR_COMMAND_TASK_EXCHANGE, true, false);
+    }
+
+    @Bean
+    public Queue prCommandTaskDeadLetterQueue() {
+        return QueueBuilder.durable(PrCommandTaskProducer.PR_COMMAND_TASK_DEAD_LETTER_QUEUE).build();
+    }
+
+    @Bean
+    public DirectExchange prCommandTaskDeadLetterExchange() {
+        return new DirectExchange(PrCommandTaskProducer.PR_COMMAND_TASK_DEAD_LETTER_EXCHANGE, true, false);
     }
 
     @Bean
@@ -59,6 +95,16 @@ public class RabbitMqConfig {
         return BindingBuilder.bind(prCommandTaskQueue)
                 .to(prCommandTaskExchange)
                 .with(PrCommandTaskProducer.PR_COMMAND_TASK_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding prCommandTaskDeadLetterBinding(
+            @Qualifier("prCommandTaskDeadLetterQueue") Queue prCommandTaskDeadLetterQueue,
+            @Qualifier("prCommandTaskDeadLetterExchange") DirectExchange prCommandTaskDeadLetterExchange
+    ) {
+        return BindingBuilder.bind(prCommandTaskDeadLetterQueue)
+                .to(prCommandTaskDeadLetterExchange)
+                .with(PrCommandTaskProducer.PR_COMMAND_TASK_DEAD_LETTER_ROUTING_KEY);
     }
 
     @Bean

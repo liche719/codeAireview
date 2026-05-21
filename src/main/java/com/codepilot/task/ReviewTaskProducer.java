@@ -18,6 +18,12 @@ public class ReviewTaskProducer {
 
     public static final String REVIEW_TASK_ROUTING_KEY = "codepilot.review.task";
 
+    public static final String REVIEW_TASK_DEAD_LETTER_QUEUE = "codepilot.review.task.dlq";
+
+    public static final String REVIEW_TASK_DEAD_LETTER_EXCHANGE = "codepilot.review.task.dlx";
+
+    public static final String REVIEW_TASK_DEAD_LETTER_ROUTING_KEY = "codepilot.review.task.dead";
+
     private final RabbitTemplate rabbitTemplate;
 
     public void send(Long taskId) {
@@ -26,4 +32,3 @@ public class ReviewTaskProducer {
         log.info("Review task message sent, taskId={}, traceId={}", message.getTaskId(), message.getTraceId());
     }
 }
-

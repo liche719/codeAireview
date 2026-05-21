@@ -18,6 +18,12 @@ public class PrCommandTaskProducer {
 
     public static final String PR_COMMAND_TASK_ROUTING_KEY = "codepilot.pr.command.task";
 
+    public static final String PR_COMMAND_TASK_DEAD_LETTER_QUEUE = "codepilot.pr.command.task.dlq";
+
+    public static final String PR_COMMAND_TASK_DEAD_LETTER_EXCHANGE = "codepilot.pr.command.task.dlx";
+
+    public static final String PR_COMMAND_TASK_DEAD_LETTER_ROUTING_KEY = "codepilot.pr.command.task.dead";
+
     private final RabbitTemplate rabbitTemplate;
 
     public void send(Long commandTaskId) {
