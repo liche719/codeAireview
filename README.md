@@ -97,6 +97,7 @@ copy .env.example .env
 
 编辑 `.env`，至少填写：
 
+- `CODEPILOT_API_AUTH_API_KEY`
 - `CODEPILOT_GITHUB_TOKEN`
 - `CODEPILOT_LLM_API_KEY`
 - `CODEPILOT_EMBEDDING_API_KEY`
@@ -127,6 +128,7 @@ powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1
 
 几个最关键的变量：
 
+- `CODEPILOT_API_AUTH_API_KEY`：内部 REST API 的访问密钥。默认保护 `/api/**`，但 GitHub Webhook 入口仍使用 GitHub HMAC 签名。
 - `CODEPILOT_GITHUB_TOKEN`：GitHub API Token，用于拉取 PR、创建评论和更新评论。
 - `CODEPILOT_GITHUB_COMMENT_ENABLED`：是否启用 GitHub PR 顶部 Summary 评论回写。
 - `CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED`：是否启用 GitHub PR inline review comment，默认关闭。
@@ -146,6 +148,7 @@ Fine-grained GitHub Token 建议权限：`Contents: Read`、`Pull requests: Read
 
 ```bash
 curl -X POST http://localhost:8080/api/reviews ^
+  -H "X-CodePilot-Api-Key: change-me-local-dev-key" ^
   -H "Content-Type: application/json" ^
   -d "{\"prUrl\":\"https://github.com/owner/repo/pull/123\"}"
 ```
@@ -153,19 +156,22 @@ curl -X POST http://localhost:8080/api/reviews ^
 ### 查询任务详情
 
 ```bash
-curl http://localhost:8080/api/reviews/123
+curl http://localhost:8080/api/reviews/123 ^
+  -H "X-CodePilot-Api-Key: change-me-local-dev-key"
 ```
 
 ### 查询审查问题
 
 ```bash
-curl http://localhost:8080/api/reviews/123/issues
+curl http://localhost:8080/api/reviews/123/issues ^
+  -H "X-CodePilot-Api-Key: change-me-local-dev-key"
 ```
 
 ### 创建规则文档
 
 ```bash
 curl -X POST http://localhost:8080/api/rules ^
+  -H "X-CodePilot-Api-Key: change-me-local-dev-key" ^
   -H "Content-Type: application/json" ^
   -d "{\"title\":\"SQL 规范\",\"content\":\"...\"}"
 ```

@@ -1,5 +1,18 @@
 # 环境变量
 
+## 内部 REST API 认证
+
+- `CODEPILOT_API_AUTH_ENABLED`
+  - 是否启用内部 REST API Key 鉴权，默认 `true`。
+- `CODEPILOT_API_AUTH_API_KEY`
+  - 内部 REST API 访问密钥。默认保护 `/api/**`，未配置时受保护接口会返回 `401`，避免公网裸奔。生产环境必须替换为强随机值。
+- `CODEPILOT_API_AUTH_HEADER_NAME`
+  - API Key 请求头名称，默认 `X-CodePilot-Api-Key`。
+- `CODEPILOT_API_AUTH_PROTECTED_PATH_PATTERNS`
+  - 需要鉴权的路径模式，默认 `/api/**`。
+- `CODEPILOT_API_AUTH_EXCLUDE_PATH_PATTERNS`
+  - 鉴权排除路径，默认 `/api/github/webhook,/api/github/webhook/**`。GitHub Webhook 入口依赖 GitHub HMAC 签名，不使用内部 API Key。
+
 ## GitHub
 
 - `CODEPILOT_GITHUB_TOKEN`
@@ -88,6 +101,7 @@
 补充说明：
 - `.env` 不要提交，`.env.example` 是可提交的本地模板。
 - 本地推荐使用 `scripts/start-local.ps1` 启动，它会先加载 `.env`，再启动 Docker、打包和运行应用。
+- 如果只做可信本地调试，可以临时设置 `CODEPILOT_API_AUTH_ENABLED=false`；不要在公网或共享环境关闭。
 
 ## GitHub 命令代理
 

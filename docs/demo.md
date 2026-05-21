@@ -21,12 +21,14 @@ set CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK=10
 set CODEPILOT_GITHUB_WEBHOOK_ENABLED=true
 set CODEPILOT_GITHUB_TOKEN=你的 GitHub Token
 set CODEPILOT_GITHUB_WEBHOOK_SECRET=你的 Webhook Secret
+set CODEPILOT_API_AUTH_API_KEY=你的内部 API Key
 ```
 
 3. 创建一份 SQL 规范。
 
 ```bash
 curl -X POST http://localhost:8080/api/rules ^
+  -H "X-CodePilot-Api-Key: 你的内部 API Key" ^
   -H "Content-Type: application/json" ^
   -d "{\"title\":\"MySQL SQL 编写规范\",\"type\":\"SQL_RULE\",\"source\":\"manual\",\"content\":\"禁止使用 SELECT *。禁止字符串拼接 SQL。UPDATE 和 DELETE 必须带 WHERE。\"}"
 ```
@@ -34,7 +36,8 @@ curl -X POST http://localhost:8080/api/rules ^
 4. 对规范执行 index。
 
 ```bash
-curl -X POST http://localhost:8080/api/rules/1/index
+curl -X POST http://localhost:8080/api/rules/1/index ^
+  -H "X-CodePilot-Api-Key: 你的内部 API Key"
 ```
 
 5. 用 ngrok 暴露本地端口。

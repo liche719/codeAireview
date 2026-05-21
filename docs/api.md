@@ -1,5 +1,13 @@
 # API 文档
 
+除 `POST /api/github/webhook` 外，默认所有 `/api/**` 接口都需要内部 API Key：
+
+```bash
+X-CodePilot-Api-Key: <CODEPILOT_API_AUTH_API_KEY>
+```
+
+如果未配置 `CODEPILOT_API_AUTH_API_KEY`，受保护接口会返回 `401`，避免公开环境裸奔。GitHub Webhook 入口不使用该 header，它依赖 `X-Hub-Signature-256` 做 GitHub HMAC 验签。
+
 ## `POST /api/reviews`
 
 创建 PR 审查任务。
@@ -22,6 +30,16 @@
     "taskId": 123,
     "status": "PENDING"
   }
+}
+```
+
+## 认证失败返回
+
+```json
+{
+  "code": 401,
+  "message": "invalid or missing API key",
+  "data": null
 }
 ```
 
@@ -73,6 +91,8 @@
 ## `POST /api/github/webhook`
 
 接收 GitHub Pull Request Webhook。
+
+该接口不需要 `X-CodePilot-Api-Key`，但必须使用 GitHub Webhook Secret 对 `X-Hub-Signature-256` 验签。除非只用于可信本地调试，不要开启跳过验签。
 
 请求头：
 

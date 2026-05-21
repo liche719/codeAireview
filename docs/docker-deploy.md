@@ -18,10 +18,13 @@ copy .env.example .env
 
 然后填写至少这些值：
 
+- `CODEPILOT_API_AUTH_API_KEY`
 - `CODEPILOT_GITHUB_TOKEN`
 - `CODEPILOT_LLM_API_KEY`
 - `CODEPILOT_EMBEDDING_API_KEY`
 - `CODEPILOT_GITHUB_WEBHOOK_SECRET`
+
+`CODEPILOT_API_AUTH_API_KEY` 用于保护除 GitHub Webhook 外的内部 REST API，服务器部署时必须替换为强随机值。不要沿用 `.env.example` 里的本地开发示例值。
 
 ## 2. 启动
 
@@ -74,3 +77,4 @@ docker compose -f docker-compose.server.yml down
 - `.env` 不要提交。
 - `.env.example` 是模板，可以提交。
 - `docker-compose.server.yml` 适合服务器部署，`docker-compose.yml` 继续保留给本地基础设施使用。
+- 如果应用暴露到公网，保持 `CODEPILOT_API_AUTH_ENABLED=true`，并在反向代理层继续补充 IP allowlist / rate limit。
