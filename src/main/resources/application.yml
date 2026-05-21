@@ -74,6 +74,7 @@ codepilot:
     webhook-secret: ${CODEPILOT_GITHUB_WEBHOOK_SECRET:}
     webhook-skip-signature-when-secret-empty: ${CODEPILOT_GITHUB_WEBHOOK_SKIP_SIGNATURE_WHEN_SECRET_EMPTY:false}
     bot-mention-aliases: ${CODEPILOT_GITHUB_BOT_MENTION_ALIASES:@x-pilotx,@X-PilotX}
+    allowed-repositories: ${CODEPILOT_GITHUB_ALLOWED_REPOSITORIES:}
     allowed-comment-author-associations: ${CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS:OWNER,MEMBER,COLLABORATOR}
     fix-enabled: ${CODEPILOT_GITHUB_FIX_ENABLED:false}
     fix-max-files: ${CODEPILOT_GITHUB_FIX_MAX_FILES:3}

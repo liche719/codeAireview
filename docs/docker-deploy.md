@@ -26,6 +26,8 @@ copy .env.example .env
 
 `CODEPILOT_API_AUTH_API_KEY` 用于保护除 GitHub Webhook 外的内部 REST API，服务器部署时必须替换为强随机值。不要沿用 `.env.example` 里的本地开发示例值。
 
+生产环境建议同时设置 `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES=owner/repo`，只允许受信仓库触发手动审查、Webhook 自动审查和 PR 评论命令，避免同一个 GitHub Token 被任意仓库消耗或越过数据边界。
+
 ## 2. 启动
 
 在项目根目录执行：

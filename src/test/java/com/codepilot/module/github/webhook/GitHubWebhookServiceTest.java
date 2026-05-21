@@ -8,6 +8,8 @@ import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.command.parser.GithubCommandParser;
 import com.codepilot.module.command.router.GithubCommandRouter;
 import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.config.GithubRepositoryProperties;
+import com.codepilot.module.git.policy.GithubRepositoryPolicy;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.service.ReviewTaskService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,6 +18,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.Duration;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -160,6 +163,24 @@ class GitHubWebhookServiceTest {
     }
 
     @Test
+    void shouldIgnoreWebhookWhenRepositoryIsNotAllowed() {
+        TestContext context = new TestContext(true, true, List.of("other/repo"));
+
+        GitHubWebhookResponse response = context.service.handle(
+                "pull_request",
+                "delivery-7",
+                "sha256=valid",
+                pullRequestPayload("opened")
+        );
+
+        assertThat(response.isIgnored()).isTrue();
+        assertThat(response.getReason()).isEqualTo("repository is not allowed");
+        verify(context.reviewTaskService, never()).createTask(anyString(), any(), any(), any());
+        verify(context.githubCommandRouter, never()).route(any());
+        verify(context.valueOperations, never()).setIfAbsent(anyString(), anyString(), any());
+    }
+
+    @Test
     void shouldIgnoreIssueCommentAuthoredByBot() {
         TestContext context = new TestContext(true, true);
 
@@ -253,11 +274,17 @@ class GitHubWebhookServiceTest {
         private final GitHubWebhookService service;
 
         private TestContext(boolean redisLockAcquired, boolean signatureValid) {
+            this(redisLockAcquired, signatureValid, List.of());
+        }
+
+        private TestContext(boolean redisLockAcquired, boolean signatureValid, List<String> allowedRepositories) {
             StringRedisTemplate stringRedisTemplate = mock(StringRedisTemplate.class);
             when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
             when(valueOperations.setIfAbsent(anyString(), eq("1"), any(Duration.class))).thenReturn(redisLockAcquired);
             when(signatureVerifier.verify(anyString(), any())).thenReturn(signatureValid);
             when(githubClient.getAuthenticatedUserLogin()).thenReturn("X-PilotX");
+            GithubRepositoryProperties repositoryProperties = new GithubRepositoryProperties();
+            repositoryProperties.setAllowedRepositories(allowedRepositories);
 
             service = new GitHubWebhookService(
                     signatureVerifier,
@@ -269,6 +296,7 @@ class GitHubWebhookServiceTest {
                     githubCommandRouter,
                     githubClient,
                     stringRedisTemplate,
+                    new GithubRepositoryPolicy(repositoryProperties),
                     true
             );
         }

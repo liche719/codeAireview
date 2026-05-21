@@ -4,6 +4,7 @@ import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.command.dto.GithubCommandType;
 import com.codepilot.module.command.handler.GithubCommandHandler;
+import com.codepilot.module.git.policy.GithubRepositoryPolicy;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -22,14 +23,26 @@ public class GithubCommandRouter {
 
     private final Set<String> allowedCommentAuthorAssociations;
 
-    public GithubCommandRouter(List<GithubCommandHandler> handlers, GithubCommandProperties properties) {
+    private final GithubRepositoryPolicy githubRepositoryPolicy;
+
+    public GithubCommandRouter(
+            List<GithubCommandHandler> handlers,
+            GithubCommandProperties properties,
+            GithubRepositoryPolicy githubRepositoryPolicy
+    ) {
         handlers.forEach(handler -> this.handlers.put(handler.commandType(), handler));
         this.allowedCommentAuthorAssociations = normalizeAllowedAssociations(properties);
+        this.githubRepositoryPolicy = githubRepositoryPolicy;
     }
 
     public GithubCommandHandleResult route(GitHubPullRequestWebhookPayload payload) {
         if (!isAllowedCommentAuthor(payload)) {
             return GithubCommandHandleResult.ignored("comment author is not allowed to run commands", payload.getAction());
+        }
+        if (payload != null
+                && "issue_comment".equals(payload.getEvent())
+                && !githubRepositoryPolicy.isAllowed(payload.getOwner(), payload.getRepo())) {
+            return GithubCommandHandleResult.ignored("repository is not allowed", payload.getAction());
         }
         GithubCommandType type = parseType(payload.getCommandType());
         GithubCommandHandler handler = handlers.get(type);

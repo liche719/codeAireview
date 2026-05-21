@@ -5,6 +5,7 @@ import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.command.router.GithubCommandRouter;
 import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.policy.GithubRepositoryPolicy;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.service.ReviewTaskService;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,8 @@ public class GitHubWebhookService {
 
     private final StringRedisTemplate stringRedisTemplate;
 
+    private final GithubRepositoryPolicy githubRepositoryPolicy;
+
     private final boolean webhookEnabled;
 
     public GitHubWebhookService(
@@ -42,6 +45,7 @@ public class GitHubWebhookService {
             GithubCommandRouter githubCommandRouter,
             GithubClient githubClient,
             StringRedisTemplate stringRedisTemplate,
+            GithubRepositoryPolicy githubRepositoryPolicy,
             @Value("${codepilot.github.webhook-enabled:false}") boolean webhookEnabled
     ) {
         this.signatureVerifier = signatureVerifier;
@@ -50,6 +54,7 @@ public class GitHubWebhookService {
         this.githubCommandRouter = githubCommandRouter;
         this.githubClient = githubClient;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.githubRepositoryPolicy = githubRepositoryPolicy;
         this.webhookEnabled = webhookEnabled;
     }
 
@@ -68,6 +73,16 @@ public class GitHubWebhookService {
             log.info("GitHub webhook ignored, event={}, action={}, reason={}, delivery={}",
                     parsedPayload.getEvent(), parsedPayload.getAction(), parsedPayload.getReason(), delivery);
             return GitHubWebhookResponse.ignored(parsedPayload.getReason(), parsedPayload.getAction());
+        }
+        if (!githubRepositoryPolicy.isAllowed(parsedPayload.getOwner(), parsedPayload.getRepo())) {
+            log.info("GitHub webhook ignored because repository is not allowed, event={}, action={}, owner={}, repo={}, pullNumber={}, delivery={}",
+                    parsedPayload.getEvent(),
+                    parsedPayload.getAction(),
+                    parsedPayload.getOwner(),
+                    parsedPayload.getRepo(),
+                    parsedPayload.getPullNumber(),
+                    delivery);
+            return GitHubWebhookResponse.ignored("repository is not allowed", parsedPayload.getAction());
         }
         if (isBotAuthoredIssueComment(parsedPayload)) {
             log.info("GitHub webhook ignored because comment was authored by bot, event={}, action={}, owner={}, repo={}, pullNumber={}, commentUser={}, delivery={}",

@@ -135,6 +135,7 @@ powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1
 - `CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK`：单个任务最多创建多少条 inline comment。
 - `CODEPILOT_GITHUB_WEBHOOK_ENABLED`：是否启用 GitHub Webhook 接口。
 - `CODEPILOT_GITHUB_WEBHOOK_SECRET`：Webhook 签名密钥。
+- `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES`：允许处理的 GitHub 仓库列表，格式如 `owner/repo,org/service`。默认空表示不限制；生产环境建议显式配置，避免任意仓库触发审查成本或越过数据边界。
 - `CODEPILOT_LLM_API_KEY`：大模型 API Key。
 - `CODEPILOT_EMBEDDING_API_KEY`：向量模型 API Key。
 - `CODEPILOT_DB_URL`：PostgreSQL JDBC 地址。
@@ -220,6 +221,8 @@ PR 评论支持以下命令：
 Fix 模式默认关闭。若要开启，请设置 `CODEPILOT_GITHUB_FIX_ENABLED=true`。它只会写回同仓库的 PR 分支，token 仍需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`。
 
 PR 评论命令默认只允许 GitHub `author_association` 为 `OWNER`、`MEMBER` 或 `COLLABORATOR` 的评论者触发。若确需调整，请设置 `CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS`。
+
+如果服务面向多个仓库或暴露到公网，建议设置 `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES=owner/repo`。该 allowlist 会同时限制手动 `/api/reviews`、PR Webhook 自动审查和 PR 评论命令，未在列表内的仓库不会创建审查任务，也不会执行 `review/fix/chat` 命令。
 
 修复提交前的校验命令默认是 `git diff --check`，只检查补丁空白错误，不执行 PR 内的构建脚本。若要改成 `mvn -q -DskipTests compile` 等命令，必须同时把它加入 `CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS`；这会执行 PR 代码和构建插件，生产环境必须先做隔离沙箱。默认 `CODEPILOT_GITHUB_FIX_VALIDATION_INHERIT_ENVIRONMENT=false`，校验进程不会继承服务进程里的 LLM/GitHub 等敏感环境变量。
 

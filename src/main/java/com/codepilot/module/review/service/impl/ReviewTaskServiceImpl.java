@@ -12,6 +12,7 @@ import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.git.dto.GithubPrInfo;
 import com.codepilot.module.git.parser.GithubPrUrlParser;
+import com.codepilot.module.git.policy.GithubRepositoryPolicy;
 import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.entity.ReviewFile;
@@ -62,6 +63,8 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
 
     private final ReviewProperties reviewProperties;
 
+    private final GithubRepositoryPolicy githubRepositoryPolicy;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ReviewCreateResponse createTask(String prUrl) {
@@ -84,6 +87,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     @Transactional(rollbackFor = Exception.class)
     public ReviewCreateResponse createTask(String prUrl, String title, ReviewCommentMode reviewCommentMode, String headSha) {
         GithubPrInfo prInfo = githubPrUrlParser.parse(prUrl);
+        githubRepositoryPolicy.assertAllowed(prInfo.getOwner(), prInfo.getRepo());
 
         ReviewTask task = new ReviewTask();
         task.setRepoOwner(prInfo.getOwner());

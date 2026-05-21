@@ -8,6 +8,7 @@ import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.git.dto.GithubPrInfo;
 import com.codepilot.module.git.parser.GithubPrUrlParser;
+import com.codepilot.module.git.policy.GithubRepositoryPolicy;
 import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.entity.ReviewTask;
@@ -79,6 +80,23 @@ class ReviewTaskServiceImplTest {
 
         verify(context.reviewTaskMapper).insert(context.taskCaptor.capture());
         assertThat(context.taskCaptor.getValue().getHeadSha()).isEqualTo("abc123");
+    }
+
+    @Test
+    void shouldRejectTaskCreationWhenRepositoryIsNotAllowed() {
+        TestContext context = new TestContext();
+        when(context.githubPrUrlParser.parse("https://github.com/evil/repo/pull/12"))
+                .thenReturn(new GithubPrInfo("evil", "repo", 12));
+        doThrow(new com.codepilot.common.exception.BusinessException("GitHub repository is not allowed: evil/repo"))
+                .when(context.githubRepositoryPolicy)
+                .assertAllowed("evil", "repo");
+
+        assertThatThrownBy(() -> context.service.createTask("https://github.com/evil/repo/pull/12"))
+                .isInstanceOf(com.codepilot.common.exception.BusinessException.class)
+                .hasMessage("GitHub repository is not allowed: evil/repo");
+
+        verify(context.reviewTaskMapper, never()).insert(any(ReviewTask.class));
+        verify(context.reviewTaskProducer, never()).send(anyLong());
     }
 
     @Test
@@ -182,6 +200,8 @@ class ReviewTaskServiceImplTest {
 
         private final ReviewProperties reviewProperties = new ReviewProperties();
 
+        private final GithubRepositoryPolicy githubRepositoryPolicy = mock(GithubRepositoryPolicy.class);
+
         private final org.mockito.ArgumentCaptor<ReviewTask> taskCaptor =
                 org.mockito.ArgumentCaptor.forClass(ReviewTask.class);
 
@@ -197,7 +217,8 @@ class ReviewTaskServiceImplTest {
                     githubCommentService,
                     gitHubInlineCommentService,
                     reviewTaskProducer,
-                    reviewProperties
+                    reviewProperties,
+                    githubRepositoryPolicy
             );
             ReflectionTestUtils.setField(service, "baseMapper", reviewTaskMapper);
         }

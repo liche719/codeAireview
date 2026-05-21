@@ -31,6 +31,8 @@
   - GitHub Webhook Secret，用于 `X-Hub-Signature-256` 验签。
 - `CODEPILOT_GITHUB_WEBHOOK_SKIP_SIGNATURE_WHEN_SECRET_EMPTY`
   - 本地调试用开关。默认 `false`，仅在确认接口不会暴露给不可信来源时才可设为 `true`。
+- `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES`
+  - 允许处理的 GitHub 仓库列表，格式如 `owner/repo,org/service`。默认空表示不限制；生产环境建议显式配置，未在 allowlist 内的仓库会被拒绝创建审查任务，也不能通过 PR 评论命令触发 `review/fix/chat`。
 
 ## LLM
 
@@ -113,6 +115,8 @@
   - 是否启用 `@x-pilotx fix` 和 `@x-pilotx fix dry-run`，默认 `false`。
 - `CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS`
   - 允许触发 PR 评论命令的 GitHub author association，默认 `OWNER,MEMBER,COLLABORATOR`。
+- `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES`
+  - 同时限制手动审查、Webhook 自动审查和 PR 评论命令可处理的仓库。这里再次列出是因为它也会保护 `@x-pilotx review/fix/chat` 命令入口。
 - `CODEPILOT_GITHUB_FIX_MAX_FILES`
   - 单个补丁最多可修改的文件数，默认 `3`。
 - `CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES`
