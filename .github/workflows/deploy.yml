@@ -44,10 +44,27 @@ jobs:
             echo "Secret CODEPILOT_DEPLOY_KNOWN_HOSTS is required for SSH host key pinning." >&2
             exit 1
           fi
+          DEPLOY_DIR="${SERVER_DIR:-/opt/codeAireview}"
+          if [ "${DEPLOY_DIR#/}" = "$DEPLOY_DIR" ]; then
+            echo "CODEPILOT_DEPLOY_DIR must be an absolute path." >&2
+            exit 1
+          fi
+          DEPLOY_DIR="${DEPLOY_DIR%/}"
+          case "${DEPLOY_DIR%/}" in
+            ""|"/"|"/home"|"/root"|"/opt"|"/srv"|"/tmp"|"/var"|"/usr"|"/etc"|"/var/www")
+              echo "CODEPILOT_DEPLOY_DIR points to an unsafe top-level directory: ${DEPLOY_DIR}" >&2
+              exit 1
+              ;;
+          esac
+          DEPLOY_DIR_WITHOUT_ROOT="${DEPLOY_DIR#/}"
+          if [ "${DEPLOY_DIR_WITHOUT_ROOT#*/}" = "$DEPLOY_DIR_WITHOUT_ROOT" ]; then
+            echo "CODEPILOT_DEPLOY_DIR must be at least two path segments below root, for example /opt/codeAireview." >&2
+            exit 1
+          fi
           {
             echo "SERVER_HOST=${SERVER_HOST}"
             echo "SERVER_USER=${SERVER_USER:-deploy}"
-            echo "SERVER_DIR=${SERVER_DIR:-/opt/codeAireview}"
+            echo "SERVER_DIR=${DEPLOY_DIR}"
           } >> "$GITHUB_ENV"
 
       - name: Configure SSH
@@ -93,6 +110,23 @@ jobs:
 
           ARCHIVE="/tmp/codepilot-deploy.tar"
 
+          if [ -z "${DEPLOY_DIR:-}" ] || [ "${DEPLOY_DIR#/}" = "$DEPLOY_DIR" ]; then
+            echo "Unsafe deploy directory. DEPLOY_DIR must be an absolute path." >&2
+            exit 1
+          fi
+          DEPLOY_DIR="${DEPLOY_DIR%/}"
+          case "$DEPLOY_DIR" in
+            ""|"/"|"/home"|"/root"|"/opt"|"/srv"|"/tmp"|"/var"|"/usr"|"/etc"|"/var/www")
+              echo "Unsafe deploy directory: $DEPLOY_DIR" >&2
+              exit 1
+              ;;
+          esac
+          DEPLOY_DIR_WITHOUT_ROOT="${DEPLOY_DIR#/}"
+          if [ "${DEPLOY_DIR_WITHOUT_ROOT#*/}" = "$DEPLOY_DIR_WITHOUT_ROOT" ]; then
+            echo "Unsafe deploy directory. DEPLOY_DIR must be at least two path segments below root." >&2
+            exit 1
+          fi
+
           mkdir -p "$DEPLOY_DIR"
 
           if [ ! -f "$DEPLOY_DIR/.env" ]; then
@@ -100,7 +134,7 @@ jobs:
             exit 1
           fi
 
-          find "$DEPLOY_DIR" -mindepth 1 -maxdepth 1 ! -name '.env' -exec rm -rf {} +
+          find "$DEPLOY_DIR" -mindepth 1 -maxdepth 1 ! -name '.env' -exec rm -rf -- {} +
           tar -xf "$ARCHIVE" -C "$DEPLOY_DIR"
           rm -f "$ARCHIVE"
 
