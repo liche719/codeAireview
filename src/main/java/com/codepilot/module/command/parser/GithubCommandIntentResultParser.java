@@ -1,6 +1,7 @@
 package com.codepilot.module.command.parser;
 
 import com.codepilot.module.command.dto.GithubCommandIntentResult;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +38,8 @@ public class GithubCommandIntentResultParser {
             validateSchema(root);
             return objectMapper.treeToValue(root, GithubCommandIntentResult.class);
         } catch (Exception exception) {
-            log.warn("Failed to parse GitHub command intent JSON, message={}", exception.getMessage());
+            log.warn("Failed to parse GitHub command intent JSON, message={}",
+                    SensitiveDataSanitizer.redact(exception.getMessage()));
             return null;
         }
     }

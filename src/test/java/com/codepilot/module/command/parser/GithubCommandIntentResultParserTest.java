@@ -2,9 +2,16 @@ package com.codepilot.module.command.parser;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+@ExtendWith(OutputCaptureExtension.class)
 class GithubCommandIntentResultParserTest {
 
     private final GithubCommandIntentResultParser parser = new GithubCommandIntentResultParser(new ObjectMapper());
@@ -92,5 +99,19 @@ class GithubCommandIntentResultParserTest {
                   "reason": {"text": "hello"}
                 }
                 """)).isNull();
+    }
+
+    @Test
+    void shouldRedactSecretsFromParserErrorLogs(CapturedOutput output) throws Exception {
+        String secret = "ghp_123456789012345678901234567890123456";
+        ObjectMapper objectMapper = mock(ObjectMapper.class);
+        when(objectMapper.readTree(anyString())).thenThrow(new IllegalStateException("token=" + secret));
+        GithubCommandIntentResultParser parserWithFailingMapper = new GithubCommandIntentResultParser(objectMapper);
+
+        assertThat(parserWithFailingMapper.parse("{}")).isNull();
+
+        assertThat(output.getOut() + output.getErr())
+                .contains("[REDACTED]")
+                .doesNotContain(secret);
     }
 }
