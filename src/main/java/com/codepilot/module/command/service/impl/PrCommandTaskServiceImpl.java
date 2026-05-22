@@ -625,10 +625,14 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     }
 
     private String truncate(String content, int maxLength) {
-        if (!StringUtils.hasText(content) || content.length() <= maxLength) {
+        if (!StringUtils.hasText(content)) {
             return content;
         }
-        return content.substring(0, maxLength) + "...";
+        String redacted = SensitiveDataSanitizer.redact(content);
+        if (redacted.length() <= maxLength) {
+            return redacted;
+        }
+        return SensitiveDataSanitizer.truncatePreservingRedactionMarker(redacted, maxLength) + "...";
     }
 
     record PatchStats(int filesChanged, int changedLines, Set<String> paths) {

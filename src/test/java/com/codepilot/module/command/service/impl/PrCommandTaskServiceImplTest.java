@@ -257,6 +257,30 @@ class PrCommandTaskServiceImplTest {
     }
 
     @Test
+    void shouldRedactPatchExecutionFailureBeforePersistingOrCommenting() {
+        TestContext context = new TestContext();
+        context.stubRunnableFixTask();
+        String secret = "ghp_123456789012345678901234567890123456";
+        when(context.gitPatchExecutor.execute(any(GitPatchExecutionRequest.class)))
+                .thenReturn(GitPatchExecutionResult.failure("validation failed token=" + secret, "detail"));
+
+        context.service.processFixTask(1L);
+
+        verify(context.mapper, atLeastOnce()).updateById(context.taskCaptor.capture());
+        PrCommandTask failedUpdate = context.taskCaptor.getAllValues().stream()
+                .filter(task -> "FAILED".equals(task.getStatus()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(failedUpdate.getErrorMessage())
+                .contains("[REDACTED]")
+                .doesNotContain(secret);
+        verify(context.githubClient).createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(12),
+                org.mockito.ArgumentMatchers.argThat(body ->
+                        body.contains("[REDACTED]") && !body.contains(secret)
+                ));
+    }
+
+    @Test
     void shouldPersistOnlyRedactedGeneratedPatchPreview() {
         TestContext context = new TestContext();
         context.stubRunnableFixTaskWithPatch("""
