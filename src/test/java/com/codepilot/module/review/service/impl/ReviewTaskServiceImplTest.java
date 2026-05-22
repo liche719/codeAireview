@@ -21,6 +21,7 @@ import com.codepilot.module.review.service.ReviewIssueService;
 import com.codepilot.task.ReviewTaskProducer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.retry.context.RetryContextSupport;
 import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -138,6 +139,31 @@ class ReviewTaskServiceImplTest {
         assertThat(response.getTaskId()).isEqualTo(100L);
         assertThat(response.getStatus()).isEqualTo("PENDING");
         verify(context.reviewTaskMapper).insert(any(ReviewTask.class));
+    }
+
+    @Test
+    void shouldReuseConcurrentlyCreatedReviewTaskWhenUniqueIndexRejectsDuplicate() {
+        TestContext context = new TestContext();
+        when(context.githubPrUrlParser.parse("https://github.com/liche719/codeAireview/pull/12"))
+                .thenReturn(new GithubPrInfo("liche719", "codeAireview", 12));
+        ReviewTask existingTask = new ReviewTask();
+        existingTask.setId(99L);
+        existingTask.setStatus("PENDING");
+        existingTask.setHeadSha("abc123");
+        existingTask.setReviewCommentMode("SUMMARY_ONLY");
+        when(context.reviewTaskMapper.selectList(any())).thenReturn(List.of(), List.of(existingTask));
+        when(context.reviewTaskMapper.insert(any(ReviewTask.class))).thenThrow(new DuplicateKeyException("duplicate"));
+
+        ReviewCreateResponse response = context.service.createTask(
+                "https://github.com/liche719/codeAireview/pull/12",
+                "Add webhook support",
+                ReviewCommentMode.SUMMARY_ONLY,
+                "abc123"
+        );
+
+        assertThat(response.getTaskId()).isEqualTo(99L);
+        assertThat(response.getStatus()).isEqualTo("PENDING");
+        verify(context.reviewTaskProducer, never()).send(anyLong());
     }
 
     @Test

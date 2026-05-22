@@ -28,6 +28,7 @@ import com.codepilot.task.ReviewTaskProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.retry.RetryContext;
 import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.stereotype.Service;
@@ -121,7 +122,23 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         task.setCreatedAt(LocalDateTime.now());
         task.setUpdatedAt(LocalDateTime.now());
 
-        save(task);
+        try {
+            save(task);
+        } catch (DuplicateKeyException exception) {
+            ReviewTask concurrentlyCreatedTask = findReusableTask(prInfo, normalizedReviewCommentMode, normalizedHeadSha);
+            if (concurrentlyCreatedTask != null) {
+                log.info("Reuse concurrently created review task, taskId={}, owner={}, repo={}, pullNumber={}, headSha={}, status={}, commentMode={}",
+                        concurrentlyCreatedTask.getId(),
+                        prInfo.getOwner(),
+                        prInfo.getRepo(),
+                        prInfo.getPullNumber(),
+                        normalizedHeadSha,
+                        concurrentlyCreatedTask.getStatus(),
+                        normalizedReviewCommentMode);
+                return new ReviewCreateResponse(concurrentlyCreatedTask.getId(), concurrentlyCreatedTask.getStatus());
+            }
+            throw exception;
+        }
         sendTaskMessageAfterCommit(task.getId());
 
         return new ReviewCreateResponse(task.getId(), task.getStatus());

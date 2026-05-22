@@ -43,4 +43,18 @@ class DatabaseMigrationResourceTest {
                 .contains("WHERE command_type = 'FIX'")
                 .contains("AND comment_id IS NOT NULL");
     }
+
+    @Test
+    void shouldEnforceReviewTaskHeadShaIdempotencyAfterCleaningLegacyDuplicates() throws Exception {
+        String migration = new ClassPathResource("db/migration/V9__dedupe_review_task_head_sha.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(migration)
+                .contains("ROW_NUMBER() OVER")
+                .contains("PARTITION BY repo_owner, repo_name, pr_number, head_sha, review_comment_mode")
+                .contains("SET head_sha = NULL")
+                .contains("CREATE UNIQUE INDEX IF NOT EXISTS uq_review_task_active_head_mode")
+                .contains("WHERE head_sha IS NOT NULL")
+                .contains("status IN ('PENDING', 'RUNNING', 'SUCCESS')");
+    }
 }
