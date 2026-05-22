@@ -29,7 +29,11 @@ public class PrCommandTaskLogServiceImpl extends ServiceImpl<PrCommandTaskLogMap
             logRecord.setCreatedAt(LocalDateTime.now());
             save(logRecord);
         } catch (Exception exception) {
-            log.warn("Failed to save PR command task log, commandTaskId={}, step={}", commandTaskId, step, exception);
+            log.warn("Failed to save PR command task log, commandTaskId={}, step={}, errorType={}, message={}",
+                    commandTaskId,
+                    step,
+                    exception.getClass().getSimpleName(),
+                    SensitiveDataSanitizer.redact(exception.getMessage()));
         }
     }
 

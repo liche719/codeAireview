@@ -3,6 +3,9 @@ package com.codepilot.module.command.service.impl;
 import com.codepilot.module.command.entity.PrCommandTaskLog;
 import com.codepilot.module.command.mapper.PrCommandTaskLogMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -11,6 +14,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(OutputCaptureExtension.class)
 class PrCommandTaskLogServiceImplTest {
 
     @Test
@@ -37,5 +41,20 @@ class PrCommandTaskLogServiceImplTest {
         assertThat(logCaptor.getValue().getDetail())
                 .contains("[REDACTED]")
                 .doesNotContain("plain-secret");
+    }
+
+    @Test
+    void shouldRedactSecretsWhenCommandTaskLogSaveFails(CapturedOutput output) {
+        String secret = "ghp_123456789012345678901234567890123456";
+        PrCommandTaskLogMapper mapper = mock(PrCommandTaskLogMapper.class);
+        when(mapper.insert(any(PrCommandTaskLog.class))).thenThrow(new IllegalStateException("token=" + secret));
+        PrCommandTaskLogServiceImpl service = new PrCommandTaskLogServiceImpl();
+        ReflectionTestUtils.setField(service, "baseMapper", mapper);
+
+        service.record(1L, "PATCH_EXECUTE", false, "safe message", "safe detail");
+
+        assertThat(output.getOut() + output.getErr())
+                .contains("[REDACTED]")
+                .doesNotContain(secret);
     }
 }
