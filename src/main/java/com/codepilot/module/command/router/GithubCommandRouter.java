@@ -76,7 +76,7 @@ public class GithubCommandRouter {
             return true;
         }
         if (allowedCommentAuthorAssociations.isEmpty()) {
-            return true;
+            return false;
         }
         String association = payload.getCommentAuthorAssociation();
         return StringUtils.hasText(association)

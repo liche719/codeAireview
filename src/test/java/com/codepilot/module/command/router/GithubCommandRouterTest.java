@@ -102,10 +102,9 @@ class GithubCommandRouterTest {
     }
 
     @Test
-    void shouldAllowCommandWhenAssociationAllowlistIsEmpty() {
+    void shouldRejectIssueCommentCommandWhenAssociationAllowlistIsEmpty() {
         GithubCommandHandler chatHandler = mock(GithubCommandHandler.class);
         when(chatHandler.commandType()).thenReturn(GithubCommandType.CHAT);
-        when(chatHandler.handle(any())).thenReturn(GithubCommandHandleResult.processed(12L, "created"));
         GithubCommandProperties properties = new GithubCommandProperties();
         properties.setAllowedCommentAuthorAssociations(List.of());
 
@@ -119,8 +118,8 @@ class GithubCommandRouterTest {
 
         GithubCommandHandleResult result = router.route(payload);
 
-        assertThat(result.getId()).isEqualTo(12L);
-        verify(chatHandler).handle(payload);
+        assertThat(result.getReason()).isEqualTo("comment author is not allowed to run commands");
+        verify(chatHandler, never()).handle(payload);
     }
 
     @Test
