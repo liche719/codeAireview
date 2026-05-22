@@ -92,6 +92,55 @@ class ReviewTaskServiceImplTest {
     }
 
     @Test
+    void shouldReuseExistingReviewTaskForSameHeadShaAndCommentMode() {
+        TestContext context = new TestContext();
+        when(context.githubPrUrlParser.parse("https://github.com/liche719/codeAireview/pull/12"))
+                .thenReturn(new GithubPrInfo("liche719", "codeAireview", 12));
+        ReviewTask existingTask = new ReviewTask();
+        existingTask.setId(99L);
+        existingTask.setStatus("SUCCESS");
+        existingTask.setHeadSha("abc123");
+        existingTask.setReviewCommentMode("SUMMARY_ONLY");
+        when(context.reviewTaskMapper.selectList(any())).thenReturn(List.of(existingTask));
+
+        ReviewCreateResponse response = context.service.createTask(
+                "https://github.com/liche719/codeAireview/pull/12",
+                "Add webhook support",
+                ReviewCommentMode.SUMMARY_ONLY,
+                " abc123 "
+        );
+
+        assertThat(response.getTaskId()).isEqualTo(99L);
+        assertThat(response.getStatus()).isEqualTo("SUCCESS");
+        verify(context.reviewTaskMapper, never()).insert(any(ReviewTask.class));
+        verify(context.reviewTaskProducer, never()).send(anyLong());
+    }
+
+    @Test
+    void shouldCreateNewReviewTaskWhenReusableTaskOnlyFailed() {
+        TestContext context = new TestContext();
+        when(context.githubPrUrlParser.parse("https://github.com/liche719/codeAireview/pull/12"))
+                .thenReturn(new GithubPrInfo("liche719", "codeAireview", 12));
+        when(context.reviewTaskMapper.selectList(any())).thenReturn(List.of());
+        when(context.reviewTaskMapper.insert(any(ReviewTask.class))).thenAnswer(invocation -> {
+            ReviewTask task = invocation.getArgument(0);
+            task.setId(100L);
+            return 1;
+        });
+
+        ReviewCreateResponse response = context.service.createTask(
+                "https://github.com/liche719/codeAireview/pull/12",
+                "Retry review",
+                ReviewCommentMode.SUMMARY_ONLY,
+                "abc123"
+        );
+
+        assertThat(response.getTaskId()).isEqualTo(100L);
+        assertThat(response.getStatus()).isEqualTo("PENDING");
+        verify(context.reviewTaskMapper).insert(any(ReviewTask.class));
+    }
+
+    @Test
     void shouldRejectTaskCreationWhenRepositoryIsNotAllowed() {
         TestContext context = new TestContext();
         when(context.githubPrUrlParser.parse("https://github.com/evil/repo/pull/12"))

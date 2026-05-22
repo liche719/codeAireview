@@ -1,6 +1,7 @@
 package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.common.enums.ReviewTaskStatus;
 import com.codepilot.common.exception.BusinessException;
@@ -90,6 +91,21 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     public ReviewCreateResponse createTask(String prUrl, String title, ReviewCommentMode reviewCommentMode, String headSha) {
         GithubPrInfo prInfo = githubPrUrlParser.parse(prUrl);
         githubRepositoryPolicy.assertAllowed(prInfo.getOwner(), prInfo.getRepo());
+        ReviewCommentMode normalizedReviewCommentMode = normalizeReviewCommentMode(reviewCommentMode);
+        String normalizedHeadSha = normalizeHeadSha(headSha);
+
+        ReviewTask reusableTask = findReusableTask(prInfo, normalizedReviewCommentMode, normalizedHeadSha);
+        if (reusableTask != null) {
+            log.info("Reuse existing review task, taskId={}, owner={}, repo={}, pullNumber={}, headSha={}, status={}, commentMode={}",
+                    reusableTask.getId(),
+                    prInfo.getOwner(),
+                    prInfo.getRepo(),
+                    prInfo.getPullNumber(),
+                    normalizedHeadSha,
+                    reusableTask.getStatus(),
+                    normalizedReviewCommentMode);
+            return new ReviewCreateResponse(reusableTask.getId(), reusableTask.getStatus());
+        }
 
         ReviewTask task = new ReviewTask();
         task.setRepoOwner(prInfo.getOwner());
@@ -97,8 +113,8 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         task.setPrNumber(prInfo.getPullNumber());
         task.setPrUrl(prUrl.trim());
         task.setTitle(title);
-        task.setHeadSha(StringUtils.hasText(headSha) ? headSha.trim() : null);
-        task.setReviewCommentMode(normalizeReviewCommentMode(reviewCommentMode).name());
+        task.setHeadSha(normalizedHeadSha);
+        task.setReviewCommentMode(normalizedReviewCommentMode.name());
         task.setStatus(ReviewTaskStatus.PENDING.name());
         task.setTotalFiles(0);
         task.setTotalIssues(0);
@@ -109,6 +125,26 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         sendTaskMessageAfterCommit(task.getId());
 
         return new ReviewCreateResponse(task.getId(), task.getStatus());
+    }
+
+    private ReviewTask findReusableTask(GithubPrInfo prInfo, ReviewCommentMode reviewCommentMode, String headSha) {
+        if (prInfo == null || !StringUtils.hasText(headSha)) {
+            return null;
+        }
+        List<ReviewTask> tasks = list(new LambdaQueryWrapper<ReviewTask>()
+                .eq(ReviewTask::getRepoOwner, prInfo.getOwner())
+                .eq(ReviewTask::getRepoName, prInfo.getRepo())
+                .eq(ReviewTask::getPrNumber, prInfo.getPullNumber())
+                .eq(ReviewTask::getHeadSha, headSha)
+                .eq(ReviewTask::getReviewCommentMode, reviewCommentMode.name())
+                .in(ReviewTask::getStatus, List.of(
+                        ReviewTaskStatus.PENDING.name(),
+                        ReviewTaskStatus.RUNNING.name(),
+                        ReviewTaskStatus.SUCCESS.name()
+                ))
+                .orderByDesc(ReviewTask::getId)
+                .last("LIMIT 1"));
+        return tasks == null || tasks.isEmpty() ? null : tasks.getFirst();
     }
 
     @Override
@@ -264,6 +300,10 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
 
     private ReviewCommentMode normalizeReviewCommentMode(ReviewCommentMode reviewCommentMode) {
         return reviewCommentMode == null ? ReviewCommentMode.SUMMARY_ONLY : reviewCommentMode;
+    }
+
+    private String normalizeHeadSha(String headSha) {
+        return StringUtils.hasText(headSha) ? headSha.trim() : null;
     }
 
     private String sanitizedErrorMessage(Exception exception) {
