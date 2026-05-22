@@ -64,6 +64,8 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
 
     private static final int GENERATED_PATCH_AUDIT_LIMIT = 4000;
 
+    private static final int COMMENT_BODY_AUDIT_LIMIT = 2000;
+
     private static final Set<String> BLOCKED_FIX_PATHS = Set.of(
             ".env",
             ".env.local",
@@ -129,7 +131,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         task.setTitle(payload.getTitle());
         task.setHeadSha(payload.getHeadSha());
         task.setCommentId(payload.getCommentId());
-        task.setCommentBody(payload.getCommentBody());
+        task.setCommentBody(commentBodyAuditPreview(payload.getCommentBody()));
         task.setCommentUserLogin(payload.getCommentUserLogin());
         task.setDryRun(Boolean.TRUE.equals(payload.getDryRun()));
         task.setCreatedAt(LocalDateTime.now());
@@ -622,6 +624,10 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
 
     private String generatedPatchAuditPreview(String patch) {
         return SensitiveDataSanitizer.redactAndTruncate(patch, GENERATED_PATCH_AUDIT_LIMIT);
+    }
+
+    private String commentBodyAuditPreview(String commentBody) {
+        return SensitiveDataSanitizer.redactAndTruncate(commentBody, COMMENT_BODY_AUDIT_LIMIT);
     }
 
     private String truncate(String content, int maxLength) {

@@ -201,6 +201,26 @@ class PrCommandTaskServiceImplTest {
     }
 
     @Test
+    void shouldPersistOnlyRedactedCommentBodyPreview() {
+        TestContext context = new TestContext();
+        when(context.mapper.selectList(any())).thenReturn(List.of());
+        String secret = "ghp_123456789012345678901234567890123456";
+        GitHubPullRequestWebhookPayload payload = payload();
+        payload.setCommentBody("@x-pilotx fix token=" + secret);
+        when(context.mapper.insert(any(PrCommandTask.class))).thenAnswer(invocation -> {
+            PrCommandTask task = invocation.getArgument(0);
+            task.setId(100L);
+            return 1;
+        });
+
+        PrCommandTask task = context.service.createFixTask(payload);
+
+        assertThat(task.getCommentBody())
+                .contains("[REDACTED]")
+                .doesNotContain(secret);
+    }
+
+    @Test
     void shouldSkipTerminalFixTaskMessage() {
         TestContext context = new TestContext();
         when(context.mapper.selectById(1L)).thenReturn(existingFixTask(99L, "SUCCESS"));
