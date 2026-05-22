@@ -19,6 +19,8 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class ChatCommandHandler implements GithubCommandHandler {
 
+    private static final int MAX_CHAT_COMMENT_LENGTH = 4000;
+
     private final GithubClient githubClient;
 
     private final ObjectProvider<GithubCommandChatAiAssistant> chatAiAssistantProvider;
@@ -96,12 +98,24 @@ public class ChatCommandHandler implements GithubCommandHandler {
 
     private String formatCommentBody(String response) {
         String content = StringUtils.hasText(response)
-                ? response.trim()
+                ? sanitizeAssistantResponse(response)
                 : "我可以帮你审查这个 PR、修复一个具体问题，或者总结一下变更。";
-        if (content.contains(ReviewReportFormatter.DEFAULT_COMMENT_MARKER)) {
-            return content;
-        }
         return ReviewReportFormatter.DEFAULT_COMMENT_MARKER + "\n\n" + content;
+    }
+
+    private String sanitizeAssistantResponse(String response) {
+        String safe = SensitiveDataSanitizer.redact(response)
+                .replace(ReviewReportFormatter.DEFAULT_COMMENT_MARKER, "")
+                .replace("\u0000", "")
+                .trim();
+        if (!StringUtils.hasText(safe)) {
+            return "我可以帮你审查这个 PR、修复一个具体问题，或者总结一下变更。";
+        }
+        if (safe.length() <= MAX_CHAT_COMMENT_LENGTH) {
+            return safe;
+        }
+        return SensitiveDataSanitizer.truncatePreservingRedactionMarker(safe, MAX_CHAT_COMMENT_LENGTH)
+                + "\n\n... truncated ...";
     }
 
     private String safeText(String value, String fallback) {

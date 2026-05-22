@@ -89,6 +89,70 @@ class ChatCommandHandlerTest {
         );
     }
 
+    @Test
+    void shouldRedactAndRemoveModelGeneratedMarkerFromChatComment() {
+        GithubClient githubClient = mock(GithubClient.class);
+        GithubCommandChatAiAssistant assistant = mock(GithubCommandChatAiAssistant.class);
+        String secret = "ghp_123456789012345678901234567890123456";
+
+        @SuppressWarnings("unchecked")
+        ObjectProvider<GithubCommandChatAiAssistant> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(assistant);
+        when(assistant.reply(anyString(), anyString(), anyString(), anyString(), anyInt()))
+                .thenReturn(ReviewReportFormatter.DEFAULT_COMMENT_MARKER + "\n\n结果 token=" + secret);
+
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, enabledLlmProperties());
+        GitHubPullRequestWebhookPayload payload = payload("@x-pilotx 总结");
+        payload.setCommandText("总结");
+
+        handler.handle(payload);
+
+        var bodyCaptor = forClass(String.class);
+        verify(githubClient).createPullRequestComment(
+                eq("liche719"),
+                eq("codeAireview"),
+                eq(12),
+                bodyCaptor.capture()
+        );
+
+        assertThat(bodyCaptor.getValue())
+                .startsWith(ReviewReportFormatter.DEFAULT_COMMENT_MARKER + "\n\n")
+                .contains("[REDACTED]")
+                .doesNotContain(secret);
+        assertThat(countOccurrences(bodyCaptor.getValue(), ReviewReportFormatter.DEFAULT_COMMENT_MARKER))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void shouldTruncateLongChatComment() {
+        GithubClient githubClient = mock(GithubClient.class);
+        GithubCommandChatAiAssistant assistant = mock(GithubCommandChatAiAssistant.class);
+
+        @SuppressWarnings("unchecked")
+        ObjectProvider<GithubCommandChatAiAssistant> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(assistant);
+        when(assistant.reply(anyString(), anyString(), anyString(), anyString(), anyInt()))
+                .thenReturn("a".repeat(5000));
+
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, enabledLlmProperties());
+        GitHubPullRequestWebhookPayload payload = payload("@x-pilotx 总结");
+        payload.setCommandText("总结");
+
+        handler.handle(payload);
+
+        var bodyCaptor = forClass(String.class);
+        verify(githubClient).createPullRequestComment(
+                eq("liche719"),
+                eq("codeAireview"),
+                eq(12),
+                bodyCaptor.capture()
+        );
+
+        assertThat(bodyCaptor.getValue())
+                .contains("... truncated ...")
+                .hasSizeLessThan(4300);
+    }
+
     private GitHubPullRequestWebhookPayload payload(String body) {
         GitHubPullRequestWebhookPayload payload = new GitHubPullRequestWebhookPayload();
         payload.setOwner("liche719");
@@ -108,5 +172,15 @@ class ChatCommandHandlerTest {
         properties.setBaseUrl("https://api.openai.com/v1");
         properties.setModel("gpt-4o-mini");
         return properties;
+    }
+
+    private int countOccurrences(String content, String needle) {
+        int count = 0;
+        int index = 0;
+        while ((index = content.indexOf(needle, index)) >= 0) {
+            count++;
+            index += needle.length();
+        }
+        return count;
     }
 }
