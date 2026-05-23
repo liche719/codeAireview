@@ -3,13 +3,14 @@ package com.codepilot.module.review.service.impl;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.common.exception.BusinessException;
-import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.review.creator.ReviewTaskCreationResult;
 import com.codepilot.module.review.creator.ReviewTaskCreator;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.entity.ReviewTask;
+import com.codepilot.module.review.failure.ReviewTaskFailureHandler;
+import com.codepilot.module.review.failure.ReviewTaskFailureResult;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.processor.ReviewTaskProcessingResult;
 import com.codepilot.module.review.processor.ReviewTaskProcessor;
@@ -19,9 +20,6 @@ import com.codepilot.module.review.state.ReviewTaskStateManager;
 import com.codepilot.task.ReviewTaskProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.retry.RetryContext;
-import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -39,14 +37,13 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
 
     private final ReviewTaskCreator reviewTaskCreator;
 
+    private final ReviewTaskFailureHandler reviewTaskFailureHandler;
+
     private final ReviewTaskProcessor reviewTaskProcessor;
 
     private final ReviewCommentPublisher reviewCommentPublisher;
 
     private final ReviewTaskStateManager reviewTaskStateManager;
-
-    @Value("${spring.rabbitmq.listener.simple.retry.max-attempts:3}")
-    private int rabbitRetryMaxAttempts = 3;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -99,18 +96,9 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
                     taskId, processingResult.totalFiles(), processingResult.totalIssues());
             reviewCommentPublisher.publish(task);
         } catch (Exception exception) {
-            String errorMessage = sanitizedErrorMessage(exception);
-            if (isFinalRetryAttempt()) {
-                reviewTaskStateManager.markFailed(task, errorMessage);
-                log.error("Review task failed, taskId={}, {}, message={}",
-                        taskId, retryDetail(exception), errorMessage);
-            } else {
-                reviewTaskStateManager.markRetrying(task, errorMessage);
-                log.warn("Review task failed and will be retried, taskId={}, {}, message={}",
-                        taskId, retryDetail(exception), errorMessage);
-            }
+            ReviewTaskFailureResult failureResult = reviewTaskFailureHandler.handle(task, exception);
             throw new IllegalStateException("review task failed, taskId=" + taskId
-                    + ", errorType=" + exception.getClass().getSimpleName());
+                    + ", errorType=" + failureResult.errorType());
         }
     }
 
@@ -128,23 +116,6 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         });
     }
 
-    private boolean isFinalRetryAttempt() {
-        RetryContext retryContext = RetrySynchronizationManager.getContext();
-        if (retryContext == null) {
-            return true;
-        }
-        int maxAttempts = Math.max(1, rabbitRetryMaxAttempts);
-        return retryContext.getRetryCount() >= maxAttempts - 1;
-    }
-
-    private String retryDetail(Exception exception) {
-        RetryContext retryContext = RetrySynchronizationManager.getContext();
-        String attempt = retryContext == null
-                ? "attempt=1/1"
-                : "attempt=" + (retryContext.getRetryCount() + 1) + "/" + Math.max(1, rabbitRetryMaxAttempts);
-        return attempt + ", errorType=" + exception.getClass().getSimpleName();
-    }
-
     private void refreshTaskHeadSha(ReviewTask task) {
         GithubPullRequestDetail detail = githubClient.getPullRequestDetail(
                 task.getRepoOwner(),
@@ -159,13 +130,5 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             return;
         }
         reviewTaskStateManager.updateHeadSha(task, headSha);
-    }
-
-    private String sanitizedErrorMessage(Exception exception) {
-        String message = exception == null ? null : exception.getMessage();
-        String sanitized = SensitiveDataSanitizer.redactAndTruncate(message, 2000);
-        return StringUtils.hasText(sanitized)
-                ? sanitized
-                : (exception == null ? "unknown error" : exception.getClass().getSimpleName());
     }
 }

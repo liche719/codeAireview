@@ -16,6 +16,7 @@ import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.context.ReviewContextBuilder;
 import com.codepilot.module.review.creator.ReviewTaskCreator;
+import com.codepilot.module.review.failure.ReviewTaskFailureHandler;
 import com.codepilot.module.review.planner.ReviewFilePlanner;
 import com.codepilot.module.review.processor.ReviewFileReviewer;
 import com.codepilot.module.review.processor.ReviewTaskProcessor;
@@ -256,7 +257,7 @@ class ReviewTaskServiceImplTest {
         context.stubEmptyReviewFlow();
         when(context.githubClient.listPullRequestFiles("liche719", "codeAireview", 123))
                 .thenThrow(new IllegalStateException("github temporary error"));
-        ReflectionTestUtils.setField(context.service, "rabbitRetryMaxAttempts", 3);
+        ReflectionTestUtils.setField(context.reviewTaskFailureHandler, "rabbitRetryMaxAttempts", 3);
         registerRetryContext(0);
 
         assertThatThrownBy(() -> context.service.processTask(1L))
@@ -277,7 +278,7 @@ class ReviewTaskServiceImplTest {
         context.stubEmptyReviewFlow();
         when(context.githubClient.listPullRequestFiles("liche719", "codeAireview", 123))
                 .thenThrow(new IllegalStateException("github final error"));
-        ReflectionTestUtils.setField(context.service, "rabbitRetryMaxAttempts", 3);
+        ReflectionTestUtils.setField(context.reviewTaskFailureHandler, "rabbitRetryMaxAttempts", 3);
         registerRetryContext(2);
 
         assertThatThrownBy(() -> context.service.processTask(1L))
@@ -342,6 +343,9 @@ class ReviewTaskServiceImplTest {
 
         private final ReviewTaskStateManager reviewTaskStateManager = new ReviewTaskStateManager(reviewTaskMapper);
 
+        private final ReviewTaskFailureHandler reviewTaskFailureHandler =
+                new ReviewTaskFailureHandler(reviewTaskStateManager);
+
         private final ReviewTaskCreator reviewTaskCreator = new ReviewTaskCreator(
                 githubPrUrlParser,
                 githubRepositoryPolicy,
@@ -361,6 +365,7 @@ class ReviewTaskServiceImplTest {
                     githubClient,
                     reviewTaskProducer,
                     reviewTaskCreator,
+                    reviewTaskFailureHandler,
                     reviewTaskProcessor,
                     reviewCommentPublisher,
                     reviewTaskStateManager
