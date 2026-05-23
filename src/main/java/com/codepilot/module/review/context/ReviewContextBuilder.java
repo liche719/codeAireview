@@ -11,11 +11,53 @@ public class ReviewContextBuilder {
 
     public ReviewContext build(List<ReviewFile> reviewFiles) {
         if (reviewFiles == null || reviewFiles.isEmpty()) {
-            return new ReviewContext(List.of());
+            return ReviewContext.empty();
         }
-        return new ReviewContext(reviewFiles.stream()
+        List<String> allChangedFiles = reviewFiles.stream()
                 .map(ReviewFile::getFilePath)
                 .filter(StringUtils::hasText)
-                .toList());
+                .map(String::trim)
+                .toList();
+        List<ReviewContext.SkippedFile> skippedFiles = reviewFiles.stream()
+                .filter(reviewFile -> Boolean.TRUE.equals(reviewFile.getSkipped()))
+                .filter(reviewFile -> StringUtils.hasText(reviewFile.getFilePath()))
+                .map(reviewFile -> new ReviewContext.SkippedFile(
+                        reviewFile.getFilePath().trim(),
+                        StringUtils.hasText(reviewFile.getSkipReason()) ? reviewFile.getSkipReason().trim() : "skipped"
+                ))
+                .toList();
+
+        return new ReviewContext(
+                allChangedFiles,
+                reviewFiles.size(),
+                (int) reviewFiles.stream().filter(reviewFile -> !Boolean.TRUE.equals(reviewFile.getSkipped())).count(),
+                (int) reviewFiles.stream().filter(reviewFile -> Boolean.TRUE.equals(reviewFile.getSkipped())).count(),
+                sumAdditions(reviewFiles),
+                sumDeletions(reviewFiles),
+                sumPatchChars(reviewFiles),
+                skippedFiles
+        );
+    }
+
+    private int sumAdditions(List<ReviewFile> reviewFiles) {
+        return reviewFiles.stream()
+                .map(ReviewFile::getAdditions)
+                .mapToInt(value -> value == null ? 0 : value)
+                .sum();
+    }
+
+    private int sumDeletions(List<ReviewFile> reviewFiles) {
+        return reviewFiles.stream()
+                .map(ReviewFile::getDeletions)
+                .mapToInt(value -> value == null ? 0 : value)
+                .sum();
+    }
+
+    private int sumPatchChars(List<ReviewFile> reviewFiles) {
+        return reviewFiles.stream()
+                .map(ReviewFile::getPatch)
+                .filter(StringUtils::hasText)
+                .mapToInt(String::length)
+                .sum();
     }
 }

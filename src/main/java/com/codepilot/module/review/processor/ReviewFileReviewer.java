@@ -44,7 +44,7 @@ public class ReviewFileReviewer {
                     taskId,
                     reviewFile.getFilePath(),
                     reviewFile.getPatch(),
-                    reviewContext.allChangedFiles()
+                    reviewContext.toAiReviewContext()
             ));
             return reviewIssueAssembler.toReviewIssues(taskId, reviewFile.getFilePath(), aiReviewResult);
         } catch (Exception exception) {

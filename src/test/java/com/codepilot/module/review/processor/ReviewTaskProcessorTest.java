@@ -58,6 +58,17 @@ class ReviewTaskProcessorTest {
         assertThat(request.filePath()).isEqualTo("src/main/java/Demo.java");
         assertThat(request.allChangedFiles())
                 .containsExactly("src/main/java/Demo.java", "package-lock.json");
+        assertThat(request.context().totalFileCount()).isEqualTo(2);
+        assertThat(request.context().reviewableFileCount()).isEqualTo(1);
+        assertThat(request.context().skippedFileCount()).isEqualTo(1);
+        assertThat(request.context().totalAdditions()).isEqualTo(2);
+        assertThat(request.context().totalDeletions()).isZero();
+        assertThat(request.context().skippedFiles())
+                .singleElement()
+                .satisfies(skippedFile -> {
+                    assertThat(skippedFile.filePath()).isEqualTo("package-lock.json");
+                    assertThat(skippedFile.reason()).isEqualTo("file type or generated path skipped");
+                });
         verify(context.reviewFileService).saveBatch(context.reviewFilesCaptor.capture());
         assertThat(context.reviewFilesCaptor.getValue())
                 .extracting(ReviewFile::getSkipped)

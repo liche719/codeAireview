@@ -1,10 +1,8 @@
-package com.codepilot.module.review.context;
-
-import com.codepilot.module.agent.dto.AiReviewContext;
+package com.codepilot.module.agent.dto;
 
 import java.util.List;
 
-public record ReviewContext(
+public record AiReviewContext(
         List<String> allChangedFiles,
         int totalFileCount,
         int reviewableFileCount,
@@ -15,7 +13,7 @@ public record ReviewContext(
         List<SkippedFile> skippedFiles
 ) {
 
-    public ReviewContext {
+    public AiReviewContext {
         allChangedFiles = sanitizeFilePaths(allChangedFiles);
         skippedFiles = skippedFiles == null
                 ? List.of()
@@ -24,22 +22,21 @@ public record ReviewContext(
                 .toList();
     }
 
-    public static ReviewContext empty() {
-        return new ReviewContext(List.of(), 0, 0, 0, 0, 0, 0, List.of());
+    public static AiReviewContext empty() {
+        return fromChangedFiles(List.of());
     }
 
-    public AiReviewContext toAiReviewContext() {
+    public static AiReviewContext fromChangedFiles(List<String> allChangedFiles) {
+        List<String> filePaths = sanitizeFilePaths(allChangedFiles);
         return new AiReviewContext(
-                allChangedFiles,
-                totalFileCount,
-                reviewableFileCount,
-                skippedFileCount,
-                totalAdditions,
-                totalDeletions,
-                totalPatchChars,
-                skippedFiles.stream()
-                        .map(skippedFile -> new AiReviewContext.SkippedFile(skippedFile.filePath(), skippedFile.reason()))
-                        .toList()
+                filePaths,
+                filePaths.size(),
+                filePaths.size(),
+                0,
+                0,
+                0,
+                0,
+                List.of()
         );
     }
 
@@ -48,7 +45,7 @@ public record ReviewContext(
             return List.of();
         }
         return filePaths.stream()
-                .filter(ReviewContext::hasText)
+                .filter(AiReviewContext::hasText)
                 .map(String::trim)
                 .toList();
     }

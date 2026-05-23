@@ -50,7 +50,14 @@ class ReviewFileReviewerTest {
         assertThat(request.patch()).isEqualTo("+code");
         assertThat(request.allChangedFiles())
                 .containsExactly("src/main/java/Demo.java", "package-lock.json");
-        verify(aiReviewService, never()).reviewFile(argThat(argument -> "package-lock.json".equals(argument.filePath())));
+        assertThat(request.context().totalFileCount()).isEqualTo(2);
+        assertThat(request.context().reviewableFileCount()).isEqualTo(1);
+        assertThat(request.context().skippedFileCount()).isEqualTo(1);
+        assertThat(request.context().skippedFiles())
+                .singleElement()
+                .satisfies(skippedFile -> assertThat(skippedFile.filePath()).isEqualTo("package-lock.json"));
+        verify(aiReviewService, never()).reviewFile(argThat(argument ->
+                argument != null && "package-lock.json".equals(argument.filePath())));
     }
 
     @Test
