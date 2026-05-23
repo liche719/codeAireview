@@ -10,11 +10,10 @@ import com.codepilot.module.agent.parser.AiReviewResultParser;
 import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
 import com.codepilot.module.agent.review.DeterministicReviewToolRunner;
 import com.codepilot.module.agent.review.ReviewIssueDeduplicator;
+import com.codepilot.module.agent.review.ReviewLlmCallLogger;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.agent.service.CodeReviewAiAssistant;
 import com.codepilot.module.agent.service.ReviewRagService;
-import com.codepilot.module.audit.entity.LlmCallLog;
-import com.codepilot.module.audit.service.LlmCallLogService;
 import dev.langchain4j.service.Result;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +21,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -30,8 +28,6 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class AiReviewServiceImpl implements AiReviewService {
-
-    private static final int RESPONSE_SUMMARY_LIMIT = 1000;
 
     private final LlmProperties llmProperties;
 
@@ -43,7 +39,7 @@ public class AiReviewServiceImpl implements AiReviewService {
 
     private final ReviewPromptBuilder reviewPromptBuilder;
 
-    private final LlmCallLogService llmCallLogService;
+    private final ReviewLlmCallLogger reviewLlmCallLogger;
 
     private final DeterministicReviewToolRunner deterministicReviewToolRunner;
 
@@ -110,40 +106,8 @@ public class AiReviewServiceImpl implements AiReviewService {
             throw exception;
         } finally {
             long costTimeMs = System.currentTimeMillis() - startTime;
-            saveCallLog(taskId, filePath, patch, rules.size(), costTimeMs, success, errorMessage, responseText);
+            reviewLlmCallLogger.save(taskId, filePath, patch, rules.size(), costTimeMs, success, errorMessage, responseText);
         }
-    }
-
-    private void saveCallLog(
-            Long taskId,
-            String filePath,
-            String patch,
-            int ruleCount,
-            long costTimeMs,
-            boolean success,
-            String errorMessage,
-            String responseText
-    ) {
-        try {
-            LlmCallLog logRecord = new LlmCallLog();
-            logRecord.setTaskId(taskId);
-            logRecord.setModelName(llmProperties.getModel());
-            logRecord.setCostTimeMs(costTimeMs);
-            logRecord.setRequestSummary(buildRequestSummary(filePath, patch, ruleCount));
-            logRecord.setResponseSummary(SensitiveDataSanitizer.redactAndTruncate(responseText, RESPONSE_SUMMARY_LIMIT));
-            logRecord.setSuccess(success);
-            logRecord.setErrorMessage(SensitiveDataSanitizer.redact(errorMessage));
-            logRecord.setCreatedAt(LocalDateTime.now());
-            llmCallLogService.save(logRecord);
-        } catch (Exception exception) {
-            log.warn("Failed to save llm call log, taskId={}, filePath={}, errorType={}, message={}",
-                    taskId, filePath, exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
-        }
-    }
-
-    private String buildRequestSummary(String filePath, String patch, int ruleCount) {
-        int patchLength = patch == null ? 0 : patch.length();
-        return "filePath=" + filePath + ", patchLength=" + patchLength + ", ragRuleCount=" + ruleCount;
     }
 
     private String buildAllChangedFilesText(List<String> allChangedFiles) {

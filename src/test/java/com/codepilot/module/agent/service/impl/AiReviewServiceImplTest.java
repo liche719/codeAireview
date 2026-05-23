@@ -6,6 +6,7 @@ import com.codepilot.module.agent.parser.AiReviewResultParser;
 import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
 import com.codepilot.module.agent.review.DeterministicReviewToolRunner;
 import com.codepilot.module.agent.review.ReviewIssueDeduplicator;
+import com.codepilot.module.agent.review.ReviewLlmCallLogger;
 import com.codepilot.module.agent.service.CodeReviewAiAssistant;
 import com.codepilot.module.agent.service.ReviewRagService;
 import com.codepilot.module.audit.entity.LlmCallLog;
@@ -246,6 +247,9 @@ class AiReviewServiceImplTest {
 
         private final ReviewIssueDeduplicator reviewIssueDeduplicator = new ReviewIssueDeduplicator();
 
+        private final ReviewLlmCallLogger reviewLlmCallLogger =
+                new ReviewLlmCallLogger(llmProperties, llmCallLogService);
+
         private final DeterministicReviewToolRunner deterministicReviewToolRunner = new DeterministicReviewToolRunner(
                 sqlRiskToolProvider,
                 secretScanToolProvider,
@@ -270,7 +274,7 @@ class AiReviewServiceImplTest {
                     new AiReviewResultParser(new ObjectMapper()),
                     reviewRagService,
                     new ReviewPromptBuilder(),
-                    llmCallLogService,
+                    reviewLlmCallLogger,
                     deterministicReviewToolRunner,
                     reviewIssueDeduplicator
             );
