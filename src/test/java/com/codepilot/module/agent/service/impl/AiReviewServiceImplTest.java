@@ -7,6 +7,7 @@ import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
 import com.codepilot.module.agent.review.DeterministicReviewToolRunner;
 import com.codepilot.module.agent.review.ReviewIssueDeduplicator;
 import com.codepilot.module.agent.review.ReviewLlmCallLogger;
+import com.codepilot.module.agent.review.ReviewLlmReviewer;
 import com.codepilot.module.agent.service.CodeReviewAiAssistant;
 import com.codepilot.module.agent.service.ReviewRagService;
 import com.codepilot.module.audit.entity.LlmCallLog;
@@ -257,6 +258,8 @@ class AiReviewServiceImplTest {
                 reviewIssueDeduplicator
         );
 
+        private final ReviewLlmReviewer reviewLlmReviewer;
+
         private final AiReviewServiceImpl service;
 
         private TestContext() {
@@ -268,14 +271,17 @@ class AiReviewServiceImplTest {
             when(secretScanToolProvider.getIfAvailable()).thenReturn(new SecretScanTool());
             when(testSuggestionToolProvider.getIfAvailable()).thenReturn(new TestSuggestionTool());
 
-            service = new AiReviewServiceImpl(
-                    llmProperties,
+            reviewLlmReviewer = new ReviewLlmReviewer(
                     assistantProvider,
                     new AiReviewResultParser(new ObjectMapper()),
                     reviewRagService,
                     new ReviewPromptBuilder(),
-                    reviewLlmCallLogger,
+                    reviewLlmCallLogger
+            );
+            service = new AiReviewServiceImpl(
+                    llmProperties,
                     deterministicReviewToolRunner,
+                    reviewLlmReviewer,
                     reviewIssueDeduplicator
             );
         }
