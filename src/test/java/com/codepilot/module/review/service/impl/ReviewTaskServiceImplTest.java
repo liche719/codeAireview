@@ -22,6 +22,7 @@ import com.codepilot.module.review.processor.ReviewFileReviewer;
 import com.codepilot.module.review.processor.ReviewTaskProcessor;
 import com.codepilot.module.review.publisher.ReviewCommentPublisher;
 import com.codepilot.module.review.queue.ReviewTaskMessageDispatcher;
+import com.codepilot.module.review.runner.ReviewTaskRunner;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import com.codepilot.module.review.state.ReviewTaskStateManager;
@@ -360,6 +361,14 @@ class ReviewTaskServiceImplTest {
                 reviewTaskMapper
         );
 
+        private final ReviewTaskRunner reviewTaskRunner = new ReviewTaskRunner(
+                reviewTaskFailureHandler,
+                reviewTaskHeadShaRefresher,
+                reviewTaskProcessor,
+                reviewCommentPublisher,
+                reviewTaskStateManager
+        );
+
         private final org.mockito.ArgumentCaptor<ReviewTask> taskCaptor =
                 org.mockito.ArgumentCaptor.forClass(ReviewTask.class);
 
@@ -372,11 +381,7 @@ class ReviewTaskServiceImplTest {
             service = new ReviewTaskServiceImpl(
                     reviewTaskCreator,
                     reviewTaskMessageDispatcher,
-                    reviewTaskFailureHandler,
-                    reviewTaskHeadShaRefresher,
-                    reviewTaskProcessor,
-                    reviewCommentPublisher,
-                    reviewTaskStateManager
+                    reviewTaskRunner
             );
             ReflectionTestUtils.setField(service, "baseMapper", reviewTaskMapper);
         }

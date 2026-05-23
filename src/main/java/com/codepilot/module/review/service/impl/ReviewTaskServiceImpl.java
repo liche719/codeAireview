@@ -7,22 +7,14 @@ import com.codepilot.module.review.creator.ReviewTaskCreationResult;
 import com.codepilot.module.review.creator.ReviewTaskCreator;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.entity.ReviewTask;
-import com.codepilot.module.review.failure.ReviewTaskFailureHandler;
-import com.codepilot.module.review.failure.ReviewTaskFailureResult;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
-import com.codepilot.module.review.processor.ReviewTaskProcessingResult;
-import com.codepilot.module.review.processor.ReviewTaskProcessor;
-import com.codepilot.module.review.publisher.ReviewCommentPublisher;
 import com.codepilot.module.review.queue.ReviewTaskMessageDispatcher;
+import com.codepilot.module.review.runner.ReviewTaskRunner;
 import com.codepilot.module.review.service.ReviewTaskService;
-import com.codepilot.module.review.state.ReviewTaskStateManager;
-import com.codepilot.module.review.sync.ReviewTaskHeadShaRefresher;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewTask> implements ReviewTaskService {
@@ -31,15 +23,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
 
     private final ReviewTaskMessageDispatcher reviewTaskMessageDispatcher;
 
-    private final ReviewTaskFailureHandler reviewTaskFailureHandler;
-
-    private final ReviewTaskHeadShaRefresher reviewTaskHeadShaRefresher;
-
-    private final ReviewTaskProcessor reviewTaskProcessor;
-
-    private final ReviewCommentPublisher reviewCommentPublisher;
-
-    private final ReviewTaskStateManager reviewTaskStateManager;
+    private final ReviewTaskRunner reviewTaskRunner;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -75,26 +59,6 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         if (task == null) {
             throw new BusinessException("review task not found, taskId=" + taskId);
         }
-
-        reviewTaskStateManager.markRunning(task);
-
-        try {
-            reviewTaskHeadShaRefresher.refresh(task);
-            ReviewTaskProcessingResult processingResult = reviewTaskProcessor.process(task);
-
-            reviewTaskStateManager.markSuccess(
-                    task,
-                    processingResult.totalFiles(),
-                    processingResult.totalIssues(),
-                    processingResult.riskLevel()
-            );
-            log.info("Review task processed successfully, taskId={}, totalFiles={}, totalIssues={}",
-                    taskId, processingResult.totalFiles(), processingResult.totalIssues());
-            reviewCommentPublisher.publish(task);
-        } catch (Exception exception) {
-            ReviewTaskFailureResult failureResult = reviewTaskFailureHandler.handle(task, exception);
-            throw new IllegalStateException("review task failed, taskId=" + taskId
-                    + ", errorType=" + failureResult.errorType());
-        }
+        reviewTaskRunner.run(task);
     }
 }
