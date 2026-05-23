@@ -1,6 +1,7 @@
 package com.codepilot.module.review.processor;
 
 import com.codepilot.module.agent.dto.AiReviewIssue;
+import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.git.client.GithubClient;
@@ -23,7 +24,6 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,7 +44,7 @@ class ReviewTaskProcessorTest {
                 ));
         when(context.reviewFileService.saveBatch(anyList())).thenReturn(true);
         when(context.reviewIssueService.saveBatch(anyList())).thenReturn(true);
-        when(context.aiReviewService.reviewFile(eq(7L), eq("src/main/java/Demo.java"), any(), anyList()))
+        when(context.aiReviewService.reviewFile(any(AiReviewRequest.class)))
                 .thenReturn(aiReviewResult());
 
         ReviewTaskProcessingResult result = context.processor.process(task());
@@ -52,8 +52,11 @@ class ReviewTaskProcessorTest {
         assertThat(result.totalFiles()).isEqualTo(2);
         assertThat(result.totalIssues()).isEqualTo(1);
         assertThat(result.riskLevel()).isEqualTo("HIGH");
-        verify(context.aiReviewService).reviewFile(eq(7L), eq("src/main/java/Demo.java"), any(), context.changedFilesCaptor.capture());
-        assertThat(context.changedFilesCaptor.getValue())
+        verify(context.aiReviewService).reviewFile(context.aiReviewRequestCaptor.capture());
+        AiReviewRequest request = context.aiReviewRequestCaptor.getValue();
+        assertThat(request.taskId()).isEqualTo(7L);
+        assertThat(request.filePath()).isEqualTo("src/main/java/Demo.java");
+        assertThat(request.allChangedFiles())
                 .containsExactly("src/main/java/Demo.java", "package-lock.json");
         verify(context.reviewFileService).saveBatch(context.reviewFilesCaptor.capture());
         assertThat(context.reviewFilesCaptor.getValue())
@@ -122,8 +125,8 @@ class ReviewTaskProcessorTest {
                 new ReviewFileReviewer(aiReviewService, new ReviewIssueAssembler(), new ReviewContextBuilder())
         );
 
-        @SuppressWarnings("unchecked")
-        private final ArgumentCaptor<List<String>> changedFilesCaptor = ArgumentCaptor.forClass(List.class);
+        private final ArgumentCaptor<AiReviewRequest> aiReviewRequestCaptor =
+                ArgumentCaptor.forClass(AiReviewRequest.class);
 
         @SuppressWarnings("unchecked")
         private final ArgumentCaptor<Collection<ReviewFile>> reviewFilesCaptor = ArgumentCaptor.forClass(Collection.class);

@@ -6,6 +6,7 @@ import com.codepilot.common.enums.ReviewTaskStatus;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.common.util.MarkdownSanitizer;
 import com.codepilot.module.agent.dto.AiReviewIssue;
+import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.dto.CodeFixResult;
 import com.codepilot.module.agent.service.AiReviewService;
@@ -377,7 +378,12 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 continue;
             }
             reviewedFiles++;
-            AiReviewResult result = aiReviewService.reviewFile(null, file.getFilename(), file.getPatch(), allChangedFiles);
+            AiReviewResult result = aiReviewService.reviewFile(new AiReviewRequest(
+                    null,
+                    file.getFilename(),
+                    file.getPatch(),
+                    allChangedFiles
+            ));
             if (result == null || result.getIssues() == null) {
                 continue;
             }

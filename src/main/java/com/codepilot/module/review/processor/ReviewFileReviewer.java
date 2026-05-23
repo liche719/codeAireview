@@ -1,6 +1,7 @@
 package com.codepilot.module.review.processor;
 
 import com.codepilot.module.agent.dto.AiReviewResult;
+import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.context.ReviewContext;
@@ -39,12 +40,12 @@ public class ReviewFileReviewer {
 
     private List<ReviewIssue> reviewFileWithAi(Long taskId, ReviewFile reviewFile, ReviewContext reviewContext) {
         try {
-            AiReviewResult aiReviewResult = aiReviewService.reviewFile(
+            AiReviewResult aiReviewResult = aiReviewService.reviewFile(new AiReviewRequest(
                     taskId,
                     reviewFile.getFilePath(),
                     reviewFile.getPatch(),
                     reviewContext.allChangedFiles()
-            );
+            ));
             return reviewIssueAssembler.toReviewIssues(taskId, reviewFile.getFilePath(), aiReviewResult);
         } catch (Exception exception) {
             throw new IllegalStateException("AI review failed for file " + reviewFile.getFilePath(), exception);

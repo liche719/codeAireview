@@ -4,6 +4,7 @@ import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.common.util.PromptInputSanitizer;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.agent.dto.AiReviewIssue;
+import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.parser.AiReviewResultParser;
@@ -46,7 +47,11 @@ public class AiReviewServiceImpl implements AiReviewService {
     private final ReviewIssueDeduplicator reviewIssueDeduplicator;
 
     @Override
-    public AiReviewResult reviewFile(Long taskId, String filePath, String patch, List<String> allChangedFiles) {
+    public AiReviewResult reviewFile(AiReviewRequest request) {
+        Long taskId = request == null ? null : request.taskId();
+        String filePath = request == null ? null : request.filePath();
+        String patch = request == null ? null : request.patch();
+        List<String> allChangedFiles = request == null ? List.of() : request.allChangedFiles();
         if (!StringUtils.hasText(patch)) {
             log.info("Skip ai review because patch is empty, filePath={}", filePath);
             return AiReviewResult.empty();

@@ -2,6 +2,7 @@ package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.codepilot.common.enums.ReviewCommentMode;
+import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubChangedFile;
@@ -213,7 +214,7 @@ class ReviewTaskServiceImplTest {
         context.stubEmptyReviewFlow();
         when(context.githubClient.listPullRequestFiles("liche719", "codeAireview", 123))
                 .thenReturn(List.of(context.changedFile()));
-        when(context.aiReviewService.reviewFile(eq(1L), eq("src/main/java/Demo.java"), any(), anyList()))
+        when(context.aiReviewService.reviewFile(any(AiReviewRequest.class)))
                 .thenThrow(new IllegalArgumentException("bad ai json"));
 
         assertThatThrownBy(() -> context.service.processTask(1L))
