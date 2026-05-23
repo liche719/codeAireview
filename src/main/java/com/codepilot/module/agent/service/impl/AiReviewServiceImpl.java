@@ -199,6 +199,7 @@ public class AiReviewServiceImpl implements AiReviewService {
             }
             AiReviewIssue issue = new AiReviewIssue();
             issue.setFilePath(filePath);
+            issue.setLineNumber(toolResult.getLineNumber());
             issue.setIssueType(toolResult.getIssueType());
             issue.setIssueTypeZh(displayIssueType(toolResult.getIssueType()));
             issue.setSeverity(toolResult.getSeverity());

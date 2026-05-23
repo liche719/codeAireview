@@ -23,6 +23,7 @@ import org.springframework.util.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 @Slf4j
@@ -49,6 +50,7 @@ public class SqlRiskTool {
                 return List.of();
             }
 
+            List<DiffToolUtils.AddedLine> addedLines = DiffToolUtils.addedLineEntries(patch);
             String addedText = DiffToolUtils.addedText(patch);
             String content = StringUtils.hasText(addedText) ? addedText : patch;
             String normalized = content.toLowerCase(Locale.ROOT);
@@ -56,7 +58,8 @@ public class SqlRiskTool {
             SqlAstFindings astFindings = analyzeSqlAst(content);
 
             if (astFindings.selectAll() || (!astFindings.parsed() && SELECT_ALL.matcher(content).find())) {
-                results.add(ToolCheckResult.of(
+                results.add(ToolCheckResult.atLine(
+                        lineNumber(addedLines, line -> SELECT_ALL.matcher(line).find()),
                         "SQL_RISK",
                         "LOW",
                         "SQL 查询使用 SELECT *",
@@ -65,7 +68,8 @@ public class SqlRiskTool {
                 ));
             }
             if (hasSqlStringConcatenation(content)) {
-                results.add(ToolCheckResult.of(
+                results.add(ToolCheckResult.atLine(
+                        lineNumber(addedLines, this::hasSqlStringConcatenation),
                         "SQL_RISK",
                         "HIGH",
                         "存在 SQL 字符串拼接风险",
@@ -74,7 +78,8 @@ public class SqlRiskTool {
                 ));
             }
             if (normalized.contains("${")) {
-                results.add(ToolCheckResult.of(
+                results.add(ToolCheckResult.atLine(
+                        lineNumber(addedLines, line -> line.contains("${")),
                         "SQL_RISK",
                         "HIGH",
                         "MyBatis ${} 存在直接拼接风险",
@@ -83,7 +88,8 @@ public class SqlRiskTool {
                 ));
             }
             if (astFindings.updateWithoutWhere() || (!astFindings.parsed() && UPDATE_WITHOUT_WHERE.matcher(content).find())) {
-                results.add(ToolCheckResult.of(
+                results.add(ToolCheckResult.atLine(
+                        lineNumber(addedLines, line -> UPDATE_WITHOUT_WHERE.matcher(line).find()),
                         "SQL_RISK",
                         "HIGH",
                         "UPDATE 语句缺少 WHERE 条件",
@@ -92,7 +98,8 @@ public class SqlRiskTool {
                 ));
             }
             if (astFindings.deleteWithoutWhere() || (!astFindings.parsed() && DELETE_WITHOUT_WHERE.matcher(content).find())) {
-                results.add(ToolCheckResult.of(
+                results.add(ToolCheckResult.atLine(
+                        lineNumber(addedLines, line -> DELETE_WITHOUT_WHERE.matcher(line).find()),
                         "SQL_RISK",
                         "HIGH",
                         "DELETE 语句缺少 WHERE 条件",
@@ -101,7 +108,8 @@ public class SqlRiskTool {
                 ));
             }
             if (LIKE_LEFT_WILDCARD.matcher(content).find()) {
-                results.add(ToolCheckResult.of(
+                results.add(ToolCheckResult.atLine(
+                        lineNumber(addedLines, line -> LIKE_LEFT_WILDCARD.matcher(line).find()),
                         "SQL_RISK",
                         "MEDIUM",
                         "LIKE 左模糊查询可能影响索引",
@@ -128,6 +136,17 @@ public class SqlRiskTool {
             }
         }
         return false;
+    }
+
+    private Integer lineNumber(List<DiffToolUtils.AddedLine> addedLines, Predicate<String> matcher) {
+        if (addedLines == null || addedLines.isEmpty() || matcher == null) {
+            return null;
+        }
+        return addedLines.stream()
+                .filter(addedLine -> matcher.test(addedLine.text()))
+                .map(DiffToolUtils.AddedLine::newLineNumber)
+                .findFirst()
+                .orElse(addedLines.getFirst().newLineNumber());
     }
 
     private boolean containsAny(String content, String... keywords) {

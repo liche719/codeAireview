@@ -172,6 +172,7 @@ class AiReviewServiceImplTest {
                     assertThat(issue.getIssueTypeZh()).isEqualTo("SQL 风险");
                     assertThat(issue.getSeverity()).isEqualTo("HIGH");
                     assertThat(issue.getSource()).isEqualTo("TOOL");
+                    assertThat(issue.getLineNumber()).isEqualTo(1);
                 });
         verify(context.assistantProvider, never()).getIfAvailable();
         verify(context.llmCallLogService, never()).save(any());

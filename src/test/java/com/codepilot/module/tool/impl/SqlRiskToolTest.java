@@ -21,6 +21,7 @@ class SqlRiskToolTest {
         var results = sqlRiskTool.checkSqlRisk(
                 "src/main/java/DemoService.java",
                 """
+                        @@ -20,1 +20,2 @@
                         +String sql = "select * from user where name = '" + name + "'";
                         """
         );
@@ -29,6 +30,7 @@ class SqlRiskToolTest {
                 .anySatisfy(result -> {
                     assertThat(result.getIssueType()).isEqualTo("SQL_RISK");
                     assertThat(result.getSeverity()).isEqualTo("HIGH");
+                    assertThat(result.getLineNumber()).isEqualTo(20);
                     assertThat(result.getTitle()).contains("拼接");
                 });
     }

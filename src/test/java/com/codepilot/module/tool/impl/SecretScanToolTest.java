@@ -13,6 +13,7 @@ class SecretScanToolTest {
         var results = secretScanTool.scanSecrets(
                 "src/main/java/Demo.java",
                 """
+                        @@ -8,1 +8,2 @@
                         +String token = "abc123";
                         """
         );
@@ -21,6 +22,7 @@ class SecretScanToolTest {
                 .anySatisfy(result -> {
                     assertThat(result.getIssueType()).isEqualTo("SECURITY");
                     assertThat(result.getSeverity()).isEqualTo("HIGH");
+                    assertThat(result.getLineNumber()).isEqualTo(8);
                 });
     }
 

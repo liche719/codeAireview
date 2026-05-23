@@ -45,10 +45,12 @@ public class SecretScanTool {
 
             List<ToolCheckResult> results = new ArrayList<>();
             Set<String> reportedLines = new LinkedHashSet<>();
-            for (String line : DiffToolUtils.addedLines(patch)) {
+            for (DiffToolUtils.AddedLine addedLine : DiffToolUtils.addedLineEntries(patch)) {
+                String line = addedLine.text();
                 String normalized = line.toLowerCase(Locale.ROOT).replace("_", "").replace("-", "");
                 if (containsSensitiveKeyword(normalized) && reportedLines.add(normalized.trim())) {
-                    results.add(ToolCheckResult.of(
+                    results.add(ToolCheckResult.atLine(
+                            addedLine.newLineNumber(),
                             "SECURITY",
                             likelyHardcodedValue(line) ? "HIGH" : "MEDIUM",
                             "新增代码疑似包含敏感信息",

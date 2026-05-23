@@ -19,6 +19,8 @@ public class ToolCheckResult {
 
     private String suggestion;
 
+    private Integer lineNumber;
+
     public static ToolCheckResult of(
             String issueType,
             String severity,
@@ -26,6 +28,17 @@ public class ToolCheckResult {
             String description,
             String suggestion
     ) {
-        return new ToolCheckResult(issueType, severity, title, description, suggestion);
+        return atLine(null, issueType, severity, title, description, suggestion);
+    }
+
+    public static ToolCheckResult atLine(
+            Integer lineNumber,
+            String issueType,
+            String severity,
+            String title,
+            String description,
+            String suggestion
+    ) {
+        return new ToolCheckResult(issueType, severity, title, description, suggestion, lineNumber);
     }
 }
