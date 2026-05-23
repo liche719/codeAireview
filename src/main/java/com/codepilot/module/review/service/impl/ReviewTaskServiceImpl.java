@@ -6,23 +6,17 @@ import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.common.enums.ReviewTaskStatus;
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.common.util.SensitiveDataSanitizer;
-import com.codepilot.module.agent.dto.AiReviewResult;
-import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.git.dto.GithubPrInfo;
 import com.codepilot.module.git.parser.GithubPrUrlParser;
 import com.codepilot.module.git.policy.GithubRepositoryPolicy;
-import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
-import com.codepilot.module.review.entity.ReviewFile;
-import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
-import com.codepilot.module.review.planner.ReviewFilePlanner;
+import com.codepilot.module.review.processor.ReviewTaskProcessingResult;
+import com.codepilot.module.review.processor.ReviewTaskProcessor;
 import com.codepilot.module.review.publisher.ReviewCommentPublisher;
-import com.codepilot.module.review.service.ReviewFileService;
-import com.codepilot.module.review.service.ReviewIssueService;
 import com.codepilot.module.review.service.ReviewTaskService;
 import com.codepilot.task.ReviewTaskProducer;
 import lombok.RequiredArgsConstructor;
@@ -38,7 +32,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -50,17 +43,9 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
 
     private final GithubClient githubClient;
 
-    private final ReviewFileService reviewFileService;
-
-    private final ReviewIssueService reviewIssueService;
-
-    private final AiReviewService aiReviewService;
-
     private final ReviewTaskProducer reviewTaskProducer;
 
-    private final ReviewFilePlanner reviewFilePlanner;
-
-    private final ReviewIssueAssembler reviewIssueAssembler;
+    private final ReviewTaskProcessor reviewTaskProcessor;
 
     private final ReviewCommentPublisher reviewCommentPublisher;
 
@@ -175,44 +160,18 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
 
         try {
             refreshTaskHeadSha(task);
-            var changedFiles = githubClient.listPullRequestFiles(
-                    task.getRepoOwner(),
-                    task.getRepoName(),
-                    task.getPrNumber()
-            );
-            List<ReviewFile> reviewFiles = reviewFilePlanner.plan(taskId, changedFiles);
-
-            reviewFileService.remove(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ReviewFile>()
-                    .eq(ReviewFile::getTaskId, taskId));
-            reviewIssueService.remove(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ReviewIssue>()
-                    .eq(ReviewIssue::getTaskId, taskId));
-            reviewFileService.saveBatch(reviewFiles);
-
-            List<String> allChangedFiles = reviewFiles.stream()
-                    .map(ReviewFile::getFilePath)
-                    .filter(StringUtils::hasText)
-                    .toList();
-            List<ReviewIssue> reviewIssues = new ArrayList<>();
-            for (ReviewFile reviewFile : reviewFiles) {
-                if (!Boolean.TRUE.equals(reviewFile.getSkipped())) {
-                    reviewIssues.addAll(reviewFileWithAi(taskId, reviewFile, allChangedFiles));
-                }
-            }
-
-            if (!reviewIssues.isEmpty()) {
-                reviewIssueService.saveBatch(reviewIssues);
-            }
+            ReviewTaskProcessingResult processingResult = reviewTaskProcessor.process(task);
 
             task.setStatus(ReviewTaskStatus.SUCCESS.name());
-            task.setTotalFiles(changedFiles.size());
-            task.setTotalIssues(reviewIssues.size());
-            task.setRiskLevel(reviewIssueAssembler.calculateRiskLevel(reviewIssues));
+            task.setTotalFiles(processingResult.totalFiles());
+            task.setTotalIssues(processingResult.totalIssues());
+            task.setRiskLevel(processingResult.riskLevel());
             task.setErrorMessage(null);
             task.setFinishedAt(LocalDateTime.now());
             task.setUpdatedAt(LocalDateTime.now());
             updateById(task);
             log.info("Review task processed successfully, taskId={}, totalFiles={}, totalIssues={}",
-                    taskId, changedFiles.size(), reviewIssues.size());
+                    taskId, processingResult.totalFiles(), processingResult.totalIssues());
             reviewCommentPublisher.publish(task);
         } catch (Exception exception) {
             String errorMessage = sanitizedErrorMessage(exception);
@@ -299,20 +258,6 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         task.setHeadSha(headSha);
         task.setUpdatedAt(LocalDateTime.now());
         updateById(task);
-    }
-
-    private List<ReviewIssue> reviewFileWithAi(Long taskId, ReviewFile reviewFile, List<String> allChangedFiles) {
-        try {
-            AiReviewResult aiReviewResult = aiReviewService.reviewFile(
-                    taskId,
-                    reviewFile.getFilePath(),
-                    reviewFile.getPatch(),
-                    allChangedFiles
-            );
-            return reviewIssueAssembler.toReviewIssues(taskId, reviewFile.getFilePath(), aiReviewResult);
-        } catch (Exception exception) {
-            throw new IllegalStateException("AI review failed for file " + reviewFile.getFilePath(), exception);
-        }
     }
 
     private ReviewCommentMode normalizeReviewCommentMode(ReviewCommentMode reviewCommentMode) {
