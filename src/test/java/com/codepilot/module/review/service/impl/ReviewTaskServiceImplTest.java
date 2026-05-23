@@ -21,6 +21,7 @@ import com.codepilot.module.review.planner.ReviewFilePlanner;
 import com.codepilot.module.review.processor.ReviewFileReviewer;
 import com.codepilot.module.review.processor.ReviewTaskProcessor;
 import com.codepilot.module.review.publisher.ReviewCommentPublisher;
+import com.codepilot.module.review.queue.ReviewTaskMessageDispatcher;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import com.codepilot.module.review.state.ReviewTaskStateManager;
@@ -317,6 +318,9 @@ class ReviewTaskServiceImplTest {
 
         private final ReviewTaskProducer reviewTaskProducer = mock(ReviewTaskProducer.class);
 
+        private final ReviewTaskMessageDispatcher reviewTaskMessageDispatcher =
+                new ReviewTaskMessageDispatcher(reviewTaskProducer);
+
         private final ReviewProperties reviewProperties = new ReviewProperties();
 
         private final ReviewFilePlanner reviewFilePlanner = new ReviewFilePlanner(reviewProperties);
@@ -366,8 +370,8 @@ class ReviewTaskServiceImplTest {
 
         private TestContext() {
             service = new ReviewTaskServiceImpl(
-                    reviewTaskProducer,
                     reviewTaskCreator,
+                    reviewTaskMessageDispatcher,
                     reviewTaskFailureHandler,
                     reviewTaskHeadShaRefresher,
                     reviewTaskProcessor,

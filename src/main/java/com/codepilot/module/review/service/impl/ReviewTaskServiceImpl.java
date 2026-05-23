@@ -13,25 +13,23 @@ import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.processor.ReviewTaskProcessingResult;
 import com.codepilot.module.review.processor.ReviewTaskProcessor;
 import com.codepilot.module.review.publisher.ReviewCommentPublisher;
+import com.codepilot.module.review.queue.ReviewTaskMessageDispatcher;
 import com.codepilot.module.review.service.ReviewTaskService;
 import com.codepilot.module.review.state.ReviewTaskStateManager;
 import com.codepilot.module.review.sync.ReviewTaskHeadShaRefresher;
-import com.codepilot.task.ReviewTaskProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewTask> implements ReviewTaskService {
 
-    private final ReviewTaskProducer reviewTaskProducer;
-
     private final ReviewTaskCreator reviewTaskCreator;
+
+    private final ReviewTaskMessageDispatcher reviewTaskMessageDispatcher;
 
     private final ReviewTaskFailureHandler reviewTaskFailureHandler;
 
@@ -66,7 +64,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     public ReviewCreateResponse createTask(String prUrl, String title, ReviewCommentMode reviewCommentMode, String headSha) {
         ReviewTaskCreationResult creationResult = reviewTaskCreator.create(prUrl, title, reviewCommentMode, headSha);
         if (creationResult.created()) {
-            sendTaskMessageAfterCommit(creationResult.taskId());
+            reviewTaskMessageDispatcher.sendAfterCommit(creationResult.taskId());
         }
         return new ReviewCreateResponse(creationResult.taskId(), creationResult.status());
     }
@@ -98,19 +96,5 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             throw new IllegalStateException("review task failed, taskId=" + taskId
                     + ", errorType=" + failureResult.errorType());
         }
-    }
-
-    private void sendTaskMessageAfterCommit(Long taskId) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            reviewTaskProducer.send(taskId);
-            return;
-        }
-
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                reviewTaskProducer.send(taskId);
-            }
-        });
     }
 }
