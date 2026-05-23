@@ -18,6 +18,7 @@ import com.codepilot.module.review.processor.ReviewTaskProcessingResult;
 import com.codepilot.module.review.processor.ReviewTaskProcessor;
 import com.codepilot.module.review.publisher.ReviewCommentPublisher;
 import com.codepilot.module.review.service.ReviewTaskService;
+import com.codepilot.module.review.state.ReviewTaskStateManager;
 import com.codepilot.task.ReviewTaskProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +51,8 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     private final ReviewCommentPublisher reviewCommentPublisher;
 
     private final GithubRepositoryPolicy githubRepositoryPolicy;
+
+    private final ReviewTaskStateManager reviewTaskStateManager;
 
     @Value("${spring.rabbitmq.listener.simple.retry.max-attempts:3}")
     private int rabbitRetryMaxAttempts = 3;
@@ -156,31 +159,29 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             throw new BusinessException("review task not found, taskId=" + taskId);
         }
 
-        markTaskRunning(task);
+        reviewTaskStateManager.markRunning(task);
 
         try {
             refreshTaskHeadSha(task);
             ReviewTaskProcessingResult processingResult = reviewTaskProcessor.process(task);
 
-            task.setStatus(ReviewTaskStatus.SUCCESS.name());
-            task.setTotalFiles(processingResult.totalFiles());
-            task.setTotalIssues(processingResult.totalIssues());
-            task.setRiskLevel(processingResult.riskLevel());
-            task.setErrorMessage(null);
-            task.setFinishedAt(LocalDateTime.now());
-            task.setUpdatedAt(LocalDateTime.now());
-            updateById(task);
+            reviewTaskStateManager.markSuccess(
+                    task,
+                    processingResult.totalFiles(),
+                    processingResult.totalIssues(),
+                    processingResult.riskLevel()
+            );
             log.info("Review task processed successfully, taskId={}, totalFiles={}, totalIssues={}",
                     taskId, processingResult.totalFiles(), processingResult.totalIssues());
             reviewCommentPublisher.publish(task);
         } catch (Exception exception) {
             String errorMessage = sanitizedErrorMessage(exception);
             if (isFinalRetryAttempt()) {
-                markTaskFailed(task, errorMessage);
+                reviewTaskStateManager.markFailed(task, errorMessage);
                 log.error("Review task failed, taskId={}, {}, message={}",
                         taskId, retryDetail(exception), errorMessage);
             } else {
-                markTaskRetrying(task, errorMessage);
+                reviewTaskStateManager.markRetrying(task, errorMessage);
                 log.warn("Review task failed and will be retried, taskId={}, {}, message={}",
                         taskId, retryDetail(exception), errorMessage);
             }
@@ -201,28 +202,6 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
                 reviewTaskProducer.send(taskId);
             }
         });
-    }
-
-    private void markTaskRunning(ReviewTask task) {
-        task.setStatus(ReviewTaskStatus.RUNNING.name());
-        task.setStartedAt(LocalDateTime.now());
-        task.setUpdatedAt(LocalDateTime.now());
-        updateById(task);
-    }
-
-    private void markTaskRetrying(ReviewTask task, String errorMessage) {
-        task.setStatus(ReviewTaskStatus.RUNNING.name());
-        task.setErrorMessage(errorMessage);
-        task.setUpdatedAt(LocalDateTime.now());
-        updateById(task);
-    }
-
-    private void markTaskFailed(ReviewTask task, String errorMessage) {
-        task.setStatus(ReviewTaskStatus.FAILED.name());
-        task.setErrorMessage(errorMessage);
-        task.setFinishedAt(LocalDateTime.now());
-        task.setUpdatedAt(LocalDateTime.now());
-        updateById(task);
     }
 
     private boolean isFinalRetryAttempt() {
@@ -255,9 +234,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         if (headSha.equals(task.getHeadSha())) {
             return;
         }
-        task.setHeadSha(headSha);
-        task.setUpdatedAt(LocalDateTime.now());
-        updateById(task);
+        reviewTaskStateManager.updateHeadSha(task, headSha);
     }
 
     private ReviewCommentMode normalizeReviewCommentMode(ReviewCommentMode reviewCommentMode) {

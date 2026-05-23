@@ -19,6 +19,7 @@ import com.codepilot.module.review.processor.ReviewTaskProcessor;
 import com.codepilot.module.review.publisher.ReviewCommentPublisher;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
+import com.codepilot.module.review.state.ReviewTaskStateManager;
 import com.codepilot.task.ReviewTaskProducer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -330,6 +331,8 @@ class ReviewTaskServiceImplTest {
 
         private final GithubRepositoryPolicy githubRepositoryPolicy = mock(GithubRepositoryPolicy.class);
 
+        private final ReviewTaskStateManager reviewTaskStateManager = new ReviewTaskStateManager(reviewTaskMapper);
+
         private final org.mockito.ArgumentCaptor<ReviewTask> taskCaptor =
                 org.mockito.ArgumentCaptor.forClass(ReviewTask.class);
 
@@ -345,7 +348,8 @@ class ReviewTaskServiceImplTest {
                     reviewTaskProducer,
                     reviewTaskProcessor,
                     reviewCommentPublisher,
-                    githubRepositoryPolicy
+                    githubRepositoryPolicy,
+                    reviewTaskStateManager
             );
             ReflectionTestUtils.setField(service, "baseMapper", reviewTaskMapper);
         }
