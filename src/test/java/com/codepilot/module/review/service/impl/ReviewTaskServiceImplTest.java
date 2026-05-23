@@ -15,6 +15,7 @@ import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.planner.ReviewFilePlanner;
+import com.codepilot.module.review.processor.ReviewFileReviewer;
 import com.codepilot.module.review.processor.ReviewTaskProcessor;
 import com.codepilot.module.review.publisher.ReviewCommentPublisher;
 import com.codepilot.module.review.service.ReviewFileService;
@@ -318,13 +319,18 @@ class ReviewTaskServiceImplTest {
 
         private final ReviewIssueAssembler reviewIssueAssembler = new ReviewIssueAssembler();
 
+        private final ReviewFileReviewer reviewFileReviewer = new ReviewFileReviewer(
+                aiReviewService,
+                reviewIssueAssembler
+        );
+
         private final ReviewTaskProcessor reviewTaskProcessor = new ReviewTaskProcessor(
                 githubClient,
                 reviewFilePlanner,
                 reviewFileService,
                 reviewIssueService,
-                aiReviewService,
-                reviewIssueAssembler
+                reviewIssueAssembler,
+                reviewFileReviewer
         );
 
         private final ReviewCommentPublisher reviewCommentPublisher = mock(ReviewCommentPublisher.class);

@@ -1,8 +1,6 @@
 package com.codepilot.module.review.processor;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.codepilot.module.agent.dto.AiReviewResult;
-import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.entity.ReviewFile;
@@ -13,9 +11,7 @@ import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @Component
@@ -30,9 +26,9 @@ public class ReviewTaskProcessor {
 
     private final ReviewIssueService reviewIssueService;
 
-    private final AiReviewService aiReviewService;
-
     private final ReviewIssueAssembler reviewIssueAssembler;
+
+    private final ReviewFileReviewer reviewFileReviewer;
 
     public ReviewTaskProcessingResult process(ReviewTask task) {
         var changedFiles = githubClient.listPullRequestFiles(
@@ -44,7 +40,7 @@ public class ReviewTaskProcessor {
 
         replaceReviewFiles(task.getId(), reviewFiles);
         clearReviewIssues(task.getId());
-        List<ReviewIssue> reviewIssues = reviewFiles(task.getId(), reviewFiles);
+        List<ReviewIssue> reviewIssues = reviewFileReviewer.review(task.getId(), reviewFiles);
         saveReviewIssues(reviewIssues);
 
         return new ReviewTaskProcessingResult(
@@ -71,31 +67,4 @@ public class ReviewTaskProcessor {
         }
     }
 
-    private List<ReviewIssue> reviewFiles(Long taskId, List<ReviewFile> reviewFiles) {
-        List<String> allChangedFiles = reviewFiles.stream()
-                .map(ReviewFile::getFilePath)
-                .filter(StringUtils::hasText)
-                .toList();
-        List<ReviewIssue> reviewIssues = new ArrayList<>();
-        for (ReviewFile reviewFile : reviewFiles) {
-            if (!Boolean.TRUE.equals(reviewFile.getSkipped())) {
-                reviewIssues.addAll(reviewFileWithAi(taskId, reviewFile, allChangedFiles));
-            }
-        }
-        return reviewIssues;
-    }
-
-    private List<ReviewIssue> reviewFileWithAi(Long taskId, ReviewFile reviewFile, List<String> allChangedFiles) {
-        try {
-            AiReviewResult aiReviewResult = aiReviewService.reviewFile(
-                    taskId,
-                    reviewFile.getFilePath(),
-                    reviewFile.getPatch(),
-                    allChangedFiles
-            );
-            return reviewIssueAssembler.toReviewIssues(taskId, reviewFile.getFilePath(), aiReviewResult);
-        } catch (Exception exception) {
-            throw new IllegalStateException("AI review failed for file " + reviewFile.getFilePath(), exception);
-        }
-    }
 }

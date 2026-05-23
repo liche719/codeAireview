@@ -117,8 +117,8 @@ class ReviewTaskProcessorTest {
                 new ReviewFilePlanner(new ReviewProperties()),
                 reviewFileService,
                 reviewIssueService,
-                aiReviewService,
-                new ReviewIssueAssembler()
+                new ReviewIssueAssembler(),
+                new ReviewFileReviewer(aiReviewService, new ReviewIssueAssembler())
         );
 
         @SuppressWarnings("unchecked")
