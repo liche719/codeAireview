@@ -4,6 +4,7 @@ import com.codepilot.module.agent.dto.AiReviewIssue;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
+import com.codepilot.module.review.context.ReviewContextBuilder;
 import com.codepilot.module.review.entity.ReviewFile;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -24,7 +25,11 @@ class ReviewFileReviewerTest {
     @Test
     void shouldReviewOnlyNonSkippedFilesWithFullChangedFileList() {
         AiReviewService aiReviewService = mock(AiReviewService.class);
-        ReviewFileReviewer reviewer = new ReviewFileReviewer(aiReviewService, new ReviewIssueAssembler());
+        ReviewFileReviewer reviewer = new ReviewFileReviewer(
+                aiReviewService,
+                new ReviewIssueAssembler(),
+                new ReviewContextBuilder()
+        );
         when(aiReviewService.reviewFile(eq(1L), eq("src/main/java/Demo.java"), eq("+code"), anyList()))
                 .thenReturn(aiReviewResult());
         ArgumentCaptor<List<String>> allChangedFilesCaptor = ArgumentCaptor.forClass(List.class);
@@ -51,7 +56,11 @@ class ReviewFileReviewerTest {
     @Test
     void shouldWrapFileReviewFailuresWithFilePath() {
         AiReviewService aiReviewService = mock(AiReviewService.class);
-        ReviewFileReviewer reviewer = new ReviewFileReviewer(aiReviewService, new ReviewIssueAssembler());
+        ReviewFileReviewer reviewer = new ReviewFileReviewer(
+                aiReviewService,
+                new ReviewIssueAssembler(),
+                new ReviewContextBuilder()
+        );
         when(aiReviewService.reviewFile(eq(1L), eq("src/main/java/Demo.java"), eq("+code"), anyList()))
                 .thenThrow(new IllegalArgumentException("bad model output"));
 

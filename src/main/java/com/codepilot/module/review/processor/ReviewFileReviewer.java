@@ -3,11 +3,12 @@ package com.codepilot.module.review.processor;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
+import com.codepilot.module.review.context.ReviewContext;
+import com.codepilot.module.review.context.ReviewContextBuilder;
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,31 +21,29 @@ public class ReviewFileReviewer {
 
     private final ReviewIssueAssembler reviewIssueAssembler;
 
+    private final ReviewContextBuilder reviewContextBuilder;
+
     public List<ReviewIssue> review(Long taskId, List<ReviewFile> reviewFiles) {
-        List<String> allChangedFiles = changedFilePaths(reviewFiles);
+        if (reviewFiles == null || reviewFiles.isEmpty()) {
+            return List.of();
+        }
+        ReviewContext reviewContext = reviewContextBuilder.build(reviewFiles);
         List<ReviewIssue> reviewIssues = new ArrayList<>();
         for (ReviewFile reviewFile : reviewFiles) {
             if (!Boolean.TRUE.equals(reviewFile.getSkipped())) {
-                reviewIssues.addAll(reviewFileWithAi(taskId, reviewFile, allChangedFiles));
+                reviewIssues.addAll(reviewFileWithAi(taskId, reviewFile, reviewContext));
             }
         }
         return reviewIssues;
     }
 
-    private List<String> changedFilePaths(List<ReviewFile> reviewFiles) {
-        return reviewFiles.stream()
-                .map(ReviewFile::getFilePath)
-                .filter(StringUtils::hasText)
-                .toList();
-    }
-
-    private List<ReviewIssue> reviewFileWithAi(Long taskId, ReviewFile reviewFile, List<String> allChangedFiles) {
+    private List<ReviewIssue> reviewFileWithAi(Long taskId, ReviewFile reviewFile, ReviewContext reviewContext) {
         try {
             AiReviewResult aiReviewResult = aiReviewService.reviewFile(
                     taskId,
                     reviewFile.getFilePath(),
                     reviewFile.getPatch(),
-                    allChangedFiles
+                    reviewContext.allChangedFiles()
             );
             return reviewIssueAssembler.toReviewIssues(taskId, reviewFile.getFilePath(), aiReviewResult);
         } catch (Exception exception) {

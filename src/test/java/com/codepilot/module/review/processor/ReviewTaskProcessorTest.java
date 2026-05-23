@@ -7,6 +7,7 @@ import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.config.ReviewProperties;
+import com.codepilot.module.review.context.ReviewContextBuilder;
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
@@ -118,7 +119,7 @@ class ReviewTaskProcessorTest {
                 reviewFileService,
                 reviewIssueService,
                 new ReviewIssueAssembler(),
-                new ReviewFileReviewer(aiReviewService, new ReviewIssueAssembler())
+                new ReviewFileReviewer(aiReviewService, new ReviewIssueAssembler(), new ReviewContextBuilder())
         );
 
         @SuppressWarnings("unchecked")
