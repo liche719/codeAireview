@@ -4,6 +4,8 @@ import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.parser.AiReviewResultParser;
 import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
+import com.codepilot.module.agent.review.DeterministicReviewToolRunner;
+import com.codepilot.module.agent.review.ReviewIssueDeduplicator;
 import com.codepilot.module.agent.service.CodeReviewAiAssistant;
 import com.codepilot.module.agent.service.ReviewRagService;
 import com.codepilot.module.audit.entity.LlmCallLog;
@@ -242,6 +244,15 @@ class AiReviewServiceImplTest {
         @SuppressWarnings("unchecked")
         private final ObjectProvider<TestSuggestionTool> testSuggestionToolProvider = mock(ObjectProvider.class);
 
+        private final ReviewIssueDeduplicator reviewIssueDeduplicator = new ReviewIssueDeduplicator();
+
+        private final DeterministicReviewToolRunner deterministicReviewToolRunner = new DeterministicReviewToolRunner(
+                sqlRiskToolProvider,
+                secretScanToolProvider,
+                testSuggestionToolProvider,
+                reviewIssueDeduplicator
+        );
+
         private final AiReviewServiceImpl service;
 
         private TestContext() {
@@ -260,9 +271,8 @@ class AiReviewServiceImplTest {
                     reviewRagService,
                     new ReviewPromptBuilder(),
                     llmCallLogService,
-                    sqlRiskToolProvider,
-                    secretScanToolProvider,
-                    testSuggestionToolProvider
+                    deterministicReviewToolRunner,
+                    reviewIssueDeduplicator
             );
         }
     }
