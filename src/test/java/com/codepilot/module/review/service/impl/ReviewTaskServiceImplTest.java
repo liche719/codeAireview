@@ -15,6 +15,7 @@ import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.context.ReviewContextBuilder;
+import com.codepilot.module.review.creator.ReviewTaskCreator;
 import com.codepilot.module.review.planner.ReviewFilePlanner;
 import com.codepilot.module.review.processor.ReviewFileReviewer;
 import com.codepilot.module.review.processor.ReviewTaskProcessor;
@@ -341,6 +342,12 @@ class ReviewTaskServiceImplTest {
 
         private final ReviewTaskStateManager reviewTaskStateManager = new ReviewTaskStateManager(reviewTaskMapper);
 
+        private final ReviewTaskCreator reviewTaskCreator = new ReviewTaskCreator(
+                githubPrUrlParser,
+                githubRepositoryPolicy,
+                reviewTaskMapper
+        );
+
         private final org.mockito.ArgumentCaptor<ReviewTask> taskCaptor =
                 org.mockito.ArgumentCaptor.forClass(ReviewTask.class);
 
@@ -351,12 +358,11 @@ class ReviewTaskServiceImplTest {
 
         private TestContext() {
             service = new ReviewTaskServiceImpl(
-                    githubPrUrlParser,
                     githubClient,
                     reviewTaskProducer,
+                    reviewTaskCreator,
                     reviewTaskProcessor,
                     reviewCommentPublisher,
-                    githubRepositoryPolicy,
                     reviewTaskStateManager
             );
             ReflectionTestUtils.setField(service, "baseMapper", reviewTaskMapper);

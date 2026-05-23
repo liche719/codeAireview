@@ -1,16 +1,13 @@
 package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.codepilot.common.enums.ReviewCommentMode;
-import com.codepilot.common.enums.ReviewTaskStatus;
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
-import com.codepilot.module.git.dto.GithubPrInfo;
-import com.codepilot.module.git.parser.GithubPrUrlParser;
-import com.codepilot.module.git.policy.GithubRepositoryPolicy;
+import com.codepilot.module.review.creator.ReviewTaskCreationResult;
+import com.codepilot.module.review.creator.ReviewTaskCreator;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
@@ -23,7 +20,6 @@ import com.codepilot.task.ReviewTaskProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.retry.RetryContext;
 import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.stereotype.Service;
@@ -32,25 +28,20 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
-import java.time.LocalDateTime;
-import java.util.List;
-
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewTask> implements ReviewTaskService {
 
-    private final GithubPrUrlParser githubPrUrlParser;
-
     private final GithubClient githubClient;
 
     private final ReviewTaskProducer reviewTaskProducer;
 
+    private final ReviewTaskCreator reviewTaskCreator;
+
     private final ReviewTaskProcessor reviewTaskProcessor;
 
     private final ReviewCommentPublisher reviewCommentPublisher;
-
-    private final GithubRepositoryPolicy githubRepositoryPolicy;
 
     private final ReviewTaskStateManager reviewTaskStateManager;
 
@@ -78,78 +69,11 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ReviewCreateResponse createTask(String prUrl, String title, ReviewCommentMode reviewCommentMode, String headSha) {
-        GithubPrInfo prInfo = githubPrUrlParser.parse(prUrl);
-        githubRepositoryPolicy.assertAllowed(prInfo.getOwner(), prInfo.getRepo());
-        ReviewCommentMode normalizedReviewCommentMode = normalizeReviewCommentMode(reviewCommentMode);
-        String normalizedHeadSha = normalizeHeadSha(headSha);
-
-        ReviewTask reusableTask = findReusableTask(prInfo, normalizedReviewCommentMode, normalizedHeadSha);
-        if (reusableTask != null) {
-            log.info("Reuse existing review task, taskId={}, owner={}, repo={}, pullNumber={}, headSha={}, status={}, commentMode={}",
-                    reusableTask.getId(),
-                    prInfo.getOwner(),
-                    prInfo.getRepo(),
-                    prInfo.getPullNumber(),
-                    normalizedHeadSha,
-                    reusableTask.getStatus(),
-                    normalizedReviewCommentMode);
-            return new ReviewCreateResponse(reusableTask.getId(), reusableTask.getStatus());
+        ReviewTaskCreationResult creationResult = reviewTaskCreator.create(prUrl, title, reviewCommentMode, headSha);
+        if (creationResult.created()) {
+            sendTaskMessageAfterCommit(creationResult.taskId());
         }
-
-        ReviewTask task = new ReviewTask();
-        task.setRepoOwner(prInfo.getOwner());
-        task.setRepoName(prInfo.getRepo());
-        task.setPrNumber(prInfo.getPullNumber());
-        task.setPrUrl(prUrl.trim());
-        task.setTitle(title);
-        task.setHeadSha(normalizedHeadSha);
-        task.setReviewCommentMode(normalizedReviewCommentMode.name());
-        task.setStatus(ReviewTaskStatus.PENDING.name());
-        task.setTotalFiles(0);
-        task.setTotalIssues(0);
-        task.setCreatedAt(LocalDateTime.now());
-        task.setUpdatedAt(LocalDateTime.now());
-
-        try {
-            save(task);
-        } catch (DuplicateKeyException exception) {
-            ReviewTask concurrentlyCreatedTask = findReusableTask(prInfo, normalizedReviewCommentMode, normalizedHeadSha);
-            if (concurrentlyCreatedTask != null) {
-                log.info("Reuse concurrently created review task, taskId={}, owner={}, repo={}, pullNumber={}, headSha={}, status={}, commentMode={}",
-                        concurrentlyCreatedTask.getId(),
-                        prInfo.getOwner(),
-                        prInfo.getRepo(),
-                        prInfo.getPullNumber(),
-                        normalizedHeadSha,
-                        concurrentlyCreatedTask.getStatus(),
-                        normalizedReviewCommentMode);
-                return new ReviewCreateResponse(concurrentlyCreatedTask.getId(), concurrentlyCreatedTask.getStatus());
-            }
-            throw exception;
-        }
-        sendTaskMessageAfterCommit(task.getId());
-
-        return new ReviewCreateResponse(task.getId(), task.getStatus());
-    }
-
-    private ReviewTask findReusableTask(GithubPrInfo prInfo, ReviewCommentMode reviewCommentMode, String headSha) {
-        if (prInfo == null || !StringUtils.hasText(headSha)) {
-            return null;
-        }
-        List<ReviewTask> tasks = list(new LambdaQueryWrapper<ReviewTask>()
-                .eq(ReviewTask::getRepoOwner, prInfo.getOwner())
-                .eq(ReviewTask::getRepoName, prInfo.getRepo())
-                .eq(ReviewTask::getPrNumber, prInfo.getPullNumber())
-                .eq(ReviewTask::getHeadSha, headSha)
-                .eq(ReviewTask::getReviewCommentMode, reviewCommentMode.name())
-                .in(ReviewTask::getStatus, List.of(
-                        ReviewTaskStatus.PENDING.name(),
-                        ReviewTaskStatus.RUNNING.name(),
-                        ReviewTaskStatus.SUCCESS.name()
-                ))
-                .orderByDesc(ReviewTask::getId)
-                .last("LIMIT 1"));
-        return tasks == null || tasks.isEmpty() ? null : tasks.getFirst();
+        return new ReviewCreateResponse(creationResult.taskId(), creationResult.status());
     }
 
     @Override
@@ -235,14 +159,6 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
             return;
         }
         reviewTaskStateManager.updateHeadSha(task, headSha);
-    }
-
-    private ReviewCommentMode normalizeReviewCommentMode(ReviewCommentMode reviewCommentMode) {
-        return reviewCommentMode == null ? ReviewCommentMode.SUMMARY_ONLY : reviewCommentMode;
-    }
-
-    private String normalizeHeadSha(String headSha) {
-        return StringUtils.hasText(headSha) ? headSha.trim() : null;
     }
 
     private String sanitizedErrorMessage(Exception exception) {
