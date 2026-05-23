@@ -3,8 +3,6 @@ package com.codepilot.module.review.service.impl;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.common.exception.BusinessException;
-import com.codepilot.module.git.client.GithubClient;
-import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.review.creator.ReviewTaskCreationResult;
 import com.codepilot.module.review.creator.ReviewTaskCreator;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
@@ -17,6 +15,7 @@ import com.codepilot.module.review.processor.ReviewTaskProcessor;
 import com.codepilot.module.review.publisher.ReviewCommentPublisher;
 import com.codepilot.module.review.service.ReviewTaskService;
 import com.codepilot.module.review.state.ReviewTaskStateManager;
+import com.codepilot.module.review.sync.ReviewTaskHeadShaRefresher;
 import com.codepilot.task.ReviewTaskProducer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,20 +23,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.util.StringUtils;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewTask> implements ReviewTaskService {
 
-    private final GithubClient githubClient;
-
     private final ReviewTaskProducer reviewTaskProducer;
 
     private final ReviewTaskCreator reviewTaskCreator;
 
     private final ReviewTaskFailureHandler reviewTaskFailureHandler;
+
+    private final ReviewTaskHeadShaRefresher reviewTaskHeadShaRefresher;
 
     private final ReviewTaskProcessor reviewTaskProcessor;
 
@@ -83,7 +81,7 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         reviewTaskStateManager.markRunning(task);
 
         try {
-            refreshTaskHeadSha(task);
+            reviewTaskHeadShaRefresher.refresh(task);
             ReviewTaskProcessingResult processingResult = reviewTaskProcessor.process(task);
 
             reviewTaskStateManager.markSuccess(
@@ -114,21 +112,5 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
                 reviewTaskProducer.send(taskId);
             }
         });
-    }
-
-    private void refreshTaskHeadSha(ReviewTask task) {
-        GithubPullRequestDetail detail = githubClient.getPullRequestDetail(
-                task.getRepoOwner(),
-                task.getRepoName(),
-                task.getPrNumber()
-        );
-        if (!StringUtils.hasText(detail.getHeadSha())) {
-            return;
-        }
-        String headSha = detail.getHeadSha().trim();
-        if (headSha.equals(task.getHeadSha())) {
-            return;
-        }
-        reviewTaskStateManager.updateHeadSha(task, headSha);
     }
 }

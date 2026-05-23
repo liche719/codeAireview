@@ -24,6 +24,7 @@ import com.codepilot.module.review.publisher.ReviewCommentPublisher;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import com.codepilot.module.review.state.ReviewTaskStateManager;
+import com.codepilot.module.review.sync.ReviewTaskHeadShaRefresher;
 import com.codepilot.task.ReviewTaskProducer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -346,6 +347,9 @@ class ReviewTaskServiceImplTest {
         private final ReviewTaskFailureHandler reviewTaskFailureHandler =
                 new ReviewTaskFailureHandler(reviewTaskStateManager);
 
+        private final ReviewTaskHeadShaRefresher reviewTaskHeadShaRefresher =
+                new ReviewTaskHeadShaRefresher(githubClient, reviewTaskStateManager);
+
         private final ReviewTaskCreator reviewTaskCreator = new ReviewTaskCreator(
                 githubPrUrlParser,
                 githubRepositoryPolicy,
@@ -362,10 +366,10 @@ class ReviewTaskServiceImplTest {
 
         private TestContext() {
             service = new ReviewTaskServiceImpl(
-                    githubClient,
                     reviewTaskProducer,
                     reviewTaskCreator,
                     reviewTaskFailureHandler,
+                    reviewTaskHeadShaRefresher,
                     reviewTaskProcessor,
                     reviewCommentPublisher,
                     reviewTaskStateManager
