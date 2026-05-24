@@ -14,17 +14,28 @@ public class ReviewContextBuilder {
 
     private final ReviewContextRelationshipExtractor reviewContextRelationshipExtractor;
 
+    private final ReviewImpactPlanner reviewImpactPlanner;
+
     ReviewContextBuilder() {
-        this(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor());
+        this(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor(), new ReviewImpactPlanner());
     }
 
     @Autowired
     public ReviewContextBuilder(
             ReviewContextSignalExtractor reviewContextSignalExtractor,
-            ReviewContextRelationshipExtractor reviewContextRelationshipExtractor
+            ReviewContextRelationshipExtractor reviewContextRelationshipExtractor,
+            ReviewImpactPlanner reviewImpactPlanner
     ) {
         this.reviewContextSignalExtractor = reviewContextSignalExtractor;
         this.reviewContextRelationshipExtractor = reviewContextRelationshipExtractor;
+        this.reviewImpactPlanner = reviewImpactPlanner;
+    }
+
+    public ReviewContextBuilder(
+            ReviewContextSignalExtractor reviewContextSignalExtractor,
+            ReviewContextRelationshipExtractor reviewContextRelationshipExtractor
+    ) {
+        this(reviewContextSignalExtractor, reviewContextRelationshipExtractor, new ReviewImpactPlanner());
     }
 
     public ReviewContext build(List<ReviewFile> reviewFiles) {
@@ -46,6 +57,10 @@ public class ReviewContextBuilder {
                 .toList();
         List<ReviewContext.SemanticFileContext> semanticFileContexts =
                 reviewContextSignalExtractor.semanticFileContexts(reviewFiles);
+        List<ReviewContext.FileSummary> fileSummaries = reviewContextSignalExtractor.fileSummaries(reviewFiles);
+        List<ReviewContext.RepoRelationshipHint> repoRelationshipHints =
+                reviewContextRelationshipExtractor.repoRelationshipHints(reviewFiles, semanticFileContexts);
+        List<ReviewContext.ReviewSignal> reviewSignals = reviewContextSignalExtractor.reviewSignals(reviewFiles);
 
         return new ReviewContext(
                 allChangedFiles,
@@ -56,10 +71,11 @@ public class ReviewContextBuilder {
                 sumDeletions(reviewFiles),
                 sumPatchChars(reviewFiles),
                 skippedFiles,
-                reviewContextSignalExtractor.fileSummaries(reviewFiles),
+                fileSummaries,
                 semanticFileContexts,
-                reviewContextRelationshipExtractor.repoRelationshipHints(reviewFiles, semanticFileContexts),
-                reviewContextSignalExtractor.reviewSignals(reviewFiles)
+                repoRelationshipHints,
+                reviewImpactPlanner.plan(fileSummaries, semanticFileContexts, repoRelationshipHints, reviewSignals),
+                reviewSignals
         );
     }
 

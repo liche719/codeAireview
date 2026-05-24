@@ -59,6 +59,12 @@ class AiReviewContextFormatterTest {
                         "SOURCE_TEST_PAIR",
                         "Source and matching test changed together; verify coverage matches the behavior change."
                 )),
+                new AiReviewContext.ReviewImpactPlan(
+                        List.of("production-code-change", "test-change"),
+                        List.of("runtime behavior", "test coverage"),
+                        List.of("Review the patch as an impact set, not only as isolated file edits."),
+                        List.of("Check whether changed tests assert the changed production behavior.")
+                ),
                 List.of(new AiReviewContext.ReviewSignal(
                         "MISSING_TEST_CHANGE",
                         "MEDIUM",
@@ -81,6 +87,11 @@ class AiReviewContextFormatterTest {
                 .contains("  - imports: java.util.List")
                 .contains("Repo relationship hints (patch-derived, not a full repository graph):")
                 .contains("- src/main/java/Demo.java -> src/test/java/DemoTest.java [SOURCE_TEST_PAIR]: Source and matching test changed together; verify coverage matches the behavior change.")
+                .contains("Review impact plan (patch-derived, not a full repository graph):")
+                .contains("- change types: production-code-change; test-change")
+                .contains("- impact areas: runtime behavior; test coverage")
+                .contains("- priority focus: Review the patch as an impact set, not only as isolated file edits.")
+                .contains("- verification hints: Check whether changed tests assert the changed production behavior.")
                 .contains("File summaries:")
                 .contains("- src/main/java/Demo.java (modified, +10 / -3, patchChars=120, reviewable)")
                 .contains("- package-lock.json (modified, +100 / -0, patchChars=900, skipped, reason=generated file)")

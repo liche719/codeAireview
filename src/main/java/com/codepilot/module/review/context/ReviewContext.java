@@ -16,6 +16,7 @@ public record ReviewContext(
         List<FileSummary> fileSummaries,
         List<SemanticFileContext> semanticFileContexts,
         List<RepoRelationshipHint> repoRelationshipHints,
+        ReviewImpactPlan reviewImpactPlan,
         List<ReviewSignal> reviewSignals
 ) {
 
@@ -45,6 +46,7 @@ public record ReviewContext(
                         && hasText(relationship.type())
                         && hasText(relationship.reason()))
                 .toList();
+        reviewImpactPlan = reviewImpactPlan == null ? ReviewImpactPlan.empty() : reviewImpactPlan;
         reviewSignals = reviewSignals == null
                 ? List.of()
                 : reviewSignals.stream()
@@ -53,7 +55,52 @@ public record ReviewContext(
     }
 
     public static ReviewContext empty() {
-        return new ReviewContext(List.of(), 0, 0, 0, 0, 0, 0, List.of(), List.of(), List.of(), List.of(), List.of());
+        return new ReviewContext(
+                List.of(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                ReviewImpactPlan.empty(),
+                List.of()
+        );
+    }
+
+    public ReviewContext(
+            List<String> allChangedFiles,
+            int totalFileCount,
+            int reviewableFileCount,
+            int skippedFileCount,
+            int totalAdditions,
+            int totalDeletions,
+            int totalPatchChars,
+            List<SkippedFile> skippedFiles,
+            List<FileSummary> fileSummaries,
+            List<SemanticFileContext> semanticFileContexts,
+            List<RepoRelationshipHint> repoRelationshipHints,
+            List<ReviewSignal> reviewSignals
+    ) {
+        this(
+                allChangedFiles,
+                totalFileCount,
+                reviewableFileCount,
+                skippedFileCount,
+                totalAdditions,
+                totalDeletions,
+                totalPatchChars,
+                skippedFiles,
+                fileSummaries,
+                semanticFileContexts,
+                repoRelationshipHints,
+                ReviewImpactPlan.empty(),
+                reviewSignals
+        );
     }
 
     public AiReviewContext toAiReviewContext() {
@@ -99,6 +146,12 @@ public record ReviewContext(
                                 relationship.reason()
                         ))
                         .toList(),
+                new AiReviewContext.ReviewImpactPlan(
+                        reviewImpactPlan.changeTypes(),
+                        reviewImpactPlan.impactAreas(),
+                        reviewImpactPlan.priorityFocuses(),
+                        reviewImpactPlan.verificationHints()
+                ),
                 reviewSignals.stream()
                         .map(reviewSignal -> new AiReviewContext.ReviewSignal(
                                 reviewSignal.type(),
@@ -162,6 +215,31 @@ public record ReviewContext(
             String type,
             String reason
     ) {
+    }
+
+    public record ReviewImpactPlan(
+            List<String> changeTypes,
+            List<String> impactAreas,
+            List<String> priorityFocuses,
+            List<String> verificationHints
+    ) {
+        public ReviewImpactPlan {
+            changeTypes = sanitizeTextList(changeTypes);
+            impactAreas = sanitizeTextList(impactAreas);
+            priorityFocuses = sanitizeTextList(priorityFocuses);
+            verificationHints = sanitizeTextList(verificationHints);
+        }
+
+        public static ReviewImpactPlan empty() {
+            return new ReviewImpactPlan(List.of(), List.of(), List.of(), List.of());
+        }
+
+        public boolean isEmpty() {
+            return changeTypes.isEmpty()
+                    && impactAreas.isEmpty()
+                    && priorityFocuses.isEmpty()
+                    && verificationHints.isEmpty();
+        }
     }
 
     public record ReviewSignal(String type, String severity, String message) {

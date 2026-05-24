@@ -26,6 +26,8 @@ public class AiReviewContextFormatter {
 
     private static final int REPO_RELATIONSHIP_CONTEXT_LIMIT = 20;
 
+    private static final int IMPACT_PLAN_ITEM_LIMIT = 10;
+
     public String format(AiReviewContext context) {
         return formatForFile(context, null);
     }
@@ -53,12 +55,47 @@ public class AiReviewContextFormatter {
                 .append("):\n");
         appendChangedFiles(builder, allChangedFiles);
         appendCurrentFileFocus(builder, safeContext, currentFilePath);
+        appendReviewImpactPlan(builder, safeContext.reviewImpactPlan());
         appendSemanticContexts(builder, safeContext.semanticFileContexts(), currentFilePath);
         appendRepoRelationshipHints(builder, safeContext.repoRelationshipHints(), currentFilePath);
         appendReviewSignals(builder, safeContext.reviewSignals());
         appendFileSummaries(builder, safeContext.fileSummaries());
         appendSkippedFiles(builder, safeContext.skippedFiles());
         return builder.toString();
+    }
+
+    private void appendReviewImpactPlan(
+            StringBuilder builder,
+            AiReviewContext.ReviewImpactPlan reviewImpactPlan
+    ) {
+        if (reviewImpactPlan == null || reviewImpactPlan.isEmpty()) {
+            return;
+        }
+        builder.append("\nReview impact plan (patch-derived, not a full repository graph):\n");
+        appendImpactPlanList(builder, "change types", reviewImpactPlan.changeTypes());
+        appendImpactPlanList(builder, "impact areas", reviewImpactPlan.impactAreas());
+        appendImpactPlanList(builder, "priority focus", reviewImpactPlan.priorityFocuses());
+        appendImpactPlanList(builder, "verification hints", reviewImpactPlan.verificationHints());
+    }
+
+    private void appendImpactPlanList(StringBuilder builder, String label, List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return;
+        }
+        builder.append("- ")
+                .append(label)
+                .append(": ")
+                .append(values.stream()
+                        .limit(IMPACT_PLAN_ITEM_LIMIT)
+                        .map(this::singleLine)
+                        .reduce((left, right) -> left + "; " + right)
+                        .orElse("N/A"));
+        if (values.size() > IMPACT_PLAN_ITEM_LIMIT) {
+            builder.append("; ")
+                    .append(values.size() - IMPACT_PLAN_ITEM_LIMIT)
+                    .append(" more omitted");
+        }
+        builder.append('\n');
     }
 
     private void appendChangedFiles(StringBuilder builder, List<String> allChangedFiles) {

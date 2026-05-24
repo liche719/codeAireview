@@ -123,6 +123,12 @@ class PromptRegressionEvalTest {
                         "IMPORT_TARGET",
                         "Source imports target changed file via 'com.example.AuthService'; inspect cross-file API compatibility."
                 )),
+                new AiReviewContext.ReviewImpactPlan(
+                        List.of("production-code-change", "public-api-change"),
+                        List.of("API contract and clients", "cross-file API compatibility"),
+                        List.of("Inspect changed importer/importee pairs for broken contracts."),
+                        List.of("Prefer high-confidence findings tied to changed behavior.")
+                ),
                 List.of()
         );
 
@@ -136,6 +142,11 @@ class PromptRegressionEvalTest {
                 .contains("  - annotations: PostMapping, RestController")
                 .contains("  - imports: com.example.AuthService")
                 .contains("  - routes: POST /login")
+                .contains("Review impact plan (patch-derived, not a full repository graph):")
+                .contains("- change types: production-code-change; public-api-change")
+                .contains("- impact areas: API contract and clients; cross-file API compatibility")
+                .contains("- priority focus: Inspect changed importer/importee pairs for broken contracts.")
+                .contains("- verification hints: Prefer high-confidence findings tied to changed behavior.")
                 .contains("Repo relationship hints (patch-derived, not a full repository graph):")
                 .contains("src/main/java/com/example/AuthController.java -> src/main/java/com/example/AuthService.java [IMPORT_TARGET]")
                 .contains("Current file focus:")
