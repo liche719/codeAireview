@@ -56,7 +56,7 @@ class GitHubInlineCommentServiceImplTest {
     }
 
     @Test
-    void shouldSkipIssueWhenLineIsNotAddedLine() {
+    void shouldCommentOnContextLine() {
         TestContext context = new TestContext(true, 10, "token");
         when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
         when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
@@ -68,7 +68,27 @@ class GitHubInlineCommentServiceImplTest {
 
         context.service.commentInlineIssues(1L);
 
-        verify(context.githubClient, never()).createPullRequestInlineComment(any(), any(), any(), any(), any(), any(), any(), any());
+        verify(context.githubClient)
+                .createPullRequestInlineComment(eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                        eq("src/Demo.java"), eq(10), eq("RIGHT"), any());
+    }
+
+    @Test
+    void shouldCommentOnDeletedLineOnLeftSide() {
+        TestContext context = new TestContext(true, 10, "token");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
+                .thenReturn(List.of(issue(11)));
+        when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
+                .thenReturn(List.of(deletionReviewFile()));
+        when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
+
+        context.service.commentInlineIssues(1L);
+
+        verify(context.githubClient)
+                .createPullRequestInlineComment(eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                        eq("src/Demo.java"), eq(11), eq("LEFT"), any());
     }
 
     @Test
@@ -256,6 +276,20 @@ class GitHubInlineCommentServiceImplTest {
                  public void run() {
                 +    String sql = "select * from user where name = '" + name + "'";
                 +    log.info(sql);
+                     System.out.println(sql);
+                 }
+                """);
+        return reviewFile;
+    }
+
+    private ReviewFile deletionReviewFile() {
+        ReviewFile reviewFile = new ReviewFile();
+        reviewFile.setTaskId(1L);
+        reviewFile.setFilePath("src/Demo.java");
+        reviewFile.setPatch("""
+                @@ -10,4 +10,3 @@
+                 public void run() {
+                -    checkPermission();
                      System.out.println(sql);
                  }
                 """);

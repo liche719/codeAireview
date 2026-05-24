@@ -27,6 +27,8 @@ public class DiffLineMapper {
         int oldLine = 0;
         int newLine = 0;
         boolean inHunk = false;
+        DiffLineMapping deletedLineCandidate = null;
+        DiffLineMapping contextLineCandidate = null;
 
         for (String line : patch.split("\\R")) {
             Matcher matcher = HUNK_HEADER.matcher(line);
@@ -49,14 +51,25 @@ public class DiffLineMapper {
             }
 
             if (line.startsWith("-") && !line.startsWith("---")) {
+                if (oldLine == issueLineNumber && deletedLineCandidate == null) {
+                    deletedLineCandidate = DiffLineMapping.left(oldLine);
+                }
                 oldLine++;
                 continue;
             }
 
+            if (oldLine == issueLineNumber || newLine == issueLineNumber) {
+                if (contextLineCandidate == null) {
+                    contextLineCandidate = DiffLineMapping.right(newLine);
+                }
+            }
             oldLine++;
             newLine++;
         }
 
-        return DiffLineMapping.notCommentable();
+        if (deletedLineCandidate != null) {
+            return deletedLineCandidate;
+        }
+        return contextLineCandidate == null ? DiffLineMapping.notCommentable() : contextLineCandidate;
     }
 }

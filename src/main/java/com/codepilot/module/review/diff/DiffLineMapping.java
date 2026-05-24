@@ -9,4 +9,8 @@ public record DiffLineMapping(boolean commentable, Integer line, String side) {
     public static DiffLineMapping right(Integer line) {
         return new DiffLineMapping(true, line, "RIGHT");
     }
+
+    public static DiffLineMapping left(Integer line) {
+        return new DiffLineMapping(true, line, "LEFT");
+    }
 }

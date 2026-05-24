@@ -18,17 +18,21 @@ class DiffLineMapperTest {
     }
 
     @Test
-    void shouldNotCommentDeletedLine() {
+    void shouldMapDeletedLineToLeftSide() {
         DiffLineMapping mapping = mapper.map("src/Demo.java", deletionOnlyPatch(), 11);
 
-        assertThat(mapping.commentable()).isFalse();
+        assertThat(mapping.commentable()).isTrue();
+        assertThat(mapping.line()).isEqualTo(11);
+        assertThat(mapping.side()).isEqualTo("LEFT");
     }
 
     @Test
-    void shouldNotCommentContextLine() {
+    void shouldMapContextLineToRightSide() {
         DiffLineMapping mapping = mapper.map("src/Demo.java", patch(), 10);
 
-        assertThat(mapping.commentable()).isFalse();
+        assertThat(mapping.commentable()).isTrue();
+        assertThat(mapping.line()).isEqualTo(10);
+        assertThat(mapping.side()).isEqualTo("RIGHT");
     }
 
     @Test
@@ -55,6 +59,22 @@ class DiffLineMapperTest {
 
         assertThat(mapping.commentable()).isTrue();
         assertThat(mapping.line()).isEqualTo(22);
+        assertThat(mapping.side()).isEqualTo("RIGHT");
+    }
+
+    @Test
+    void shouldPreferAddedLineWhenOldAndNewLineNumbersOverlap() {
+        String patch = """
+                @@ -11,2 +11,2 @@
+                -    String oldSql = sql;
+                +    String sql = "select * from user";
+                 }
+                """;
+
+        DiffLineMapping mapping = mapper.map("src/Demo.java", patch, 11);
+
+        assertThat(mapping.commentable()).isTrue();
+        assertThat(mapping.line()).isEqualTo(11);
         assertThat(mapping.side()).isEqualTo("RIGHT");
     }
 

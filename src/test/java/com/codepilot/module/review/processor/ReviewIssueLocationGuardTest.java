@@ -22,14 +22,14 @@ class ReviewIssueLocationGuardTest {
     }
 
     @Test
-    void shouldClearLineNumberWhenIssueTargetsContextOrDeletedLine() {
+    void shouldKeepLineNumberWhenIssueTargetsContextOrDeletedLine() {
         ReviewIssue contextLineIssue = issue("src/Demo.java", 10);
         ReviewIssue deletedLineIssue = issue("src/Demo.java", 12);
 
         guard.keepOnlyCommentableChangedLines("src/Demo.java", patch(), List.of(contextLineIssue, deletedLineIssue));
 
-        assertThat(contextLineIssue.getLineNumber()).isNull();
-        assertThat(deletedLineIssue.getLineNumber()).isNull();
+        assertThat(contextLineIssue.getLineNumber()).isEqualTo(10);
+        assertThat(deletedLineIssue.getLineNumber()).isEqualTo(12);
     }
 
     @Test
