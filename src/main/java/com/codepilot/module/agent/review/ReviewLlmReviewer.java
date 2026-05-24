@@ -2,6 +2,7 @@ package com.codepilot.module.agent.review;
 
 import com.codepilot.common.util.PromptInputSanitizer;
 import com.codepilot.common.util.SensitiveDataSanitizer;
+import com.codepilot.module.agent.dto.AiReviewIssue;
 import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.dto.ReviewRuleContext;
@@ -94,7 +95,7 @@ public class ReviewLlmReviewer {
                 throw new IllegalStateException(errorMessage);
             }
 
-            AiReviewResult parsedResult = aiReviewResultParser.parse(responseText);
+            AiReviewResult parsedResult = normalizeLlmSources(aiReviewResultParser.parse(responseText));
             reviewLlmCache.save(reviewLlmClient.providerName(), promptSafeInput, parsedResult);
             success = true;
             return Optional.of(parsedResult);
@@ -118,6 +119,18 @@ public class ReviewLlmReviewer {
                     responseText
             );
         }
+    }
+
+    private AiReviewResult normalizeLlmSources(AiReviewResult result) {
+        if (result.getIssues() == null) {
+            return result;
+        }
+        for (AiReviewIssue issue : result.getIssues()) {
+            if (issue != null) {
+                issue.setSource("LLM");
+            }
+        }
+        return result;
     }
 
     private ReviewLlmInput promptSafe(ReviewLlmInput input) {

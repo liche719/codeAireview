@@ -3,6 +3,7 @@ package com.codepilot;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @MapperScan({
         "com.codepilot.module.review.mapper",
@@ -11,6 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         "com.codepilot.module.command.mapper",
         "com.codepilot.module.agent.review.cache"
 })
+@EnableScheduling
 @SpringBootApplication
 public class CodePilotApplication {
 

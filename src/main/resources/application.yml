@@ -106,6 +106,8 @@ codepilot:
     max-review-context-chars: ${CODEPILOT_LLM_MAX_REVIEW_CONTEXT_CHARS:8000}
     review-cache-enabled: ${CODEPILOT_LLM_REVIEW_CACHE_ENABLED:true}
     review-cache-ttl-days: ${CODEPILOT_LLM_REVIEW_CACHE_TTL_DAYS:7}
+    review-cache-cleanup-enabled: ${CODEPILOT_LLM_REVIEW_CACHE_CLEANUP_ENABLED:true}
+    review-cache-cleanup-cron: ${CODEPILOT_LLM_REVIEW_CACHE_CLEANUP_CRON:0 0 */6 * * *}
   embedding:
     enabled: true
     provider: openai-compatible

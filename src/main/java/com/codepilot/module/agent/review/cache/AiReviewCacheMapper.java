@@ -1,6 +1,7 @@
 package com.codepilot.module.agent.review.cache;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -34,6 +35,12 @@ public interface AiReviewCacheMapper extends BaseMapper<AiReviewCacheEntry> {
             @Param("id") Long id,
             @Param("lastUsedAt") LocalDateTime lastUsedAt
     );
+
+    @Delete("""
+            DELETE FROM ai_review_cache
+            WHERE updated_at < #{updatedBefore}
+            """)
+    int deleteExpired(@Param("updatedBefore") LocalDateTime updatedBefore);
 
     @Insert("""
             INSERT INTO ai_review_cache (

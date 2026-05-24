@@ -32,4 +32,6 @@ public class LlmProperties {
     private boolean reviewCacheEnabled = true;
 
     private int reviewCacheTtlDays = 7;
+
+    private boolean reviewCacheCleanupEnabled = true;
 }

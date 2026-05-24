@@ -90,6 +90,14 @@ public class ReviewLlmCache {
         }
     }
 
+    public int evictExpired() {
+        if (!isEnabled()) {
+            return 0;
+        }
+        LocalDateTime updatedBefore = LocalDateTime.now().minusDays(Math.max(1, llmProperties.getReviewCacheTtlDays()));
+        return aiReviewCacheMapper.deleteExpired(updatedBefore);
+    }
+
     private boolean isEnabled() {
         return llmProperties != null
                 && llmProperties.isReviewCacheEnabled()

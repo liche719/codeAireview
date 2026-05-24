@@ -114,4 +114,61 @@ class ReviewLlmReviewerTest {
         verify(reviewLlmClient, org.mockito.Mockito.never()).review(any());
         verify(llmCallLogService, org.mockito.Mockito.never()).save(any());
     }
+
+    @Test
+    void shouldNormalizeModelIssueSourceToLlmBeforeCachingAndReturning() {
+        LlmProperties properties = new LlmProperties();
+        properties.setApiKey("test-key");
+        ReviewLlmClient reviewLlmClient = mock(ReviewLlmClient.class);
+        ReviewLlmClientRegistry reviewLlmClientRegistry = mock(ReviewLlmClientRegistry.class);
+        ReviewRagService reviewRagService = mock(ReviewRagService.class);
+        ReviewLlmCache reviewLlmCache = mock(ReviewLlmCache.class);
+        LlmCallLogService llmCallLogService = mock(LlmCallLogService.class);
+        when(reviewLlmClientRegistry.select()).thenReturn(Optional.of(reviewLlmClient));
+        when(reviewLlmClient.providerName()).thenReturn("test");
+        when(reviewLlmClient.isAvailable()).thenReturn(true);
+        when(reviewLlmCache.find(any(), any())).thenReturn(Optional.empty());
+        when(reviewRagService.retrieveRelevantRules(any(), any())).thenReturn(List.of());
+        when(reviewLlmClient.review(any()))
+                .thenReturn("""
+                        {
+                          "issues": [
+                            {
+                              "filePath": "src/main/java/Demo.java",
+                              "lineNumber": 12,
+                              "issueType": "BUG_RISK",
+                              "issueTypeZh": "潜在缺陷",
+                              "severity": "HIGH",
+                              "title": "Potential null pointer",
+                              "description": "Object may be null before invocation.",
+                              "suggestion": "Add a null check.",
+                              "source": "TOOL",
+                              "ruleReference": null
+                            }
+                          ],
+                          "summary": "found"
+                        }
+                        """);
+        ReviewLlmReviewer reviewer = new ReviewLlmReviewer(
+                reviewLlmClientRegistry,
+                new AiReviewResultParser(new ObjectMapper(), new AiReviewResultSchemaValidator()),
+                reviewRagService,
+                new ReviewPromptBuilder(),
+                new ReviewLlmInputLimiter(properties),
+                new ReviewLlmCallLogger(properties, llmCallLogService),
+                reviewLlmCache
+        );
+        ArgumentCaptor<AiReviewResult> resultCaptor = ArgumentCaptor.forClass(AiReviewResult.class);
+
+        Optional<AiReviewResult> result = reviewer.review(
+                new AiReviewRequest(1L, "src/main/java/Demo.java", "+code", List.of("src/main/java/Demo.java")),
+                "changed-file",
+                0
+        );
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getIssues().getFirst().getSource()).isEqualTo("LLM");
+        verify(reviewLlmCache).save(org.mockito.Mockito.eq("test"), any(), resultCaptor.capture());
+        assertThat(resultCaptor.getValue().getIssues().getFirst().getSource()).isEqualTo("LLM");
+    }
 }
