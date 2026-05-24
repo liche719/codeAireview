@@ -1,6 +1,5 @@
 package com.codepilot.module.agent.service.impl;
 
-import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.module.agent.dto.AiReviewContext;
 import com.codepilot.module.agent.dto.AiReviewIssue;
 import com.codepilot.module.agent.dto.AiReviewRequest;
@@ -8,6 +7,7 @@ import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.prompt.AiReviewContextFormatter;
 import com.codepilot.module.agent.review.DeterministicReviewToolRunner;
 import com.codepilot.module.agent.review.ReviewIssueDeduplicator;
+import com.codepilot.module.agent.review.ReviewLlmGate;
 import com.codepilot.module.agent.review.ReviewLlmReviewer;
 import com.codepilot.module.agent.service.AiReviewService;
 import lombok.RequiredArgsConstructor;
@@ -23,11 +23,11 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AiReviewServiceImpl implements AiReviewService {
 
-    private final LlmProperties llmProperties;
-
     private final DeterministicReviewToolRunner deterministicReviewToolRunner;
 
     private final AiReviewContextFormatter aiReviewContextFormatter;
+
+    private final ReviewLlmGate reviewLlmGate;
 
     private final ReviewLlmReviewer reviewLlmReviewer;
 
@@ -45,14 +45,7 @@ public class AiReviewServiceImpl implements AiReviewService {
 
         String allChangedFilesText = aiReviewContextFormatter.format(context);
         AiReviewResult deterministicResult = deterministicReviewToolRunner.run(filePath, patch, allChangedFilesText);
-        if (!llmProperties.isEnabled()) {
-            log.info("Skip llm review because llm is disabled, filePath={}, deterministicIssueCount={}",
-                    filePath, issueCount(deterministicResult));
-            return deterministicResult;
-        }
-        if (!StringUtils.hasText(llmProperties.getApiKey())) {
-            log.info("Skip llm review because llm api key is missing, filePath={}, deterministicIssueCount={}",
-                    filePath, issueCount(deterministicResult));
+        if (!reviewLlmGate.isAvailable(filePath, issueCount(deterministicResult))) {
             return deterministicResult;
         }
 

@@ -7,6 +7,7 @@ import com.codepilot.module.agent.prompt.AiReviewContextFormatter;
 import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
 import com.codepilot.module.agent.review.DeterministicReviewToolRunner;
 import com.codepilot.module.agent.review.ReviewIssueDeduplicator;
+import com.codepilot.module.agent.review.ReviewLlmGate;
 import com.codepilot.module.agent.review.ReviewLlmCallLogger;
 import com.codepilot.module.agent.review.ReviewLlmReviewer;
 import com.codepilot.module.agent.service.CodeReviewAiAssistant;
@@ -280,9 +281,9 @@ class AiReviewServiceImplTest {
                     reviewLlmCallLogger
             );
             service = new AiReviewServiceImpl(
-                    llmProperties,
                     deterministicReviewToolRunner,
                     new AiReviewContextFormatter(),
+                    new ReviewLlmGate(llmProperties),
                     reviewLlmReviewer,
                     reviewIssueDeduplicator
             );
