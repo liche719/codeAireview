@@ -12,7 +12,8 @@ class ReviewContextBuilderTest {
     private final ReviewContextBuilder builder = new ReviewContextBuilder(
             new ReviewContextSignalExtractor(),
             new ReviewContextRelationshipExtractor(),
-            new ReviewImpactPlanner()
+            new ReviewImpactPlanner(),
+            new ReviewRelatedPatchExtractor()
     );
 
     @Test
@@ -64,6 +65,9 @@ class ReviewContextBuilderTest {
                 .contains("production-code-change", "test-change", "dependency-or-build-change");
         assertThat(context.toAiReviewContext().reviewImpactPlan().impactAreas())
                 .contains("runtime behavior", "test coverage", "build reproducibility and supply chain");
+        assertThat(context.toAiReviewContext().relatedPatchExcerpts())
+                .extracting(com.codepilot.module.agent.dto.AiReviewContext.RelatedPatchExcerpt::reason)
+                .anyMatch(reason -> reason.contains("SOURCE_TEST_PAIR"));
     }
 
     @Test

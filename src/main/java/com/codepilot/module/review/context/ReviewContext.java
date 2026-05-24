@@ -17,6 +17,7 @@ public record ReviewContext(
         List<SemanticFileContext> semanticFileContexts,
         List<RepoRelationshipHint> repoRelationshipHints,
         ReviewImpactPlan reviewImpactPlan,
+        List<RelatedPatchExcerpt> relatedPatchExcerpts,
         List<ReviewSignal> reviewSignals
 ) {
 
@@ -47,6 +48,15 @@ public record ReviewContext(
                         && hasText(relationship.reason()))
                 .toList();
         reviewImpactPlan = reviewImpactPlan == null ? ReviewImpactPlan.empty() : reviewImpactPlan;
+        relatedPatchExcerpts = relatedPatchExcerpts == null
+                ? List.of()
+                : relatedPatchExcerpts.stream()
+                .filter(excerpt -> excerpt != null
+                        && hasText(excerpt.sourceFile())
+                        && hasText(excerpt.relatedFile())
+                        && hasText(excerpt.reason())
+                        && hasText(excerpt.excerpt()))
+                .toList();
         reviewSignals = reviewSignals == null
                 ? List.of()
                 : reviewSignals.stream()
@@ -68,6 +78,7 @@ public record ReviewContext(
                 List.of(),
                 List.of(),
                 ReviewImpactPlan.empty(),
+                List.of(),
                 List.of()
         );
     }
@@ -99,6 +110,7 @@ public record ReviewContext(
                 semanticFileContexts,
                 repoRelationshipHints,
                 ReviewImpactPlan.empty(),
+                List.of(),
                 reviewSignals
         );
     }
@@ -152,6 +164,15 @@ public record ReviewContext(
                         reviewImpactPlan.priorityFocuses(),
                         reviewImpactPlan.verificationHints()
                 ),
+                relatedPatchExcerpts.stream()
+                        .map(excerpt -> new AiReviewContext.RelatedPatchExcerpt(
+                                excerpt.sourceFile(),
+                                excerpt.relatedFile(),
+                                excerpt.reason(),
+                                excerpt.excerpt(),
+                                excerpt.truncated()
+                        ))
+                        .toList(),
                 reviewSignals.stream()
                         .map(reviewSignal -> new AiReviewContext.ReviewSignal(
                                 reviewSignal.type(),
@@ -240,6 +261,15 @@ public record ReviewContext(
                     && priorityFocuses.isEmpty()
                     && verificationHints.isEmpty();
         }
+    }
+
+    public record RelatedPatchExcerpt(
+            String sourceFile,
+            String relatedFile,
+            String reason,
+            String excerpt,
+            boolean truncated
+    ) {
     }
 
     public record ReviewSignal(String type, String severity, String message) {

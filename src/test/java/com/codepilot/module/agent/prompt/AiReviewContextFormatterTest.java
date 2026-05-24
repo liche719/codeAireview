@@ -65,6 +65,18 @@ class AiReviewContextFormatterTest {
                         List.of("Review the patch as an impact set, not only as isolated file edits."),
                         List.of("Check whether changed tests assert the changed production behavior.")
                 ),
+                List.of(new AiReviewContext.RelatedPatchExcerpt(
+                        "src/main/java/Demo.java",
+                        "src/test/java/DemoTest.java",
+                        "SOURCE_TEST_PAIR: Source and matching test changed together.",
+                        """
+                                @@ -1,2 +1,5 @@
+                                +class DemoTest {
+                                +  void shouldLoadDemo() {}
+                                +}
+                                """,
+                        false
+                )),
                 List.of(new AiReviewContext.ReviewSignal(
                         "MISSING_TEST_CHANGE",
                         "MEDIUM",
@@ -72,7 +84,7 @@ class AiReviewContextFormatterTest {
                 ))
         );
 
-        String formatted = formatter.format(context);
+        String formatted = formatter.formatForFile(context, "src/main/java/Demo.java");
 
         assertThat(formatted)
                 .contains("Changed files (2 total, 1 reviewable, 1 skipped, +10 / -3, patchChars=120):")
@@ -92,6 +104,9 @@ class AiReviewContextFormatterTest {
                 .contains("- impact areas: runtime behavior; test coverage")
                 .contains("- priority focus: Review the patch as an impact set, not only as isolated file edits.")
                 .contains("- verification hints: Check whether changed tests assert the changed production behavior.")
+                .contains("Related changed-file patch excerpts (patch-derived, truncated):")
+                .contains("- src/test/java/DemoTest.java (SOURCE_TEST_PAIR: Source and matching test changed together.):")
+                .contains("  +class DemoTest {")
                 .contains("File summaries:")
                 .contains("- src/main/java/Demo.java (modified, +10 / -3, patchChars=120, reviewable)")
                 .contains("- package-lock.json (modified, +100 / -0, patchChars=900, skipped, reason=generated file)")
@@ -258,6 +273,57 @@ class AiReviewContextFormatterTest {
                 .contains("src/main/java/com/example/UnrelatedService.java -> src/main/java/com/example/AuthController.java [SAME_PACKAGE]");
         assertThat(relationshipSection.indexOf("AuthController.java -> src/main/java/com/example/AuthService.java"))
                 .isLessThan(relationshipSection.indexOf("UnrelatedService.java -> src/main/java/com/example/AuthController.java"));
+    }
+
+    @Test
+    void shouldOnlyRenderRelatedPatchExcerptsForCurrentFile() {
+        AiReviewContext context = new AiReviewContext(
+                List.of(
+                        "src/main/java/com/example/AuthController.java",
+                        "src/main/java/com/example/AuthService.java",
+                        "src/main/java/com/example/OtherService.java"
+                ),
+                3,
+                3,
+                0,
+                20,
+                2,
+                300,
+                List.of(),
+                List.of(
+                        fileSummary("src/main/java/com/example/AuthController.java"),
+                        fileSummary("src/main/java/com/example/AuthService.java"),
+                        fileSummary("src/main/java/com/example/OtherService.java")
+                ),
+                List.of(),
+                List.of(),
+                AiReviewContext.ReviewImpactPlan.empty(),
+                List.of(
+                        new AiReviewContext.RelatedPatchExcerpt(
+                                "src/main/java/com/example/AuthService.java",
+                                "src/main/java/com/example/AuthController.java",
+                                "IMPORT_TARGET",
+                                "+return authController.login();",
+                                false
+                        ),
+                        new AiReviewContext.RelatedPatchExcerpt(
+                                "src/main/java/com/example/OtherService.java",
+                                "src/main/java/com/example/AuthController.java",
+                                "SAME_PACKAGE",
+                                "+return other();",
+                                false
+                        )
+                ),
+                List.of()
+        );
+
+        String formatted = formatter.formatForFile(context, "src/main/java/com/example/AuthService.java");
+
+        assertThat(formatted)
+                .contains("Related changed-file patch excerpts (patch-derived, truncated):")
+                .contains("src/main/java/com/example/AuthController.java (IMPORT_TARGET)")
+                .contains("+return authController.login();")
+                .doesNotContain("+return other();");
     }
 
     private AiReviewContext.FileSummary fileSummary(String filePath) {

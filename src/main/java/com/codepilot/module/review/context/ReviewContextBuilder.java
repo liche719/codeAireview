@@ -16,26 +16,53 @@ public class ReviewContextBuilder {
 
     private final ReviewImpactPlanner reviewImpactPlanner;
 
+    private final ReviewRelatedPatchExtractor reviewRelatedPatchExtractor;
+
     ReviewContextBuilder() {
-        this(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor(), new ReviewImpactPlanner());
+        this(
+                new ReviewContextSignalExtractor(),
+                new ReviewContextRelationshipExtractor(),
+                new ReviewImpactPlanner(),
+                new ReviewRelatedPatchExtractor()
+        );
     }
 
     @Autowired
     public ReviewContextBuilder(
             ReviewContextSignalExtractor reviewContextSignalExtractor,
             ReviewContextRelationshipExtractor reviewContextRelationshipExtractor,
-            ReviewImpactPlanner reviewImpactPlanner
+            ReviewImpactPlanner reviewImpactPlanner,
+            ReviewRelatedPatchExtractor reviewRelatedPatchExtractor
     ) {
         this.reviewContextSignalExtractor = reviewContextSignalExtractor;
         this.reviewContextRelationshipExtractor = reviewContextRelationshipExtractor;
         this.reviewImpactPlanner = reviewImpactPlanner;
+        this.reviewRelatedPatchExtractor = reviewRelatedPatchExtractor;
     }
 
     public ReviewContextBuilder(
             ReviewContextSignalExtractor reviewContextSignalExtractor,
             ReviewContextRelationshipExtractor reviewContextRelationshipExtractor
     ) {
-        this(reviewContextSignalExtractor, reviewContextRelationshipExtractor, new ReviewImpactPlanner());
+        this(
+                reviewContextSignalExtractor,
+                reviewContextRelationshipExtractor,
+                new ReviewImpactPlanner(),
+                new ReviewRelatedPatchExtractor()
+        );
+    }
+
+    public ReviewContextBuilder(
+            ReviewContextSignalExtractor reviewContextSignalExtractor,
+            ReviewContextRelationshipExtractor reviewContextRelationshipExtractor,
+            ReviewImpactPlanner reviewImpactPlanner
+    ) {
+        this(
+                reviewContextSignalExtractor,
+                reviewContextRelationshipExtractor,
+                reviewImpactPlanner,
+                new ReviewRelatedPatchExtractor()
+        );
     }
 
     public ReviewContext build(List<ReviewFile> reviewFiles) {
@@ -75,6 +102,7 @@ public class ReviewContextBuilder {
                 semanticFileContexts,
                 repoRelationshipHints,
                 reviewImpactPlanner.plan(fileSummaries, semanticFileContexts, repoRelationshipHints, reviewSignals),
+                reviewRelatedPatchExtractor.relatedPatchExcerpts(reviewFiles, repoRelationshipHints),
                 reviewSignals
         );
     }
