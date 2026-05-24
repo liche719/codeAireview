@@ -6,6 +6,7 @@ import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.context.ReviewContextBuilder;
+import com.codepilot.module.review.context.ReviewContextSignalExtractor;
 import com.codepilot.module.review.entity.ReviewFile;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -29,7 +30,7 @@ class ReviewFileReviewerTest {
         ReviewFileReviewer reviewer = new ReviewFileReviewer(
                 aiReviewService,
                 new ReviewIssueAssembler(),
-                new ReviewContextBuilder()
+                new ReviewContextBuilder(new ReviewContextSignalExtractor())
         );
         when(aiReviewService.reviewFile(any(AiReviewRequest.class)))
                 .thenReturn(aiReviewResult());
@@ -66,7 +67,7 @@ class ReviewFileReviewerTest {
         ReviewFileReviewer reviewer = new ReviewFileReviewer(
                 aiReviewService,
                 new ReviewIssueAssembler(),
-                new ReviewContextBuilder()
+                new ReviewContextBuilder(new ReviewContextSignalExtractor())
         );
         when(aiReviewService.reviewFile(any(AiReviewRequest.class)))
                 .thenThrow(new IllegalArgumentException("bad model output"));

@@ -1,6 +1,7 @@
 package com.codepilot.module.review.context;
 
 import com.codepilot.module.review.entity.ReviewFile;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -8,6 +9,17 @@ import java.util.List;
 
 @Component
 public class ReviewContextBuilder {
+
+    private final ReviewContextSignalExtractor reviewContextSignalExtractor;
+
+    ReviewContextBuilder() {
+        this(new ReviewContextSignalExtractor());
+    }
+
+    @Autowired
+    public ReviewContextBuilder(ReviewContextSignalExtractor reviewContextSignalExtractor) {
+        this.reviewContextSignalExtractor = reviewContextSignalExtractor;
+    }
 
     public ReviewContext build(List<ReviewFile> reviewFiles) {
         if (reviewFiles == null || reviewFiles.isEmpty()) {
@@ -35,21 +47,23 @@ public class ReviewContextBuilder {
                 sumAdditions(reviewFiles),
                 sumDeletions(reviewFiles),
                 sumPatchChars(reviewFiles),
-                skippedFiles
+                skippedFiles,
+                reviewContextSignalExtractor.fileSummaries(reviewFiles),
+                reviewContextSignalExtractor.reviewSignals(reviewFiles)
         );
     }
 
     private int sumAdditions(List<ReviewFile> reviewFiles) {
         return reviewFiles.stream()
                 .map(ReviewFile::getAdditions)
-                .mapToInt(value -> value == null ? 0 : value)
+                .mapToInt(this::valueOrZero)
                 .sum();
     }
 
     private int sumDeletions(List<ReviewFile> reviewFiles) {
         return reviewFiles.stream()
                 .map(ReviewFile::getDeletions)
-                .mapToInt(value -> value == null ? 0 : value)
+                .mapToInt(this::valueOrZero)
                 .sum();
     }
 
@@ -59,5 +73,9 @@ public class ReviewContextBuilder {
                 .filter(StringUtils::hasText)
                 .mapToInt(String::length)
                 .sum();
+    }
+
+    private int valueOrZero(Integer value) {
+        return value == null ? 0 : value;
     }
 }

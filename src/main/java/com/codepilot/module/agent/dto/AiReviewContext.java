@@ -10,7 +10,9 @@ public record AiReviewContext(
         int totalAdditions,
         int totalDeletions,
         int totalPatchChars,
-        List<SkippedFile> skippedFiles
+        List<SkippedFile> skippedFiles,
+        List<FileSummary> fileSummaries,
+        List<ReviewSignal> reviewSignals
 ) {
 
     public AiReviewContext {
@@ -20,6 +22,40 @@ public record AiReviewContext(
                 : skippedFiles.stream()
                 .filter(skippedFile -> skippedFile != null && hasText(skippedFile.filePath()))
                 .toList();
+        fileSummaries = fileSummaries == null
+                ? List.of()
+                : fileSummaries.stream()
+                .filter(fileSummary -> fileSummary != null && hasText(fileSummary.filePath()))
+                .toList();
+        reviewSignals = reviewSignals == null
+                ? List.of()
+                : reviewSignals.stream()
+                .filter(reviewSignal -> reviewSignal != null && hasText(reviewSignal.type()) && hasText(reviewSignal.message()))
+                .toList();
+    }
+
+    public AiReviewContext(
+            List<String> allChangedFiles,
+            int totalFileCount,
+            int reviewableFileCount,
+            int skippedFileCount,
+            int totalAdditions,
+            int totalDeletions,
+            int totalPatchChars,
+            List<SkippedFile> skippedFiles
+    ) {
+        this(
+                allChangedFiles,
+                totalFileCount,
+                reviewableFileCount,
+                skippedFileCount,
+                totalAdditions,
+                totalDeletions,
+                totalPatchChars,
+                skippedFiles,
+                List.of(),
+                List.of()
+        );
     }
 
     public static AiReviewContext empty() {
@@ -36,6 +72,8 @@ public record AiReviewContext(
                 0,
                 0,
                 0,
+                List.of(),
+                List.of(),
                 List.of()
         );
     }
@@ -55,5 +93,19 @@ public record AiReviewContext(
     }
 
     public record SkippedFile(String filePath, String reason) {
+    }
+
+    public record FileSummary(
+            String filePath,
+            String changeType,
+            int additions,
+            int deletions,
+            int patchChars,
+            boolean reviewable,
+            String skipReason
+    ) {
+    }
+
+    public record ReviewSignal(String type, String severity, String message) {
     }
 }

@@ -12,7 +12,9 @@ public record ReviewContext(
         int totalAdditions,
         int totalDeletions,
         int totalPatchChars,
-        List<SkippedFile> skippedFiles
+        List<SkippedFile> skippedFiles,
+        List<FileSummary> fileSummaries,
+        List<ReviewSignal> reviewSignals
 ) {
 
     public ReviewContext {
@@ -22,10 +24,20 @@ public record ReviewContext(
                 : skippedFiles.stream()
                 .filter(skippedFile -> skippedFile != null && hasText(skippedFile.filePath()))
                 .toList();
+        fileSummaries = fileSummaries == null
+                ? List.of()
+                : fileSummaries.stream()
+                .filter(fileSummary -> fileSummary != null && hasText(fileSummary.filePath()))
+                .toList();
+        reviewSignals = reviewSignals == null
+                ? List.of()
+                : reviewSignals.stream()
+                .filter(reviewSignal -> reviewSignal != null && hasText(reviewSignal.type()) && hasText(reviewSignal.message()))
+                .toList();
     }
 
     public static ReviewContext empty() {
-        return new ReviewContext(List.of(), 0, 0, 0, 0, 0, 0, List.of());
+        return new ReviewContext(List.of(), 0, 0, 0, 0, 0, 0, List.of(), List.of(), List.of());
     }
 
     public AiReviewContext toAiReviewContext() {
@@ -39,6 +51,24 @@ public record ReviewContext(
                 totalPatchChars,
                 skippedFiles.stream()
                         .map(skippedFile -> new AiReviewContext.SkippedFile(skippedFile.filePath(), skippedFile.reason()))
+                        .toList(),
+                fileSummaries.stream()
+                        .map(fileSummary -> new AiReviewContext.FileSummary(
+                                fileSummary.filePath(),
+                                fileSummary.changeType(),
+                                fileSummary.additions(),
+                                fileSummary.deletions(),
+                                fileSummary.patchChars(),
+                                fileSummary.reviewable(),
+                                fileSummary.skipReason()
+                        ))
+                        .toList(),
+                reviewSignals.stream()
+                        .map(reviewSignal -> new AiReviewContext.ReviewSignal(
+                                reviewSignal.type(),
+                                reviewSignal.severity(),
+                                reviewSignal.message()
+                        ))
                         .toList()
         );
     }
@@ -58,5 +88,19 @@ public record ReviewContext(
     }
 
     public record SkippedFile(String filePath, String reason) {
+    }
+
+    public record FileSummary(
+            String filePath,
+            String changeType,
+            int additions,
+            int deletions,
+            int patchChars,
+            boolean reviewable,
+            String skipReason
+    ) {
+    }
+
+    public record ReviewSignal(String type, String severity, String message) {
     }
 }

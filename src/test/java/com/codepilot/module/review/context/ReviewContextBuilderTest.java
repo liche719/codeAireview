@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ReviewContextBuilderTest {
 
-    private final ReviewContextBuilder builder = new ReviewContextBuilder();
+    private final ReviewContextBuilder builder = new ReviewContextBuilder(new ReviewContextSignalExtractor());
 
     @Test
     void shouldBuildPullRequestReviewContext() {
@@ -34,12 +34,40 @@ class ReviewContextBuilderTest {
                     assertThat(skippedFile.filePath()).isEqualTo("package-lock.json");
                     assertThat(skippedFile.reason()).isEqualTo("file type or generated path skipped");
                 });
+        assertThat(context.fileSummaries())
+                .extracting(ReviewContext.FileSummary::filePath)
+                .containsExactly("src/main/java/Demo.java", "package-lock.json", "src/test/java/DemoTest.java");
+        assertThat(context.reviewSignals())
+                .extracting(ReviewContext.ReviewSignal::type)
+                .contains("SKIPPED_FILES")
+                .doesNotContain("CONFIG_CHANGE");
 
         assertThat(context.toAiReviewContext().allChangedFiles())
                 .containsExactly("src/main/java/Demo.java", "package-lock.json", "src/test/java/DemoTest.java");
         assertThat(context.toAiReviewContext().skippedFiles())
                 .singleElement()
                 .satisfies(skippedFile -> assertThat(skippedFile.filePath()).isEqualTo("package-lock.json"));
+        assertThat(context.toAiReviewContext().fileSummaries())
+                .extracting(com.codepilot.module.agent.dto.AiReviewContext.FileSummary::filePath)
+                .containsExactly("src/main/java/Demo.java", "package-lock.json", "src/test/java/DemoTest.java");
+    }
+
+    @Test
+    void shouldDetectReviewPlanningSignals() {
+        ReviewContext context = builder.build(List.of(
+                reviewFile("src/main/java/AuthService.java", "+code", 20, 2, false, null),
+                reviewFile("src/main/resources/db/migration/V2__users.sql", "+alter", 3, 0, false, null),
+                reviewFile("src/main/resources/application.yml", "+flag", 1, 1, false, null)
+        ));
+
+        assertThat(context.reviewSignals())
+                .extracting(ReviewContext.ReviewSignal::type)
+                .contains(
+                        "MISSING_TEST_CHANGE",
+                        "DATABASE_CHANGE",
+                        "SECURITY_SENSITIVE_CHANGE",
+                        "CONFIG_CHANGE"
+                );
     }
 
     @Test
