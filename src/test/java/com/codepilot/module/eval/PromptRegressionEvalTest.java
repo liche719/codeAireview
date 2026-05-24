@@ -117,6 +117,12 @@ class PromptRegressionEvalTest {
                         List.of("com.example.AuthService"),
                         List.of("POST /login")
                 )),
+                List.of(new AiReviewContext.RepoRelationshipHint(
+                        "src/main/java/com/example/AuthController.java",
+                        "src/main/java/com/example/AuthService.java",
+                        "IMPORT_TARGET",
+                        "Source imports target changed file via 'com.example.AuthService'; inspect cross-file API compatibility."
+                )),
                 List.of()
         );
 
@@ -130,6 +136,8 @@ class PromptRegressionEvalTest {
                 .contains("  - annotations: PostMapping, RestController")
                 .contains("  - imports: com.example.AuthService")
                 .contains("  - routes: POST /login")
+                .contains("Repo relationship hints (patch-derived, not a full repository graph):")
+                .contains("src/main/java/com/example/AuthController.java -> src/main/java/com/example/AuthService.java [IMPORT_TARGET]")
                 .contains("Current file focus:")
                 .contains("src/main/java/com/example/AuthController.java (same directory)")
                 .contains("src/test/java/com/example/AuthServiceTest.java (matching source/test pair)");

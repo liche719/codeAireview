@@ -72,6 +72,64 @@ class ReviewContextSignalExtractorTest {
     }
 
     @Test
+    void shouldBuildPatchDerivedRepoRelationshipHints() {
+        ReviewFile controller = reviewFile(
+                "src/main/java/com/example/UserController.java",
+                """
+                        @@ -1,3 +1,12 @@
+                         package com.example;
+                        +import com.example.UserService;
+                        +@RestController
+                        +class UserController {
+                        +    public UserDto getUser(String id) {
+                        +        return userService.getUser(id);
+                        +    }
+                        +}
+                        """,
+                7,
+                0,
+                false,
+                null
+        );
+        ReviewFile service = reviewFile(
+                "src/main/java/com/example/UserService.java",
+                """
+                        @@ -1,3 +1,8 @@
+                         package com.example;
+                        +class UserService {
+                        +    public UserDto getUser(String id) {
+                        +        return repository.find(id);
+                        +    }
+                        +}
+                        """,
+                6,
+                0,
+                false,
+                null
+        );
+        ReviewFile test = reviewFile(
+                "src/test/java/com/example/UserServiceTest.java",
+                """
+                        @@ -1,2 +1,6 @@
+                        +package com.example;
+                        +class UserServiceTest {
+                        +}
+                        """,
+                3,
+                0,
+                false,
+                null
+        );
+
+        List<ReviewContext.SemanticFileContext> semanticContexts =
+                extractor.semanticFileContexts(List.of(controller, service, test));
+
+        assertThat(extractor.repoRelationshipHints(List.of(controller, service, test), semanticContexts))
+                .extracting(ReviewContext.RepoRelationshipHint::type)
+                .contains("IMPORT_TARGET", "SOURCE_TEST_PAIR", "LAYERED_COMPONENT", "SAME_PACKAGE");
+    }
+
+    @Test
     void shouldDetectReviewPlanningSignals() {
         List<ReviewContext.ReviewSignal> signals = extractor.reviewSignals(List.of(
                 reviewFile("src/main/java/AuthService.java", "+code", 20, 2, false, null),

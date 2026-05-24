@@ -53,6 +53,9 @@ class ReviewContextBuilderTest {
         assertThat(context.toAiReviewContext().semanticFileContexts())
                 .extracting(com.codepilot.module.agent.dto.AiReviewContext.SemanticFileContext::filePath)
                 .contains("src/main/java/Demo.java", "src/test/java/DemoTest.java");
+        assertThat(context.toAiReviewContext().repoRelationshipHints())
+                .extracting(com.codepilot.module.agent.dto.AiReviewContext.RepoRelationshipHint::type)
+                .contains("SOURCE_TEST_PAIR");
     }
 
     @Test

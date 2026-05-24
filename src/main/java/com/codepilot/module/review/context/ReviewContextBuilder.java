@@ -38,6 +38,8 @@ public class ReviewContextBuilder {
                         StringUtils.hasText(reviewFile.getSkipReason()) ? reviewFile.getSkipReason().trim() : "skipped"
                 ))
                 .toList();
+        List<ReviewContext.SemanticFileContext> semanticFileContexts =
+                reviewContextSignalExtractor.semanticFileContexts(reviewFiles);
 
         return new ReviewContext(
                 allChangedFiles,
@@ -49,7 +51,8 @@ public class ReviewContextBuilder {
                 sumPatchChars(reviewFiles),
                 skippedFiles,
                 reviewContextSignalExtractor.fileSummaries(reviewFiles),
-                reviewContextSignalExtractor.semanticFileContexts(reviewFiles),
+                semanticFileContexts,
+                reviewContextSignalExtractor.repoRelationshipHints(reviewFiles, semanticFileContexts),
                 reviewContextSignalExtractor.reviewSignals(reviewFiles)
         );
     }

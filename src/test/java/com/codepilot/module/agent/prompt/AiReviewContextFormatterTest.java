@@ -53,6 +53,12 @@ class AiReviewContextFormatterTest {
                         List.of("java.util.List"),
                         List.of()
                 )),
+                List.of(new AiReviewContext.RepoRelationshipHint(
+                        "src/main/java/Demo.java",
+                        "src/test/java/DemoTest.java",
+                        "SOURCE_TEST_PAIR",
+                        "Source and matching test changed together; verify coverage matches the behavior change."
+                )),
                 List.of(new AiReviewContext.ReviewSignal(
                         "MISSING_TEST_CHANGE",
                         "MEDIUM",
@@ -73,6 +79,8 @@ class AiReviewContextFormatterTest {
                 .contains("  - methods: loadDemo")
                 .contains("  - annotations: Service")
                 .contains("  - imports: java.util.List")
+                .contains("Repo relationship hints (patch-derived, not a full repository graph):")
+                .contains("- src/main/java/Demo.java -> src/test/java/DemoTest.java [SOURCE_TEST_PAIR]: Source and matching test changed together; verify coverage matches the behavior change.")
                 .contains("File summaries:")
                 .contains("- src/main/java/Demo.java (modified, +10 / -3, patchChars=120, reviewable)")
                 .contains("- package-lock.json (modified, +100 / -0, patchChars=900, skipped, reason=generated file)")
@@ -187,6 +195,58 @@ class AiReviewContextFormatterTest {
                 .contains("src/main/java/com/example/UserController.java (same directory)");
         assertThat(currentFileFocusSection)
                 .doesNotContain("src/main/java/com/example/order/OrderService.java (");
+    }
+
+    @Test
+    void shouldPrioritizeCurrentFileRepoRelationshipHints() {
+        AiReviewContext context = new AiReviewContext(
+                List.of(
+                        "src/main/java/com/example/AuthController.java",
+                        "src/main/java/com/example/AuthService.java",
+                        "src/main/java/com/example/UnrelatedService.java"
+                ),
+                3,
+                3,
+                0,
+                20,
+                2,
+                300,
+                List.of(),
+                List.of(
+                        fileSummary("src/main/java/com/example/AuthController.java"),
+                        fileSummary("src/main/java/com/example/AuthService.java"),
+                        fileSummary("src/main/java/com/example/UnrelatedService.java")
+                ),
+                List.of(),
+                List.of(
+                        new AiReviewContext.RepoRelationshipHint(
+                                "src/main/java/com/example/UnrelatedService.java",
+                                "src/main/java/com/example/AuthController.java",
+                                "SAME_PACKAGE",
+                                "Both patch contexts declare package 'com.example'."
+                        ),
+                        new AiReviewContext.RepoRelationshipHint(
+                                "src/main/java/com/example/AuthController.java",
+                                "src/main/java/com/example/AuthService.java",
+                                "IMPORT_TARGET",
+                                "Source imports target changed file via 'com.example.AuthService'."
+                        )
+                ),
+                List.of()
+        );
+
+        String formatted = formatter.formatForFile(context, "src/main/java/com/example/AuthService.java");
+        String relationshipSection = formatted.substring(
+                formatted.indexOf("Repo relationship hints"),
+                formatted.indexOf("File summaries:")
+        );
+
+        assertThat(relationshipSection)
+                .contains("Repo relationship hints (patch-derived, not a full repository graph):")
+                .contains("src/main/java/com/example/AuthController.java -> src/main/java/com/example/AuthService.java [IMPORT_TARGET]")
+                .contains("src/main/java/com/example/UnrelatedService.java -> src/main/java/com/example/AuthController.java [SAME_PACKAGE]");
+        assertThat(relationshipSection.indexOf("AuthController.java -> src/main/java/com/example/AuthService.java"))
+                .isLessThan(relationshipSection.indexOf("UnrelatedService.java -> src/main/java/com/example/AuthController.java"));
     }
 
     private AiReviewContext.FileSummary fileSummary(String filePath) {

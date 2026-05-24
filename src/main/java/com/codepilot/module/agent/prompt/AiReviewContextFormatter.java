@@ -24,6 +24,8 @@ public class AiReviewContextFormatter {
 
     private static final int SEMANTIC_CONTEXT_LIMIT = 12;
 
+    private static final int REPO_RELATIONSHIP_CONTEXT_LIMIT = 20;
+
     public String format(AiReviewContext context) {
         return formatForFile(context, null);
     }
@@ -52,6 +54,7 @@ public class AiReviewContextFormatter {
         appendChangedFiles(builder, allChangedFiles);
         appendCurrentFileFocus(builder, safeContext, currentFilePath);
         appendSemanticContexts(builder, safeContext.semanticFileContexts(), currentFilePath);
+        appendRepoRelationshipHints(builder, safeContext.repoRelationshipHints(), currentFilePath);
         appendReviewSignals(builder, safeContext.reviewSignals());
         appendFileSummaries(builder, safeContext.fileSummaries());
         appendSkippedFiles(builder, safeContext.skippedFiles());
@@ -228,6 +231,71 @@ public class AiReviewContextFormatter {
                         .reduce((left, right) -> left + ", " + right)
                         .orElse("N/A"))
                 .append('\n');
+    }
+
+    private void appendRepoRelationshipHints(
+            StringBuilder builder,
+            List<AiReviewContext.RepoRelationshipHint> repoRelationshipHints,
+            String currentFilePath
+    ) {
+        List<AiReviewContext.RepoRelationshipHint> hints =
+                relationshipHintsForPrompt(repoRelationshipHints, currentFilePath);
+        if (hints.isEmpty()) {
+            return;
+        }
+        builder.append("\nRepo relationship hints (patch-derived, not a full repository graph):\n");
+        int limit = Math.min(hints.size(), REPO_RELATIONSHIP_CONTEXT_LIMIT);
+        for (int index = 0; index < limit; index++) {
+            AiReviewContext.RepoRelationshipHint hint = hints.get(index);
+            builder.append("- ")
+                    .append(singleLine(hint.sourceFile()))
+                    .append(" -> ")
+                    .append(singleLine(hint.targetFile()))
+                    .append(" [")
+                    .append(singleLine(hint.type()))
+                    .append("]: ")
+                    .append(singleLine(hint.reason()))
+                    .append('\n');
+        }
+        if (hints.size() > REPO_RELATIONSHIP_CONTEXT_LIMIT) {
+            builder.append("- ")
+                    .append(hints.size() - REPO_RELATIONSHIP_CONTEXT_LIMIT)
+                    .append(" more repo relationship hints omitted\n");
+        }
+    }
+
+    private List<AiReviewContext.RepoRelationshipHint> relationshipHintsForPrompt(
+            List<AiReviewContext.RepoRelationshipHint> repoRelationshipHints,
+            String currentFilePath
+    ) {
+        if (repoRelationshipHints == null || repoRelationshipHints.isEmpty()) {
+            return List.of();
+        }
+        List<AiReviewContext.RepoRelationshipHint> hints = repoRelationshipHints.stream()
+                .filter(hint -> hint != null
+                        && StringUtils.hasText(hint.sourceFile())
+                        && StringUtils.hasText(hint.targetFile())
+                        && StringUtils.hasText(hint.type())
+                        && StringUtils.hasText(hint.reason()))
+                .toList();
+        if (!StringUtils.hasText(currentFilePath)) {
+            return hints;
+        }
+        String normalizedCurrentFilePath = normalizePath(currentFilePath);
+        return hints.stream()
+                .sorted((left, right) -> Boolean.compare(
+                        !relationshipIncludesFile(left, normalizedCurrentFilePath),
+                        !relationshipIncludesFile(right, normalizedCurrentFilePath)
+                ))
+                .toList();
+    }
+
+    private boolean relationshipIncludesFile(
+            AiReviewContext.RepoRelationshipHint hint,
+            String normalizedFilePath
+    ) {
+        return normalizePath(hint.sourceFile()).equals(normalizedFilePath)
+                || normalizePath(hint.targetFile()).equals(normalizedFilePath);
     }
 
     private void appendReviewSignals(StringBuilder builder, List<AiReviewContext.ReviewSignal> reviewSignals) {

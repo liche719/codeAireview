@@ -13,6 +13,7 @@ public record AiReviewContext(
         List<SkippedFile> skippedFiles,
         List<FileSummary> fileSummaries,
         List<SemanticFileContext> semanticFileContexts,
+        List<RepoRelationshipHint> repoRelationshipHints,
         List<ReviewSignal> reviewSignals
 ) {
 
@@ -32,6 +33,15 @@ public record AiReviewContext(
                 ? List.of()
                 : semanticFileContexts.stream()
                 .filter(semanticFileContext -> semanticFileContext != null && hasText(semanticFileContext.filePath()))
+                .toList();
+        repoRelationshipHints = repoRelationshipHints == null
+                ? List.of()
+                : repoRelationshipHints.stream()
+                .filter(relationship -> relationship != null
+                        && hasText(relationship.sourceFile())
+                        && hasText(relationship.targetFile())
+                        && hasText(relationship.type())
+                        && hasText(relationship.reason()))
                 .toList();
         reviewSignals = reviewSignals == null
                 ? List.of()
@@ -61,6 +71,7 @@ public record AiReviewContext(
                 skippedFiles,
                 List.of(),
                 List.of(),
+                List.of(),
                 List.of()
         );
     }
@@ -88,6 +99,36 @@ public record AiReviewContext(
                 skippedFiles,
                 fileSummaries,
                 List.of(),
+                List.of(),
+                reviewSignals
+        );
+    }
+
+    public AiReviewContext(
+            List<String> allChangedFiles,
+            int totalFileCount,
+            int reviewableFileCount,
+            int skippedFileCount,
+            int totalAdditions,
+            int totalDeletions,
+            int totalPatchChars,
+            List<SkippedFile> skippedFiles,
+            List<FileSummary> fileSummaries,
+            List<SemanticFileContext> semanticFileContexts,
+            List<ReviewSignal> reviewSignals
+    ) {
+        this(
+                allChangedFiles,
+                totalFileCount,
+                reviewableFileCount,
+                skippedFileCount,
+                totalAdditions,
+                totalDeletions,
+                totalPatchChars,
+                skippedFiles,
+                fileSummaries,
+                semanticFileContexts,
+                List.of(),
                 reviewSignals
         );
     }
@@ -106,6 +147,7 @@ public record AiReviewContext(
                 0,
                 0,
                 0,
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -158,6 +200,14 @@ public record AiReviewContext(
             imports = sanitizeTextList(imports);
             apiRoutes = sanitizeTextList(apiRoutes);
         }
+    }
+
+    public record RepoRelationshipHint(
+            String sourceFile,
+            String targetFile,
+            String type,
+            String reason
+    ) {
     }
 
     public record ReviewSignal(String type, String severity, String message) {

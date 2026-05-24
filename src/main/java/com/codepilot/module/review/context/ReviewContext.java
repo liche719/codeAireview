@@ -15,6 +15,7 @@ public record ReviewContext(
         List<SkippedFile> skippedFiles,
         List<FileSummary> fileSummaries,
         List<SemanticFileContext> semanticFileContexts,
+        List<RepoRelationshipHint> repoRelationshipHints,
         List<ReviewSignal> reviewSignals
 ) {
 
@@ -35,6 +36,15 @@ public record ReviewContext(
                 : semanticFileContexts.stream()
                 .filter(semanticFileContext -> semanticFileContext != null && hasText(semanticFileContext.filePath()))
                 .toList();
+        repoRelationshipHints = repoRelationshipHints == null
+                ? List.of()
+                : repoRelationshipHints.stream()
+                .filter(relationship -> relationship != null
+                        && hasText(relationship.sourceFile())
+                        && hasText(relationship.targetFile())
+                        && hasText(relationship.type())
+                        && hasText(relationship.reason()))
+                .toList();
         reviewSignals = reviewSignals == null
                 ? List.of()
                 : reviewSignals.stream()
@@ -43,7 +53,7 @@ public record ReviewContext(
     }
 
     public static ReviewContext empty() {
-        return new ReviewContext(List.of(), 0, 0, 0, 0, 0, 0, List.of(), List.of(), List.of(), List.of());
+        return new ReviewContext(List.of(), 0, 0, 0, 0, 0, 0, List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     public AiReviewContext toAiReviewContext() {
@@ -79,6 +89,14 @@ public record ReviewContext(
                                 semanticFileContext.annotations(),
                                 semanticFileContext.imports(),
                                 semanticFileContext.apiRoutes()
+                        ))
+                        .toList(),
+                repoRelationshipHints.stream()
+                        .map(relationship -> new AiReviewContext.RepoRelationshipHint(
+                                relationship.sourceFile(),
+                                relationship.targetFile(),
+                                relationship.type(),
+                                relationship.reason()
                         ))
                         .toList(),
                 reviewSignals.stream()
@@ -136,6 +154,14 @@ public record ReviewContext(
             imports = sanitizeTextList(imports);
             apiRoutes = sanitizeTextList(apiRoutes);
         }
+    }
+
+    public record RepoRelationshipHint(
+            String sourceFile,
+            String targetFile,
+            String type,
+            String reason
+    ) {
     }
 
     public record ReviewSignal(String type, String severity, String message) {
