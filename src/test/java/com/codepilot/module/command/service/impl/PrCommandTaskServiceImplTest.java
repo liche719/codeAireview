@@ -2,6 +2,7 @@ package com.codepilot.module.command.service.impl;
 
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.config.GithubCommandProperties;
+import com.codepilot.module.command.fix.FixableIssueSelector;
 import com.codepilot.module.command.fix.FixPatchScopeValidator;
 import com.codepilot.module.command.git.GitPatchExecutionRequest;
 import com.codepilot.module.command.git.GitPatchExecutionResult;
@@ -13,10 +14,7 @@ import com.codepilot.module.agent.service.CodeFixService;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
-import com.codepilot.module.review.service.ReviewIssueService;
-import com.codepilot.module.review.service.ReviewTaskService;
 import com.codepilot.module.review.entity.ReviewIssue;
-import com.codepilot.module.review.entity.ReviewTask;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -42,34 +40,6 @@ class PrCommandTaskServiceImplTest {
     @AfterEach
     void clearRetryContext() {
         RetrySynchronizationManager.clear();
-    }
-
-    @Test
-    void shouldRequireSameHeadShaBeforeReusingReviewTaskForFix() {
-        PrCommandTaskServiceImpl service = new PrCommandTaskServiceImpl(
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null
-        );
-        PrCommandTask commandTask = new PrCommandTask();
-        commandTask.setHeadSha("abc123");
-        ReviewTask reviewTask = new ReviewTask();
-        reviewTask.setHeadSha("ABC123");
-
-        assertThat(service.hasSameHeadSha(commandTask, reviewTask)).isTrue();
-
-        reviewTask.setHeadSha("def456");
-        assertThat(service.hasSameHeadSha(commandTask, reviewTask)).isFalse();
-
-        reviewTask.setHeadSha(null);
-        assertThat(service.hasSameHeadSha(commandTask, reviewTask)).isFalse();
     }
 
     @Test
@@ -289,10 +259,6 @@ class PrCommandTaskServiceImplTest {
 
         private final GithubClient githubClient = mock(GithubClient.class);
 
-        private final ReviewTaskService reviewTaskService = mock(ReviewTaskService.class);
-
-        private final ReviewIssueService reviewIssueService = mock(ReviewIssueService.class);
-
         private final CodeFixService codeFixService = mock(CodeFixService.class);
 
         private final GitPatchExecutor gitPatchExecutor = mock(GitPatchExecutor.class);
@@ -302,6 +268,8 @@ class PrCommandTaskServiceImplTest {
         private final GithubCommandProperties properties = new GithubCommandProperties();
 
         private final FixPatchScopeValidator fixPatchScopeValidator = new FixPatchScopeValidator(properties);
+
+        private final FixableIssueSelector fixableIssueSelector = mock(FixableIssueSelector.class);
 
         private final org.mockito.ArgumentCaptor<PrCommandTask> taskCaptor =
                 org.mockito.ArgumentCaptor.forClass(PrCommandTask.class);
@@ -315,14 +283,12 @@ class PrCommandTaskServiceImplTest {
             service = new PrCommandTaskServiceImpl(
                     properties,
                     githubClient,
-                    reviewTaskService,
-                    reviewIssueService,
-                    null,
                     codeFixService,
                     gitPatchExecutor,
                     commandTaskLogService,
                     new ObjectMapper(),
-                    fixPatchScopeValidator
+                    fixPatchScopeValidator,
+                    fixableIssueSelector
             );
             ReflectionTestUtils.setField(service, "baseMapper", mapper);
             ReflectionTestUtils.setField(service, "githubToken", "github-token");
@@ -335,12 +301,7 @@ class PrCommandTaskServiceImplTest {
         private void stubRunnableFixTaskWithPatch(String patch) {
             when(mapper.selectById(1L)).thenReturn(buildExistingFixTask(99L, "PENDING"));
             when(githubClient.getPullRequestDetail("liche719", "codeAireview", 12)).thenReturn(prDetail());
-            ReviewTask reviewTask = new ReviewTask();
-            reviewTask.setId(10L);
-            reviewTask.setHeadSha("head-sha");
-            when(reviewTaskService.getOne(any())).thenReturn(reviewTask);
-            when(reviewIssueService.list(org.mockito.ArgumentMatchers.<com.baomidou.mybatisplus.core.conditions.Wrapper<ReviewIssue>>any()))
-                    .thenReturn(List.of(fixableIssue()));
+            when(fixableIssueSelector.select(any(PrCommandTask.class))).thenReturn(List.of(fixableIssue()));
             when(githubClient.getFileContent("liche719", "codeAireview", "src/main/java/Demo.java", "head-sha"))
                     .thenReturn("""
                             class Demo {
