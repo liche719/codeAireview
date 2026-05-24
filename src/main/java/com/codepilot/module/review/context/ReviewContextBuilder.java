@@ -49,6 +49,7 @@ public class ReviewContextBuilder {
                 sumPatchChars(reviewFiles),
                 skippedFiles,
                 reviewContextSignalExtractor.fileSummaries(reviewFiles),
+                reviewContextSignalExtractor.semanticFileContexts(reviewFiles),
                 reviewContextSignalExtractor.reviewSignals(reviewFiles)
         );
     }

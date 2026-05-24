@@ -12,6 +12,7 @@ public record AiReviewContext(
         int totalPatchChars,
         List<SkippedFile> skippedFiles,
         List<FileSummary> fileSummaries,
+        List<SemanticFileContext> semanticFileContexts,
         List<ReviewSignal> reviewSignals
 ) {
 
@@ -26,6 +27,11 @@ public record AiReviewContext(
                 ? List.of()
                 : fileSummaries.stream()
                 .filter(fileSummary -> fileSummary != null && hasText(fileSummary.filePath()))
+                .toList();
+        semanticFileContexts = semanticFileContexts == null
+                ? List.of()
+                : semanticFileContexts.stream()
+                .filter(semanticFileContext -> semanticFileContext != null && hasText(semanticFileContext.filePath()))
                 .toList();
         reviewSignals = reviewSignals == null
                 ? List.of()
@@ -54,7 +60,35 @@ public record AiReviewContext(
                 totalPatchChars,
                 skippedFiles,
                 List.of(),
+                List.of(),
                 List.of()
+        );
+    }
+
+    public AiReviewContext(
+            List<String> allChangedFiles,
+            int totalFileCount,
+            int reviewableFileCount,
+            int skippedFileCount,
+            int totalAdditions,
+            int totalDeletions,
+            int totalPatchChars,
+            List<SkippedFile> skippedFiles,
+            List<FileSummary> fileSummaries,
+            List<ReviewSignal> reviewSignals
+    ) {
+        this(
+                allChangedFiles,
+                totalFileCount,
+                reviewableFileCount,
+                skippedFileCount,
+                totalAdditions,
+                totalDeletions,
+                totalPatchChars,
+                skippedFiles,
+                fileSummaries,
+                List.of(),
+                reviewSignals
         );
     }
 
@@ -72,6 +106,7 @@ public record AiReviewContext(
                 0,
                 0,
                 0,
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of()
@@ -106,6 +141,35 @@ public record AiReviewContext(
     ) {
     }
 
+    public record SemanticFileContext(
+            String filePath,
+            String language,
+            String packageName,
+            List<String> declaredSymbols,
+            List<String> changedMethods,
+            List<String> annotations,
+            List<String> imports,
+            List<String> apiRoutes
+    ) {
+        public SemanticFileContext {
+            declaredSymbols = sanitizeTextList(declaredSymbols);
+            changedMethods = sanitizeTextList(changedMethods);
+            annotations = sanitizeTextList(annotations);
+            imports = sanitizeTextList(imports);
+            apiRoutes = sanitizeTextList(apiRoutes);
+        }
+    }
+
     public record ReviewSignal(String type, String severity, String message) {
+    }
+
+    private static List<String> sanitizeTextList(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(AiReviewContext::hasText)
+                .map(String::trim)
+                .toList();
     }
 }

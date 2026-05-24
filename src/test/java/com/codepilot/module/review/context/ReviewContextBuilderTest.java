@@ -50,6 +50,9 @@ class ReviewContextBuilderTest {
         assertThat(context.toAiReviewContext().fileSummaries())
                 .extracting(com.codepilot.module.agent.dto.AiReviewContext.FileSummary::filePath)
                 .containsExactly("src/main/java/Demo.java", "package-lock.json", "src/test/java/DemoTest.java");
+        assertThat(context.toAiReviewContext().semanticFileContexts())
+                .extracting(com.codepilot.module.agent.dto.AiReviewContext.SemanticFileContext::filePath)
+                .contains("src/main/java/Demo.java", "src/test/java/DemoTest.java");
     }
 
     @Test

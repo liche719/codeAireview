@@ -22,6 +22,8 @@ public class AiReviewContextFormatter {
 
     private static final int RELATED_FILE_CONTEXT_LIMIT = 10;
 
+    private static final int SEMANTIC_CONTEXT_LIMIT = 12;
+
     public String format(AiReviewContext context) {
         return formatForFile(context, null);
     }
@@ -49,6 +51,7 @@ public class AiReviewContextFormatter {
                 .append("):\n");
         appendChangedFiles(builder, allChangedFiles);
         appendCurrentFileFocus(builder, safeContext, currentFilePath);
+        appendSemanticContexts(builder, safeContext.semanticFileContexts(), currentFilePath);
         appendReviewSignals(builder, safeContext.reviewSignals());
         appendFileSummaries(builder, safeContext.fileSummaries());
         appendSkippedFiles(builder, safeContext.skippedFiles());
@@ -144,6 +147,87 @@ public class AiReviewContextFormatter {
             return "same directory";
         }
         return null;
+    }
+
+    private void appendSemanticContexts(
+            StringBuilder builder,
+            List<AiReviewContext.SemanticFileContext> semanticFileContexts,
+            String currentFilePath
+    ) {
+        List<AiReviewContext.SemanticFileContext> contexts = semanticContextsForPrompt(semanticFileContexts, currentFilePath);
+        if (contexts.isEmpty()) {
+            return;
+        }
+        builder.append("\nSemantic diff context (patch-derived, not a full repository graph):\n");
+        int limit = Math.min(contexts.size(), SEMANTIC_CONTEXT_LIMIT);
+        for (int index = 0; index < limit; index++) {
+            AiReviewContext.SemanticFileContext context = contexts.get(index);
+            builder.append("- ")
+                    .append(singleLine(context.filePath()))
+                    .append(" (language=")
+                    .append(singleLine(context.language()));
+            if (StringUtils.hasText(context.packageName())) {
+                builder.append(", package=")
+                        .append(singleLine(context.packageName()));
+            }
+            builder.append(")\n");
+            appendSemanticList(builder, "symbols", context.declaredSymbols());
+            appendSemanticList(builder, "methods", context.changedMethods());
+            appendSemanticList(builder, "annotations", context.annotations());
+            appendSemanticList(builder, "imports", context.imports());
+            appendSemanticList(builder, "routes", context.apiRoutes());
+        }
+        if (contexts.size() > SEMANTIC_CONTEXT_LIMIT) {
+            builder.append("- ")
+                    .append(contexts.size() - SEMANTIC_CONTEXT_LIMIT)
+                    .append(" more semantic contexts omitted\n");
+        }
+    }
+
+    private List<AiReviewContext.SemanticFileContext> semanticContextsForPrompt(
+            List<AiReviewContext.SemanticFileContext> semanticFileContexts,
+            String currentFilePath
+    ) {
+        if (semanticFileContexts == null || semanticFileContexts.isEmpty()) {
+            return List.of();
+        }
+        List<AiReviewContext.SemanticFileContext> contexts = semanticFileContexts.stream()
+                .filter(context -> context != null && StringUtils.hasText(context.filePath()))
+                .filter(this::hasSemanticContent)
+                .toList();
+        if (!StringUtils.hasText(currentFilePath)) {
+            return contexts;
+        }
+        String normalizedCurrentFilePath = normalizePath(currentFilePath);
+        return contexts.stream()
+                .sorted((left, right) -> Boolean.compare(
+                        !normalizePath(left.filePath()).equals(normalizedCurrentFilePath),
+                        !normalizePath(right.filePath()).equals(normalizedCurrentFilePath)
+                ))
+                .toList();
+    }
+
+    private boolean hasSemanticContent(AiReviewContext.SemanticFileContext context) {
+        return StringUtils.hasText(context.packageName())
+                || !context.declaredSymbols().isEmpty()
+                || !context.changedMethods().isEmpty()
+                || !context.annotations().isEmpty()
+                || !context.imports().isEmpty()
+                || !context.apiRoutes().isEmpty();
+    }
+
+    private void appendSemanticList(StringBuilder builder, String label, List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return;
+        }
+        builder.append("  - ")
+                .append(label)
+                .append(": ")
+                .append(values.stream()
+                        .map(this::singleLine)
+                        .reduce((left, right) -> left + ", " + right)
+                        .orElse("N/A"))
+                .append('\n');
     }
 
     private void appendReviewSignals(StringBuilder builder, List<AiReviewContext.ReviewSignal> reviewSignals) {

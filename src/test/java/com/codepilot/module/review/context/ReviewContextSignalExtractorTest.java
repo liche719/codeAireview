@@ -31,6 +31,47 @@ class ReviewContextSignalExtractorTest {
     }
 
     @Test
+    void shouldExtractPatchDerivedSemanticFileContext() {
+        ReviewFile reviewFile = reviewFile(
+                "src/main/java/com/example/UserController.java",
+                """
+                        @@ -1,3 +1,16 @@
+                         package com.example;
+                        +import org.springframework.web.bind.annotation.GetMapping;
+                        +import org.springframework.web.bind.annotation.RestController;
+                        +@RestController
+                        +class UserController {
+                        +    @GetMapping("/users/{id}")
+                        +    public UserDto getUser(String id) {
+                        +        return userService.getUser(id);
+                        +    }
+                        +}
+                        -class OldController {}
+                        """,
+                8,
+                1,
+                false,
+                null
+        );
+
+        assertThat(extractor.semanticFileContexts(List.of(reviewFile)))
+                .singleElement()
+                .satisfies(context -> {
+                    assertThat(context.filePath()).isEqualTo("src/main/java/com/example/UserController.java");
+                    assertThat(context.language()).isEqualTo("java");
+                    assertThat(context.packageName()).isEqualTo("com.example");
+                    assertThat(context.declaredSymbols()).contains("UserController");
+                    assertThat(context.changedMethods()).contains("getUser");
+                    assertThat(context.annotations()).contains("RestController", "GetMapping");
+                    assertThat(context.imports()).contains(
+                            "org.springframework.web.bind.annotation.GetMapping",
+                            "org.springframework.web.bind.annotation.RestController"
+                    );
+                    assertThat(context.apiRoutes()).contains("/users/{id}");
+                });
+    }
+
+    @Test
     void shouldDetectReviewPlanningSignals() {
         List<ReviewContext.ReviewSignal> signals = extractor.reviewSignals(List.of(
                 reviewFile("src/main/java/AuthService.java", "+code", 20, 2, false, null),

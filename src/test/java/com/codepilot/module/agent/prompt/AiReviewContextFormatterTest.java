@@ -43,6 +43,16 @@ class AiReviewContextFormatterTest {
                                 "generated file"
                         )
                 ),
+                List.of(new AiReviewContext.SemanticFileContext(
+                        "src/main/java/Demo.java",
+                        "java",
+                        "com.example",
+                        List.of("Demo"),
+                        List.of("loadDemo"),
+                        List.of("Service"),
+                        List.of("java.util.List"),
+                        List.of()
+                )),
                 List.of(new AiReviewContext.ReviewSignal(
                         "MISSING_TEST_CHANGE",
                         "MEDIUM",
@@ -57,6 +67,12 @@ class AiReviewContextFormatterTest {
                 .contains("src/main/java/Demo.java")
                 .contains("Review signals:")
                 .contains("- [MEDIUM] MISSING_TEST_CHANGE: Production code changed without matching test file changes.")
+                .contains("Semantic diff context (patch-derived, not a full repository graph):")
+                .contains("- src/main/java/Demo.java (language=java, package=com.example)")
+                .contains("  - symbols: Demo")
+                .contains("  - methods: loadDemo")
+                .contains("  - annotations: Service")
+                .contains("  - imports: java.util.List")
                 .contains("File summaries:")
                 .contains("- src/main/java/Demo.java (modified, +10 / -3, patchChars=120, reviewable)")
                 .contains("- package-lock.json (modified, +100 / -0, patchChars=900, skipped, reason=generated file)")

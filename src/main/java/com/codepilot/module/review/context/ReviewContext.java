@@ -14,6 +14,7 @@ public record ReviewContext(
         int totalPatchChars,
         List<SkippedFile> skippedFiles,
         List<FileSummary> fileSummaries,
+        List<SemanticFileContext> semanticFileContexts,
         List<ReviewSignal> reviewSignals
 ) {
 
@@ -29,6 +30,11 @@ public record ReviewContext(
                 : fileSummaries.stream()
                 .filter(fileSummary -> fileSummary != null && hasText(fileSummary.filePath()))
                 .toList();
+        semanticFileContexts = semanticFileContexts == null
+                ? List.of()
+                : semanticFileContexts.stream()
+                .filter(semanticFileContext -> semanticFileContext != null && hasText(semanticFileContext.filePath()))
+                .toList();
         reviewSignals = reviewSignals == null
                 ? List.of()
                 : reviewSignals.stream()
@@ -37,7 +43,7 @@ public record ReviewContext(
     }
 
     public static ReviewContext empty() {
-        return new ReviewContext(List.of(), 0, 0, 0, 0, 0, 0, List.of(), List.of(), List.of());
+        return new ReviewContext(List.of(), 0, 0, 0, 0, 0, 0, List.of(), List.of(), List.of(), List.of());
     }
 
     public AiReviewContext toAiReviewContext() {
@@ -61,6 +67,18 @@ public record ReviewContext(
                                 fileSummary.patchChars(),
                                 fileSummary.reviewable(),
                                 fileSummary.skipReason()
+                        ))
+                        .toList(),
+                semanticFileContexts.stream()
+                        .map(semanticFileContext -> new AiReviewContext.SemanticFileContext(
+                                semanticFileContext.filePath(),
+                                semanticFileContext.language(),
+                                semanticFileContext.packageName(),
+                                semanticFileContext.declaredSymbols(),
+                                semanticFileContext.changedMethods(),
+                                semanticFileContext.annotations(),
+                                semanticFileContext.imports(),
+                                semanticFileContext.apiRoutes()
                         ))
                         .toList(),
                 reviewSignals.stream()
@@ -101,6 +119,35 @@ public record ReviewContext(
     ) {
     }
 
+    public record SemanticFileContext(
+            String filePath,
+            String language,
+            String packageName,
+            List<String> declaredSymbols,
+            List<String> changedMethods,
+            List<String> annotations,
+            List<String> imports,
+            List<String> apiRoutes
+    ) {
+        public SemanticFileContext {
+            declaredSymbols = sanitizeTextList(declaredSymbols);
+            changedMethods = sanitizeTextList(changedMethods);
+            annotations = sanitizeTextList(annotations);
+            imports = sanitizeTextList(imports);
+            apiRoutes = sanitizeTextList(apiRoutes);
+        }
+    }
+
     public record ReviewSignal(String type, String severity, String message) {
+    }
+
+    private static List<String> sanitizeTextList(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(ReviewContext::hasText)
+                .map(String::trim)
+                .toList();
     }
 }
