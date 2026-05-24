@@ -26,6 +26,8 @@ public class ReviewLlmCallLogger {
             String filePath,
             String patch,
             int ruleCount,
+            boolean truncatedRulesContext,
+            boolean truncatedChangedFilesContext,
             long costTimeMs,
             boolean success,
             String errorMessage,
@@ -36,7 +38,13 @@ public class ReviewLlmCallLogger {
             logRecord.setTaskId(taskId);
             logRecord.setModelName(llmProperties.getModel());
             logRecord.setCostTimeMs(costTimeMs);
-            logRecord.setRequestSummary(buildRequestSummary(filePath, patch, ruleCount));
+            logRecord.setRequestSummary(buildRequestSummary(
+                    filePath,
+                    patch,
+                    ruleCount,
+                    truncatedRulesContext,
+                    truncatedChangedFilesContext
+            ));
             logRecord.setResponseSummary(SensitiveDataSanitizer.redactAndTruncate(responseText, RESPONSE_SUMMARY_LIMIT));
             logRecord.setSuccess(success);
             logRecord.setErrorMessage(SensitiveDataSanitizer.redact(errorMessage));
@@ -51,8 +59,18 @@ public class ReviewLlmCallLogger {
         }
     }
 
-    private String buildRequestSummary(String filePath, String patch, int ruleCount) {
+    private String buildRequestSummary(
+            String filePath,
+            String patch,
+            int ruleCount,
+            boolean truncatedRulesContext,
+            boolean truncatedChangedFilesContext
+    ) {
         int patchLength = patch == null ? 0 : patch.length();
-        return "filePath=" + filePath + ", patchLength=" + patchLength + ", ragRuleCount=" + ruleCount;
+        return "filePath=" + filePath
+                + ", patchLength=" + patchLength
+                + ", ragRuleCount=" + ruleCount
+                + ", rulesTruncated=" + truncatedRulesContext
+                + ", changedFilesTruncated=" + truncatedChangedFilesContext;
     }
 }

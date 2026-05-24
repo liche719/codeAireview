@@ -9,6 +9,7 @@ import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
 import com.codepilot.module.agent.review.DeterministicReviewToolRunner;
 import com.codepilot.module.agent.review.ReviewIssueDeduplicator;
 import com.codepilot.module.agent.review.ReviewLlmGate;
+import com.codepilot.module.agent.review.ReviewLlmInputLimiter;
 import com.codepilot.module.agent.review.ReviewLlmCallLogger;
 import com.codepilot.module.agent.review.ReviewLlmReviewer;
 import com.codepilot.module.agent.review.ReviewResultMerger;
@@ -229,6 +230,32 @@ class AiReviewServiceImplTest {
         assertThat(result.getSummary()).isEqualTo("model summary");
     }
 
+    @Test
+    void shouldSkipLlmWhenPatchExceedsInputBudgetButKeepDeterministicFindings() {
+        TestContext context = new TestContext();
+        context.llmProperties.setMaxReviewPatchChars(10);
+
+        var result = context.service.reviewFile(
+                1L,
+                "src/main/java/DemoService.java",
+                """
+                        @@ -1,1 +1,2 @@
+                        +String sql = "select * from user where name = '" + name + "'";
+                        """,
+                List.of("src/main/java/DemoService.java")
+        );
+
+        assertThat(result.getIssues())
+                .anySatisfy(issue -> {
+                    assertThat(issue.getSource()).isEqualTo("TOOL");
+                    assertThat(issue.getIssueType()).isEqualTo("SQL_RISK");
+                });
+        assertThat(result.getSummary())
+                .contains("deterministic tool findings only");
+        verify(context.assistant, never()).review(any(), any(), any(), any());
+        verify(context.llmCallLogService, never()).save(any());
+    }
+
     private static class TestContext {
 
         private final LlmProperties llmProperties = new LlmProperties();
@@ -256,6 +283,8 @@ class AiReviewServiceImplTest {
         private final ReviewLlmCallLogger reviewLlmCallLogger =
                 new ReviewLlmCallLogger(llmProperties, llmCallLogService);
 
+        private final ReviewLlmInputLimiter reviewLlmInputLimiter = new ReviewLlmInputLimiter(llmProperties);
+
         private final DeterministicReviewToolRunner deterministicReviewToolRunner = new DeterministicReviewToolRunner(
                 sqlRiskToolProvider,
                 secretScanToolProvider,
@@ -281,12 +310,14 @@ class AiReviewServiceImplTest {
                     new AiReviewResultParser(new ObjectMapper(), new AiReviewResultSchemaValidator()),
                     reviewRagService,
                     new ReviewPromptBuilder(),
+                    reviewLlmInputLimiter,
                     reviewLlmCallLogger
             );
             service = new AiReviewServiceImpl(
                     deterministicReviewToolRunner,
                     new AiReviewContextFormatter(),
                     new ReviewLlmGate(llmProperties),
+                    reviewLlmInputLimiter,
                     reviewLlmReviewer,
                     new ReviewResultMerger(reviewIssueDeduplicator)
             );

@@ -32,6 +32,8 @@ public class ReviewLlmReviewer {
 
     private final ReviewPromptBuilder reviewPromptBuilder;
 
+    private final ReviewLlmInputLimiter reviewLlmInputLimiter;
+
     private final ReviewLlmCallLogger reviewLlmCallLogger;
 
     public Optional<AiReviewResult> review(
@@ -49,11 +51,23 @@ public class ReviewLlmReviewer {
                     filePath, deterministicIssueCount);
             return Optional.empty();
         }
+        if (!reviewLlmInputLimiter.isPatchWithinBudget(patch)) {
+            log.warn("Skip llm review because patch exceeds llm input budget, filePath={}, patchChars={}, deterministicIssueCount={}",
+                    filePath, length(patch), deterministicIssueCount);
+            return Optional.empty();
+        }
 
         List<ReviewRuleContext> rules = reviewRagService.retrieveRelevantRules(filePath, patch);
         String rulesContext = reviewPromptBuilder.buildRulesContext(rules);
+        ReviewLlmInput limitedInput = reviewLlmInputLimiter.limit(filePath, patch, rulesContext, allChangedFilesText);
         log.info("AI review RAG context prepared, filePath={}, ruleCount={}, contextChars={}",
                 filePath, rules.size(), rulesContext == null ? 0 : rulesContext.length());
+        if (limitedInput.truncatedRulesContext() || limitedInput.truncatedChangedFilesContext()) {
+            log.info("AI review input was truncated by budget, filePath={}, rulesTruncated={}, changedFilesTruncated={}",
+                    filePath,
+                    limitedInput.truncatedRulesContext(),
+                    limitedInput.truncatedChangedFilesContext());
+        }
 
         String responseText = null;
         String errorMessage = null;
@@ -62,10 +76,10 @@ public class ReviewLlmReviewer {
 
         try {
             Result<String> result = codeReviewAiAssistant.review(
-                    promptSafe(filePath),
-                    promptSafe(patch),
-                    promptSafe(rulesContext),
-                    promptSafe(allChangedFilesText)
+                    promptSafe(limitedInput.filePath()),
+                    promptSafe(limitedInput.patch()),
+                    promptSafe(limitedInput.rulesContext()),
+                    promptSafe(limitedInput.changedFilesContext())
             );
             responseText = result == null ? null : result.content();
             if (!StringUtils.hasText(responseText)) {
@@ -84,11 +98,26 @@ public class ReviewLlmReviewer {
             throw exception;
         } finally {
             long costTimeMs = System.currentTimeMillis() - startTime;
-            reviewLlmCallLogger.save(taskId, filePath, patch, rules.size(), costTimeMs, success, errorMessage, responseText);
+            reviewLlmCallLogger.save(
+                    taskId,
+                    filePath,
+                    patch,
+                    rules.size(),
+                    limitedInput == null || limitedInput.truncatedRulesContext(),
+                    limitedInput == null || limitedInput.truncatedChangedFilesContext(),
+                    costTimeMs,
+                    success,
+                    errorMessage,
+                    responseText
+            );
         }
     }
 
     private String promptSafe(String content) {
         return PromptInputSanitizer.escapeUntrustedBlockDelimiters(content);
+    }
+
+    private int length(String content) {
+        return content == null ? 0 : content.length();
     }
 }

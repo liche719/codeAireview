@@ -22,5 +22,10 @@ public class LlmProperties {
     private double temperature = 0.2D;
 
     private int timeoutSeconds = 60;
-}
 
+    private int maxReviewPatchChars = 12000;
+
+    private int maxReviewRulesChars = 4000;
+
+    private int maxReviewContextChars = 8000;
+}

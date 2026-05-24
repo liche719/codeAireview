@@ -95,6 +95,9 @@ codepilot:
     model: ${CODEPILOT_LLM_MODEL:gpt-4o-mini}
     temperature: 0.2
     timeout-seconds: 60
+    max-review-patch-chars: ${CODEPILOT_LLM_MAX_REVIEW_PATCH_CHARS:12000}
+    max-review-rules-chars: ${CODEPILOT_LLM_MAX_REVIEW_RULES_CHARS:4000}
+    max-review-context-chars: ${CODEPILOT_LLM_MAX_REVIEW_CONTEXT_CHARS:8000}
   embedding:
     enabled: true
     provider: openai-compatible
