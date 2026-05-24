@@ -4,6 +4,7 @@ import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.fix.FixableIssueSelector;
 import com.codepilot.module.command.fix.FixPatchScopeValidator;
+import com.codepilot.module.command.fix.FixSnippetBuilder;
 import com.codepilot.module.command.git.GitPatchExecutionRequest;
 import com.codepilot.module.command.git.GitPatchExecutionResult;
 import com.codepilot.module.command.git.GitPatchExecutor;
@@ -271,6 +272,8 @@ class PrCommandTaskServiceImplTest {
 
         private final FixableIssueSelector fixableIssueSelector = mock(FixableIssueSelector.class);
 
+        private final FixSnippetBuilder fixSnippetBuilder = mock(FixSnippetBuilder.class);
+
         private final org.mockito.ArgumentCaptor<PrCommandTask> taskCaptor =
                 org.mockito.ArgumentCaptor.forClass(PrCommandTask.class);
 
@@ -288,7 +291,8 @@ class PrCommandTaskServiceImplTest {
                     commandTaskLogService,
                     new ObjectMapper(),
                     fixPatchScopeValidator,
-                    fixableIssueSelector
+                    fixableIssueSelector,
+                    fixSnippetBuilder
             );
             ReflectionTestUtils.setField(service, "baseMapper", mapper);
             ReflectionTestUtils.setField(service, "githubToken", "github-token");
@@ -302,14 +306,13 @@ class PrCommandTaskServiceImplTest {
             when(mapper.selectById(1L)).thenReturn(buildExistingFixTask(99L, "PENDING"));
             when(githubClient.getPullRequestDetail("liche719", "codeAireview", 12)).thenReturn(prDetail());
             when(fixableIssueSelector.select(any(PrCommandTask.class))).thenReturn(List.of(fixableIssue()));
-            when(githubClient.getFileContent("liche719", "codeAireview", "src/main/java/Demo.java", "head-sha"))
-                    .thenReturn("""
-                            class Demo {
-                                void run() {
-                                    System.out.println("old");
-                                }
-                            }
-                            """);
+            when(fixSnippetBuilder.build(any(PrCommandTask.class), eq("head-sha"), any())).thenReturn("""
+                    文件：src/main/java/Demo.java 行 1-4
+                    1: class Demo {
+                    2:   void run() {
+                    3:     System.out.println("old");
+                    4:   }
+                    """);
             when(codeFixService.generateFix(eq(1L), any(), any(), any())).thenReturn(fixResult(patch));
         }
 

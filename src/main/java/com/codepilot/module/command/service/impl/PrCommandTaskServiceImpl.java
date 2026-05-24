@@ -11,6 +11,7 @@ import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.fix.FixableIssueSelector;
 import com.codepilot.module.command.fix.FixPatchScopeValidationResult;
 import com.codepilot.module.command.fix.FixPatchScopeValidator;
+import com.codepilot.module.command.fix.FixSnippetBuilder;
 import com.codepilot.module.command.fix.NonRetryableFixTaskException;
 import com.codepilot.module.command.git.GitPatchExecutionRequest;
 import com.codepilot.module.command.git.GitPatchExecutionResult;
@@ -47,8 +48,6 @@ import java.util.Set;
 public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, PrCommandTask>
         implements PrCommandTaskService {
 
-    private static final int SNIPPET_RADIUS = 20;
-
     private static final int GENERATED_PATCH_AUDIT_LIMIT = 4000;
 
     private static final int COMMENT_BODY_AUDIT_LIMIT = 2000;
@@ -68,6 +67,8 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     private final FixPatchScopeValidator fixPatchScopeValidator;
 
     private final FixableIssueSelector fixableIssueSelector;
+
+    private final FixSnippetBuilder fixSnippetBuilder;
 
     @Value("${codepilot.github.token:}")
     private String githubToken;
@@ -160,7 +161,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             }
 
             String issuesJson = buildIssuesJson(fixableIssues);
-            String snippets = buildSnippets(task, detail.getHeadSha(), fixableIssues);
+            String snippets = fixSnippetBuilder.build(task, detail.getHeadSha(), fixableIssues);
             if (!StringUtils.hasText(snippets)) {
                 completeFailed(task, "找到了可修复的问题，但没有有效的代码片段。");
                 comment(task, "我找到了可修复的问题，但没有加载到足够的代码上下文来生成安全补丁。");
@@ -288,47 +289,6 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             promptIssues.add(item);
         }
         return objectMapper.writeValueAsString(promptIssues);
-    }
-
-    private String buildSnippets(PrCommandTask task, String ref, List<ReviewIssue> issues) {
-        StringBuilder builder = new StringBuilder();
-        Set<String> seen = new LinkedHashSet<>();
-        for (ReviewIssue issue : issues) {
-            String key = issue.getFilePath() + ":" + issue.getLineNumber();
-            if (!seen.add(key)) {
-                continue;
-            }
-            try {
-                String content = githubClient.getFileContent(task.getRepoOwner(), task.getRepoName(), issue.getFilePath(), ref);
-                String codeSnippet = snippet(issue.getFilePath(), issue.getLineNumber(), content);
-                if (StringUtils.hasText(codeSnippet)) {
-                    builder.append(codeSnippet).append("\n");
-                }
-            } catch (Exception exception) {
-                commandTaskLogService.record(task.getId(), "SNIPPET", false,
-                        "Failed to load snippet for " + issue.getFilePath(),
-                        SensitiveDataSanitizer.redact(exception.getMessage()));
-            }
-        }
-        return builder.toString();
-    }
-
-    private String snippet(String filePath, int lineNumber, String content) {
-        if (!StringUtils.hasText(content) || lineNumber < 1) {
-            return "";
-        }
-        String[] lines = content == null ? new String[0] : content.split("\\R", -1);
-        if (lineNumber > lines.length) {
-            return "";
-        }
-        int start = Math.max(1, lineNumber - SNIPPET_RADIUS);
-        int end = Math.min(lines.length, lineNumber + SNIPPET_RADIUS);
-        StringBuilder builder = new StringBuilder();
-        builder.append("文件：").append(filePath).append(" 行 ").append(start).append("-").append(end).append("\n");
-        for (int i = start; i <= end; i++) {
-            builder.append(i).append(": ").append(lines[i - 1]).append("\n");
-        }
-        return builder.toString();
     }
 
     private Set<String> allowedFixPaths(List<ReviewIssue> fixableIssues) {
