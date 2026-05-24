@@ -1,10 +1,9 @@
 package com.codepilot.module.command.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.agent.dto.CodeFixResult;
 import com.codepilot.module.agent.service.CodeFixService;
+import com.codepilot.module.command.creator.PrCommandTaskCreator;
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.failure.PrCommandTaskFailureHandler;
 import com.codepilot.module.command.fix.FixableIssueSelector;
@@ -29,12 +28,10 @@ import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
 import com.codepilot.module.review.entity.ReviewIssue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Slf4j
@@ -42,8 +39,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, PrCommandTask>
         implements PrCommandTaskService {
-
-    private static final int COMMENT_BODY_AUDIT_LIMIT = 2000;
 
     private final GithubClient githubClient;
 
@@ -69,53 +64,13 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
 
     private final FixPullRequestWritePolicy fixPullRequestWritePolicy;
 
+    private final PrCommandTaskCreator commandTaskCreator;
+
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PrCommandTask createFixTask(GitHubPullRequestWebhookPayload payload) {
-        PrCommandTask existingTask = findExistingFixTask(payload);
-        if (existingTask != null) {
-            log.info("Reuse existing PR fix command task, commandTaskId={}, owner={}, repo={}, pullNumber={}, commentId={}, status={}",
-                    existingTask.getId(),
-                    payload.getOwner(),
-                    payload.getRepo(),
-                    payload.getPullNumber(),
-                    payload.getCommentId(),
-                    existingTask.getStatus());
-            return existingTask;
-        }
-
-        PrCommandTask task = new PrCommandTask();
-        task.setCommandType("FIX");
-        task.setStatus("PENDING");
-        task.setRepoOwner(payload.getOwner());
-        task.setRepoName(payload.getRepo());
-        task.setPrNumber(payload.getPullNumber());
-        task.setPrUrl(payload.getPrUrl());
-        task.setTitle(payload.getTitle());
-        task.setHeadSha(payload.getHeadSha());
-        task.setCommentId(payload.getCommentId());
-        task.setCommentBody(commentBodyAuditPreview(payload.getCommentBody()));
-        task.setCommentUserLogin(payload.getCommentUserLogin());
-        task.setDryRun(Boolean.TRUE.equals(payload.getDryRun()));
-        task.setCreatedAt(LocalDateTime.now());
-        task.setUpdatedAt(LocalDateTime.now());
-        try {
-            save(task);
-        } catch (DuplicateKeyException exception) {
-            PrCommandTask duplicateTask = findExistingFixTask(payload);
-            if (duplicateTask != null) {
-                log.info("Reuse concurrently created PR fix command task, commandTaskId={}, owner={}, repo={}, pullNumber={}, commentId={}",
-                        duplicateTask.getId(),
-                        payload.getOwner(),
-                        payload.getRepo(),
-                        payload.getPullNumber(),
-                        payload.getCommentId());
-                return duplicateTask;
-            }
-            throw exception;
-        }
-        return task;
+        return commandTaskCreator.createFixTask(payload);
     }
 
     @Override
@@ -206,25 +161,6 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         } catch (Exception exception) {
             commandTaskFailureHandler.handleRetryable(task, exception);
         }
-    }
-
-    private PrCommandTask findExistingFixTask(GitHubPullRequestWebhookPayload payload) {
-        if (payload == null || payload.getCommentId() == null) {
-            return null;
-        }
-        List<PrCommandTask> tasks = list(new LambdaQueryWrapper<PrCommandTask>()
-                .eq(PrCommandTask::getCommandType, "FIX")
-                .eq(PrCommandTask::getRepoOwner, payload.getOwner())
-                .eq(PrCommandTask::getRepoName, payload.getRepo())
-                .eq(PrCommandTask::getPrNumber, payload.getPullNumber())
-                .eq(PrCommandTask::getCommentId, payload.getCommentId())
-                .orderByDesc(PrCommandTask::getId)
-                .last("LIMIT 1"));
-        return tasks == null || tasks.isEmpty() ? null : tasks.getFirst();
-    }
-
-    private String commentBodyAuditPreview(String commentBody) {
-        return SensitiveDataSanitizer.redactAndTruncate(commentBody, COMMENT_BODY_AUDIT_LIMIT);
     }
 
 }
