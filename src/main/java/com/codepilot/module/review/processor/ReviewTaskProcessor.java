@@ -40,7 +40,7 @@ public class ReviewTaskProcessor {
 
         replaceReviewFiles(task.getId(), reviewFiles);
         clearReviewIssues(task.getId());
-        List<ReviewIssue> reviewIssues = reviewFileReviewer.review(task.getId(), reviewFiles);
+        List<ReviewIssue> reviewIssues = reviewFileReviewer.review(task, reviewFiles);
         saveReviewIssues(reviewIssues);
 
         return new ReviewTaskProcessingResult(

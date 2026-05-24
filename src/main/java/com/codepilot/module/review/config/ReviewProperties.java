@@ -16,4 +16,10 @@ public class ReviewProperties {
     private int maxTotalPatchChars = 80000;
 
     private int maxParallelFiles = 2;
+
+    private int maxRepoContextFiles = 6;
+
+    private int maxRepoContextFileChars = 20000;
+
+    private int maxRepoContextExcerptChars = 900;
 }

@@ -11,6 +11,8 @@ import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.context.ReviewContextBuilder;
 import com.codepilot.module.review.context.ReviewContextRelationshipExtractor;
 import com.codepilot.module.review.context.ReviewContextSignalExtractor;
+import com.codepilot.module.review.context.RepoSourceExcerptExtractor;
+import com.codepilot.module.review.context.RepoSourceExcerptProvider;
 import com.codepilot.module.review.diff.DiffLineMapper;
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
@@ -47,6 +49,16 @@ class ReviewTaskProcessorTest {
                 ));
         when(context.reviewFileService.saveBatch(anyList())).thenReturn(true);
         when(context.reviewIssueService.saveBatch(anyList())).thenReturn(true);
+        when(context.githubClient.getFileContent(
+                "liche719",
+                "codeAireview",
+                "src/test/java/DemoTest.java",
+                "abc123"
+        )).thenReturn("""
+                class DemoTest {
+                    void shouldRun() {}
+                }
+                """);
         when(context.aiReviewService.reviewFile(any(AiReviewRequest.class)))
                 .thenReturn(aiReviewResult());
 
@@ -66,6 +78,13 @@ class ReviewTaskProcessorTest {
         assertThat(request.context().skippedFileCount()).isEqualTo(1);
         assertThat(request.context().totalAdditions()).isEqualTo(2);
         assertThat(request.context().totalDeletions()).isZero();
+        assertThat(request.context().repoSourceExcerpts())
+                .singleElement()
+                .satisfies(excerpt -> {
+                    assertThat(excerpt.sourceFile()).isEqualTo("src/main/java/Demo.java");
+                    assertThat(excerpt.relatedFile()).isEqualTo("src/test/java/DemoTest.java");
+                    assertThat(excerpt.excerpt()).contains("class DemoTest");
+                });
         assertThat(request.context().skippedFiles())
                 .singleElement()
                 .satisfies(skippedFile -> {
@@ -92,6 +111,7 @@ class ReviewTaskProcessorTest {
         task.setRepoOwner("liche719");
         task.setRepoName("codeAireview");
         task.setPrNumber(12);
+        task.setHeadSha("abc123");
         return task;
     }
 
@@ -140,7 +160,16 @@ class ReviewTaskProcessorTest {
                         aiReviewService,
                         new ReviewIssueAssembler(),
                         new ReviewIssueLocationGuard(new DiffLineMapper()),
-                        new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
+                        new ReviewContextBuilder(
+                                new ReviewContextSignalExtractor(),
+                                new ReviewContextRelationshipExtractor(),
+                                new com.codepilot.module.review.context.ReviewImpactPlanner(),
+                                new com.codepilot.module.review.context.ReviewRelatedPatchExtractor(),
+                                new RepoSourceExcerptExtractor(
+                                        (RepoSourceExcerptProvider) githubClient::getFileContent,
+                                        new ReviewProperties()
+                                )
+                        ),
                         new ReviewProperties()
                 )
         );

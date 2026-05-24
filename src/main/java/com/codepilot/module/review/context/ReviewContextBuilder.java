@@ -1,6 +1,7 @@
 package com.codepilot.module.review.context;
 
 import com.codepilot.module.review.entity.ReviewFile;
+import com.codepilot.module.review.entity.ReviewTask;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -18,12 +19,15 @@ public class ReviewContextBuilder {
 
     private final ReviewRelatedPatchExtractor reviewRelatedPatchExtractor;
 
+    private final RepoSourceExcerptExtractor repoSourceExcerptExtractor;
+
     ReviewContextBuilder() {
         this(
                 new ReviewContextSignalExtractor(),
                 new ReviewContextRelationshipExtractor(),
                 new ReviewImpactPlanner(),
-                new ReviewRelatedPatchExtractor()
+                new ReviewRelatedPatchExtractor(),
+                new RepoSourceExcerptExtractor()
         );
     }
 
@@ -32,12 +36,14 @@ public class ReviewContextBuilder {
             ReviewContextSignalExtractor reviewContextSignalExtractor,
             ReviewContextRelationshipExtractor reviewContextRelationshipExtractor,
             ReviewImpactPlanner reviewImpactPlanner,
-            ReviewRelatedPatchExtractor reviewRelatedPatchExtractor
+            ReviewRelatedPatchExtractor reviewRelatedPatchExtractor,
+            RepoSourceExcerptExtractor repoSourceExcerptExtractor
     ) {
         this.reviewContextSignalExtractor = reviewContextSignalExtractor;
         this.reviewContextRelationshipExtractor = reviewContextRelationshipExtractor;
         this.reviewImpactPlanner = reviewImpactPlanner;
         this.reviewRelatedPatchExtractor = reviewRelatedPatchExtractor;
+        this.repoSourceExcerptExtractor = repoSourceExcerptExtractor;
     }
 
     public ReviewContextBuilder(
@@ -48,7 +54,8 @@ public class ReviewContextBuilder {
                 reviewContextSignalExtractor,
                 reviewContextRelationshipExtractor,
                 new ReviewImpactPlanner(),
-                new ReviewRelatedPatchExtractor()
+                new ReviewRelatedPatchExtractor(),
+                new RepoSourceExcerptExtractor()
         );
     }
 
@@ -61,11 +68,31 @@ public class ReviewContextBuilder {
                 reviewContextSignalExtractor,
                 reviewContextRelationshipExtractor,
                 reviewImpactPlanner,
-                new ReviewRelatedPatchExtractor()
+                new ReviewRelatedPatchExtractor(),
+                new RepoSourceExcerptExtractor()
+        );
+    }
+
+    public ReviewContextBuilder(
+            ReviewContextSignalExtractor reviewContextSignalExtractor,
+            ReviewContextRelationshipExtractor reviewContextRelationshipExtractor,
+            ReviewImpactPlanner reviewImpactPlanner,
+            ReviewRelatedPatchExtractor reviewRelatedPatchExtractor
+    ) {
+        this(
+                reviewContextSignalExtractor,
+                reviewContextRelationshipExtractor,
+                reviewImpactPlanner,
+                reviewRelatedPatchExtractor,
+                new RepoSourceExcerptExtractor()
         );
     }
 
     public ReviewContext build(List<ReviewFile> reviewFiles) {
+        return build(null, reviewFiles);
+    }
+
+    public ReviewContext build(ReviewTask task, List<ReviewFile> reviewFiles) {
         if (reviewFiles == null || reviewFiles.isEmpty()) {
             return ReviewContext.empty();
         }
@@ -103,6 +130,7 @@ public class ReviewContextBuilder {
                 repoRelationshipHints,
                 reviewImpactPlanner.plan(fileSummaries, semanticFileContexts, repoRelationshipHints, reviewSignals),
                 reviewRelatedPatchExtractor.relatedPatchExcerpts(reviewFiles, repoRelationshipHints),
+                repoSourceExcerptExtractor.repoSourceExcerpts(task, reviewFiles, semanticFileContexts, repoRelationshipHints),
                 reviewSignals
         );
     }

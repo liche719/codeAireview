@@ -17,7 +17,10 @@ class ReviewPropertiesTest {
                 "codepilot.review.max-files-per-task", "10",
                 "codepilot.review.max-patch-chars-per-file", "5000",
                 "codepilot.review.max-total-patch-chars", "30000",
-                "codepilot.review.max-parallel-files", "4"
+                "codepilot.review.max-parallel-files", "4",
+                "codepilot.review.max-repo-context-files", "5",
+                "codepilot.review.max-repo-context-file-chars", "9000",
+                "codepilot.review.max-repo-context-excerpt-chars", "700"
         ));
 
         ReviewProperties properties = new Binder(source)
@@ -28,5 +31,8 @@ class ReviewPropertiesTest {
         assertThat(properties.getMaxPatchCharsPerFile()).isEqualTo(5000);
         assertThat(properties.getMaxTotalPatchChars()).isEqualTo(30000);
         assertThat(properties.getMaxParallelFiles()).isEqualTo(4);
+        assertThat(properties.getMaxRepoContextFiles()).isEqualTo(5);
+        assertThat(properties.getMaxRepoContextFileChars()).isEqualTo(9000);
+        assertThat(properties.getMaxRepoContextExcerptChars()).isEqualTo(700);
     }
 }

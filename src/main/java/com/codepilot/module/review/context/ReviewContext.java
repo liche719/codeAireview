@@ -18,6 +18,7 @@ public record ReviewContext(
         List<RepoRelationshipHint> repoRelationshipHints,
         ReviewImpactPlan reviewImpactPlan,
         List<RelatedPatchExcerpt> relatedPatchExcerpts,
+        List<RepoSourceExcerpt> repoSourceExcerpts,
         List<ReviewSignal> reviewSignals
 ) {
 
@@ -57,6 +58,15 @@ public record ReviewContext(
                         && hasText(excerpt.reason())
                         && hasText(excerpt.excerpt()))
                 .toList();
+        repoSourceExcerpts = repoSourceExcerpts == null
+                ? List.of()
+                : repoSourceExcerpts.stream()
+                .filter(excerpt -> excerpt != null
+                        && hasText(excerpt.sourceFile())
+                        && hasText(excerpt.relatedFile())
+                        && hasText(excerpt.reason())
+                        && hasText(excerpt.excerpt()))
+                .toList();
         reviewSignals = reviewSignals == null
                 ? List.of()
                 : reviewSignals.stream()
@@ -78,6 +88,7 @@ public record ReviewContext(
                 List.of(),
                 List.of(),
                 ReviewImpactPlan.empty(),
+                List.of(),
                 List.of(),
                 List.of()
         );
@@ -110,6 +121,7 @@ public record ReviewContext(
                 semanticFileContexts,
                 repoRelationshipHints,
                 ReviewImpactPlan.empty(),
+                List.of(),
                 List.of(),
                 reviewSignals
         );
@@ -166,6 +178,15 @@ public record ReviewContext(
                 ),
                 relatedPatchExcerpts.stream()
                         .map(excerpt -> new AiReviewContext.RelatedPatchExcerpt(
+                                excerpt.sourceFile(),
+                                excerpt.relatedFile(),
+                                excerpt.reason(),
+                                excerpt.excerpt(),
+                                excerpt.truncated()
+                        ))
+                        .toList(),
+                repoSourceExcerpts.stream()
+                        .map(excerpt -> new AiReviewContext.RepoSourceExcerpt(
                                 excerpt.sourceFile(),
                                 excerpt.relatedFile(),
                                 excerpt.reason(),
@@ -264,6 +285,15 @@ public record ReviewContext(
     }
 
     public record RelatedPatchExcerpt(
+            String sourceFile,
+            String relatedFile,
+            String reason,
+            String excerpt,
+            boolean truncated
+    ) {
+    }
+
+    public record RepoSourceExcerpt(
             String sourceFile,
             String relatedFile,
             String reason,

@@ -10,6 +10,7 @@ import com.codepilot.module.review.context.ReviewContext;
 import com.codepilot.module.review.context.ReviewContextBuilder;
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
+import com.codepilot.module.review.entity.ReviewTask;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -39,10 +40,15 @@ public class ReviewFileReviewer {
     private final ReviewProperties reviewProperties;
 
     public List<ReviewIssue> review(Long taskId, List<ReviewFile> reviewFiles) {
+        return review(task(taskId), reviewFiles);
+    }
+
+    public List<ReviewIssue> review(ReviewTask task, List<ReviewFile> reviewFiles) {
         if (reviewFiles == null || reviewFiles.isEmpty()) {
             return List.of();
         }
-        ReviewContext reviewContext = reviewContextBuilder.build(reviewFiles);
+        Long taskId = task == null ? null : task.getId();
+        ReviewContext reviewContext = reviewContextBuilder.build(task, reviewFiles);
         List<ReviewFile> reviewableFiles = reviewFiles.stream()
                 .filter(reviewFile -> !Boolean.TRUE.equals(reviewFile.getSkipped()))
                 .toList();
@@ -64,6 +70,12 @@ public class ReviewFileReviewer {
                     firstFailure);
         }
         return reviewIssues;
+    }
+
+    private ReviewTask task(Long taskId) {
+        ReviewTask task = new ReviewTask();
+        task.setId(taskId);
+        return task;
     }
 
     private List<FileReviewOutcome> reviewFiles(

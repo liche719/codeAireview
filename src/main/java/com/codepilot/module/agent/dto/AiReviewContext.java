@@ -16,6 +16,7 @@ public record AiReviewContext(
         List<RepoRelationshipHint> repoRelationshipHints,
         ReviewImpactPlan reviewImpactPlan,
         List<RelatedPatchExcerpt> relatedPatchExcerpts,
+        List<RepoSourceExcerpt> repoSourceExcerpts,
         List<ReviewSignal> reviewSignals
 ) {
 
@@ -55,6 +56,15 @@ public record AiReviewContext(
                         && hasText(excerpt.reason())
                         && hasText(excerpt.excerpt()))
                 .toList();
+        repoSourceExcerpts = repoSourceExcerpts == null
+                ? List.of()
+                : repoSourceExcerpts.stream()
+                .filter(excerpt -> excerpt != null
+                        && hasText(excerpt.sourceFile())
+                        && hasText(excerpt.relatedFile())
+                        && hasText(excerpt.reason())
+                        && hasText(excerpt.excerpt()))
+                .toList();
         reviewSignals = reviewSignals == null
                 ? List.of()
                 : reviewSignals.stream()
@@ -85,6 +95,7 @@ public record AiReviewContext(
                 List.of(),
                 List.of(),
                 ReviewImpactPlan.empty(),
+                List.of(),
                 List.of(),
                 List.of()
         );
@@ -117,6 +128,42 @@ public record AiReviewContext(
                 semanticFileContexts,
                 repoRelationshipHints,
                 ReviewImpactPlan.empty(),
+                List.of(),
+                List.of(),
+                reviewSignals
+        );
+    }
+
+    public AiReviewContext(
+            List<String> allChangedFiles,
+            int totalFileCount,
+            int reviewableFileCount,
+            int skippedFileCount,
+            int totalAdditions,
+            int totalDeletions,
+            int totalPatchChars,
+            List<SkippedFile> skippedFiles,
+            List<FileSummary> fileSummaries,
+            List<SemanticFileContext> semanticFileContexts,
+            List<RepoRelationshipHint> repoRelationshipHints,
+            ReviewImpactPlan reviewImpactPlan,
+            List<RelatedPatchExcerpt> relatedPatchExcerpts,
+            List<ReviewSignal> reviewSignals
+    ) {
+        this(
+                allChangedFiles,
+                totalFileCount,
+                reviewableFileCount,
+                skippedFileCount,
+                totalAdditions,
+                totalDeletions,
+                totalPatchChars,
+                skippedFiles,
+                fileSummaries,
+                semanticFileContexts,
+                repoRelationshipHints,
+                reviewImpactPlan,
+                relatedPatchExcerpts,
                 List.of(),
                 reviewSignals
         );
@@ -151,6 +198,7 @@ public record AiReviewContext(
                 repoRelationshipHints,
                 reviewImpactPlan,
                 List.of(),
+                List.of(),
                 reviewSignals
         );
     }
@@ -180,6 +228,7 @@ public record AiReviewContext(
                 List.of(),
                 List.of(),
                 ReviewImpactPlan.empty(),
+                List.of(),
                 List.of(),
                 reviewSignals
         );
@@ -212,6 +261,7 @@ public record AiReviewContext(
                 List.of(),
                 ReviewImpactPlan.empty(),
                 List.of(),
+                List.of(),
                 reviewSignals
         );
     }
@@ -235,6 +285,7 @@ public record AiReviewContext(
                 List.of(),
                 List.of(),
                 ReviewImpactPlan.empty(),
+                List.of(),
                 List.of(),
                 List.of()
         );
@@ -321,6 +372,15 @@ public record AiReviewContext(
     }
 
     public record RelatedPatchExcerpt(
+            String sourceFile,
+            String relatedFile,
+            String reason,
+            String excerpt,
+            boolean truncated
+    ) {
+    }
+
+    public record RepoSourceExcerpt(
             String sourceFile,
             String relatedFile,
             String reason,

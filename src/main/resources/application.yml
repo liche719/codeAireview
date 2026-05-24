@@ -99,6 +99,9 @@ codepilot:
     max-patch-chars-per-file: ${CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE:12000}
     max-total-patch-chars: ${CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS:80000}
     max-parallel-files: ${CODEPILOT_REVIEW_MAX_PARALLEL_FILES:2}
+    max-repo-context-files: ${CODEPILOT_REVIEW_MAX_REPO_CONTEXT_FILES:6}
+    max-repo-context-file-chars: ${CODEPILOT_REVIEW_MAX_REPO_CONTEXT_FILE_CHARS:20000}
+    max-repo-context-excerpt-chars: ${CODEPILOT_REVIEW_MAX_REPO_CONTEXT_EXCERPT_CHARS:900}
   llm:
     enabled: true
     provider: openai-compatible
