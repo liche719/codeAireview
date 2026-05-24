@@ -49,7 +49,7 @@ class ReviewIssueAssemblerTest {
     }
 
     @Test
-    void shouldDefaultUnknownSourceAndMissingSeverity() {
+    void shouldForceIssuesToReviewedFileScopeWhenDefaultPathIsAvailable() {
         AiReviewIssue issue = new AiReviewIssue();
         issue.setFilePath("src/main/java/Other.java");
         issue.setSource("scanner");
@@ -60,9 +60,23 @@ class ReviewIssueAssemblerTest {
                 new AiReviewResult(List.of(issue), null)
         );
 
-        assertThat(reviewIssues.getFirst().getFilePath()).isEqualTo("src/main/java/Other.java");
+        assertThat(reviewIssues.getFirst().getFilePath()).isEqualTo("src/main/java/Demo.java");
         assertThat(reviewIssues.getFirst().getSeverity()).isEqualTo("LOW");
         assertThat(reviewIssues.getFirst().getSource()).isEqualTo("LLM");
+    }
+
+    @Test
+    void shouldFallbackToModelFilePathWhenDefaultPathIsMissing() {
+        AiReviewIssue issue = new AiReviewIssue();
+        issue.setFilePath("src/main/java/Other.java");
+
+        List<ReviewIssue> reviewIssues = assembler.toReviewIssues(
+                1L,
+                null,
+                new AiReviewResult(List.of(issue), null)
+        );
+
+        assertThat(reviewIssues.getFirst().getFilePath()).isEqualTo("src/main/java/Other.java");
     }
 
     @Test

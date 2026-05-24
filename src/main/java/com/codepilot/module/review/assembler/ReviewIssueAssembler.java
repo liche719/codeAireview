@@ -24,7 +24,7 @@ public class ReviewIssueAssembler {
         for (AiReviewIssue issue : aiReviewResult.getIssues()) {
             ReviewIssue reviewIssue = new ReviewIssue();
             reviewIssue.setTaskId(taskId);
-            reviewIssue.setFilePath(StringUtils.hasText(issue.getFilePath()) ? issue.getFilePath() : defaultFilePath);
+            reviewIssue.setFilePath(resolveFilePath(defaultFilePath, issue.getFilePath()));
             reviewIssue.setLineNumber(issue.getLineNumber());
             reviewIssue.setIssueType(issue.getIssueType());
             reviewIssue.setIssueTypeZh(issue.getIssueTypeZh());
@@ -55,6 +55,13 @@ public class ReviewIssueAssembler {
         }
         String normalizedSource = source.trim().toUpperCase(Locale.ROOT);
         return "TOOL".equals(normalizedSource) ? "TOOL" : "LLM";
+    }
+
+    private String resolveFilePath(String defaultFilePath, String modelFilePath) {
+        if (StringUtils.hasText(defaultFilePath)) {
+            return defaultFilePath;
+        }
+        return StringUtils.hasText(modelFilePath) ? modelFilePath : null;
     }
 
     private String normalizeSeverity(String severity) {
