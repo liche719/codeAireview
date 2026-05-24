@@ -19,9 +19,11 @@ import com.codepilot.module.review.context.ReviewContextBuilder;
 import com.codepilot.module.review.context.ReviewContextRelationshipExtractor;
 import com.codepilot.module.review.context.ReviewContextSignalExtractor;
 import com.codepilot.module.review.creator.ReviewTaskCreator;
+import com.codepilot.module.review.diff.DiffLineMapper;
 import com.codepilot.module.review.failure.ReviewTaskFailureHandler;
 import com.codepilot.module.review.planner.ReviewFilePlanner;
 import com.codepilot.module.review.processor.ReviewFileReviewer;
+import com.codepilot.module.review.processor.ReviewIssueLocationGuard;
 import com.codepilot.module.review.processor.ReviewTaskProcessor;
 import com.codepilot.module.review.publisher.ReviewCommentPublisher;
 import com.codepilot.module.review.queue.ReviewTaskMessageDispatcher;
@@ -335,6 +337,7 @@ class ReviewTaskServiceImplTest {
         private final ReviewFileReviewer reviewFileReviewer = new ReviewFileReviewer(
                 aiReviewService,
                 reviewIssueAssembler,
+                new ReviewIssueLocationGuard(new DiffLineMapper()),
                 new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
                 reviewProperties
         );

@@ -32,6 +32,8 @@ public class ReviewFileReviewer {
 
     private final ReviewIssueAssembler reviewIssueAssembler;
 
+    private final ReviewIssueLocationGuard reviewIssueLocationGuard;
+
     private final ReviewContextBuilder reviewContextBuilder;
 
     private final ReviewProperties reviewProperties;
@@ -128,7 +130,16 @@ public class ReviewFileReviewer {
                     reviewFile.getPatch(),
                     reviewContext.toAiReviewContext()
             ));
-            return reviewIssueAssembler.toReviewIssues(taskId, reviewFile.getFilePath(), aiReviewResult);
+            List<ReviewIssue> reviewIssues = reviewIssueAssembler.toReviewIssues(
+                    taskId,
+                    reviewFile.getFilePath(),
+                    aiReviewResult
+            );
+            return reviewIssueLocationGuard.keepOnlyCommentableChangedLines(
+                    reviewFile.getFilePath(),
+                    reviewFile.getPatch(),
+                    reviewIssues
+            );
         } catch (Exception exception) {
             throw new IllegalStateException("AI review failed for file " + reviewFile.getFilePath(), exception);
         }
