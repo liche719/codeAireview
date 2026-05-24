@@ -3,7 +3,6 @@ package com.codepilot.module.command.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.codepilot.common.util.SensitiveDataSanitizer;
-import com.codepilot.common.util.MarkdownSanitizer;
 import com.codepilot.module.agent.dto.CodeFixResult;
 import com.codepilot.module.agent.service.CodeFixService;
 import com.codepilot.module.command.config.GithubCommandProperties;
@@ -13,6 +12,7 @@ import com.codepilot.module.command.fix.FixPromptInput;
 import com.codepilot.module.command.fix.FixPatchScopeValidationResult;
 import com.codepilot.module.command.fix.FixPatchScopeValidator;
 import com.codepilot.module.command.fix.FixRequestAssembler;
+import com.codepilot.module.command.fix.FixResultCommenter;
 import com.codepilot.module.command.fix.FixSnippetBuilder;
 import com.codepilot.module.command.fix.NonRetryableFixTaskException;
 import com.codepilot.module.command.git.GitPatchExecutionRequest;
@@ -65,6 +65,8 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     private final FixSnippetBuilder fixSnippetBuilder;
 
     private final FixRequestAssembler fixRequestAssembler;
+
+    private final FixResultCommenter fixResultCommenter;
 
     @Value("${spring.rabbitmq.listener.simple.retry.max-attempts:3}")
     private int rabbitRetryMaxAttempts = 3;
@@ -149,7 +151,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             List<ReviewIssue> fixableIssues = fixableIssueSelector.select(task);
             if (fixableIssues.isEmpty()) {
                 completeFailed(task, "未找到可修复的受支持 review 问题。");
-                comment(task, "我没找到支持的可修复问题。请先运行 `@x-pilotx review`，或者把需求收敛到一个具体的代码问题。");
+                fixResultCommenter.noFixableIssues(task);
                 return;
             }
 
@@ -157,7 +159,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             String snippets = fixSnippetBuilder.build(task, detail.getHeadSha(), fixableIssues);
             if (!StringUtils.hasText(snippets)) {
                 completeFailed(task, "找到了可修复的问题，但没有有效的代码片段。");
-                comment(task, "我找到了可修复的问题，但没有加载到足够的代码上下文来生成安全补丁。");
+                fixResultCommenter.missingSnippetContext(task);
                 return;
             }
             CodeFixResult fixResult = codeFixService.generateFix(
@@ -169,7 +171,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             String patch = fixResult == null ? null : fixResult.getPatch();
             if (!StringUtils.hasText(patch)) {
                 completeFailed(task, "模型没有生成补丁。");
-                comment(task, "我无法为这次请求生成安全补丁。");
+                fixResultCommenter.patchNotGenerated(task);
                 return;
             }
 
@@ -191,7 +193,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 }
                 completeFailed(task, executionResult.getMessage());
                 commandTaskLogService.record(task.getId(), "PATCH_EXECUTE", false, executionResult.getMessage(), executionResult.getDetail());
-                comment(task, "我生成了一个补丁，但校验失败，所以没有推送提交。\n\n" + truncate(executionResult.getMessage(), 500));
+                fixResultCommenter.patchValidationFailed(task, executionResult.getMessage());
                 return;
             }
 
@@ -199,16 +201,15 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             completeSuccess(task);
             commandTaskLogService.record(task.getId(), "PATCH_EXECUTE", true, executionResult.getMessage(), executionResult.getDetail());
             if (Boolean.TRUE.equals(task.getDryRun())) {
-                comment(task, buildDryRunComment(stats, fixResult.getSummary(), patch));
+                fixResultCommenter.dryRunCompleted(task, stats, fixResult.getSummary(), patch);
             } else {
-                comment(task, "**CodePilot AI** 已推送修复提交"
-                        + (StringUtils.hasText(task.getCommitSha()) ? "：`" + task.getCommitSha() + "`" : "。"));
+                fixResultCommenter.fixPushed(task);
             }
         } catch (NonRetryableFixTaskException exception) {
             String message = SensitiveDataSanitizer.redact(exception.getMessage());
             completeFailed(task, message);
             commandTaskLogService.record(task.getId(), "FAILED", false, message, null);
-            comment(task, "我没能完成这次修复请求。\n\n" + truncate(message, 500));
+            fixResultCommenter.fixFailed(task, message);
         } catch (Exception exception) {
             handleRetryableFailure(task, exception);
         }
@@ -238,7 +239,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         if (isFinalRetryAttempt()) {
             completeFailed(task, message);
             commandTaskLogService.record(task.getId(), "FAILED", false, message, retryDetail(exception));
-            comment(task, "我没能完成这次修复请求。\n\n" + truncate(message, 500));
+            fixResultCommenter.fixFailed(task, message);
         } else {
             markRetrying(task, message);
             commandTaskLogService.record(task.getId(), "RETRYING", false, message, retryDetail(exception));
@@ -274,27 +275,6 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         }
     }
 
-    private String buildDryRunComment(FixPatchScopeValidationResult stats, String summary, String patch) {
-        return """
-                **CodePilot AI** 预演完成。
-
-                摘要：%s
-
-                计划变更：
-                - 文件数：%d
-                - 变更行数：%d
-
-                ```diff
-                %s
-                ```
-                """.formatted(
-                MarkdownSanitizer.sanitizeInlineText(summary, 500, "补丁已生成。"),
-                stats.filesChanged(),
-                stats.changedLines(),
-                MarkdownSanitizer.sanitizeCodeBlockText(patch, 2500, "")
-        );
-    }
-
     private void markRunning(PrCommandTask task) {
         task.setStatus("RUNNING");
         task.setStartedAt(LocalDateTime.now());
@@ -323,15 +303,6 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         task.setFinishedAt(LocalDateTime.now());
         task.setUpdatedAt(LocalDateTime.now());
         updateById(task);
-    }
-
-    private void comment(PrCommandTask task, String body) {
-        try {
-            githubClient.createPullRequestComment(task.getRepoOwner(), task.getRepoName(), task.getPrNumber(), body);
-        } catch (Exception exception) {
-            log.warn("Failed to comment PR command result, commandTaskId={}, message={}",
-                    task.getId(), SensitiveDataSanitizer.redact(exception.getMessage()));
-        }
     }
 
     private String generatedPatchAuditPreview(String patch) {
