@@ -334,7 +334,8 @@ class ReviewTaskServiceImplTest {
         private final ReviewFileReviewer reviewFileReviewer = new ReviewFileReviewer(
                 aiReviewService,
                 reviewIssueAssembler,
-                new ReviewContextBuilder(new ReviewContextSignalExtractor())
+                new ReviewContextBuilder(new ReviewContextSignalExtractor()),
+                reviewProperties
         );
 
         private final ReviewTaskProcessor reviewTaskProcessor = new ReviewTaskProcessor(

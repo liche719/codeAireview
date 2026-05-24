@@ -5,6 +5,7 @@ import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
+import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.context.ReviewContextBuilder;
 import com.codepilot.module.review.context.ReviewContextSignalExtractor;
 import com.codepilot.module.review.entity.ReviewFile;
@@ -13,6 +14,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,7 +35,8 @@ class ReviewFileReviewerTest {
         ReviewFileReviewer reviewer = new ReviewFileReviewer(
                 aiReviewService,
                 new ReviewIssueAssembler(),
-                new ReviewContextBuilder(new ReviewContextSignalExtractor())
+                new ReviewContextBuilder(new ReviewContextSignalExtractor()),
+                new ReviewProperties()
         );
         when(aiReviewService.reviewFile(any(AiReviewRequest.class)))
                 .thenReturn(aiReviewResult());
@@ -68,7 +73,8 @@ class ReviewFileReviewerTest {
         ReviewFileReviewer reviewer = new ReviewFileReviewer(
                 aiReviewService,
                 new ReviewIssueAssembler(),
-                new ReviewContextBuilder(new ReviewContextSignalExtractor())
+                new ReviewContextBuilder(new ReviewContextSignalExtractor()),
+                new ReviewProperties()
         );
         when(aiReviewService.reviewFile(argThat(request ->
                 request != null && "src/main/java/Broken.java".equals(request.filePath()))))
@@ -102,7 +108,8 @@ class ReviewFileReviewerTest {
         ReviewFileReviewer reviewer = new ReviewFileReviewer(
                 aiReviewService,
                 new ReviewIssueAssembler(),
-                new ReviewContextBuilder(new ReviewContextSignalExtractor())
+                new ReviewContextBuilder(new ReviewContextSignalExtractor()),
+                new ReviewProperties()
         );
         when(aiReviewService.reviewFile(any(AiReviewRequest.class)))
                 .thenThrow(new IllegalArgumentException("bad model output"));
@@ -114,6 +121,45 @@ class ReviewFileReviewerTest {
                 .hasRootCauseMessage("bad model output");
     }
 
+    @Test
+    void shouldReviewFilesInParallelButKeepIssueOrderStable() throws Exception {
+        AiReviewService aiReviewService = mock(AiReviewService.class);
+        ReviewProperties reviewProperties = new ReviewProperties();
+        reviewProperties.setMaxParallelFiles(2);
+        ReviewFileReviewer reviewer = new ReviewFileReviewer(
+                aiReviewService,
+                new ReviewIssueAssembler(),
+                new ReviewContextBuilder(new ReviewContextSignalExtractor()),
+                reviewProperties
+        );
+        CountDownLatch slowFileStarted = new CountDownLatch(1);
+        CountDownLatch releaseSlowFile = new CountDownLatch(1);
+        AtomicBoolean fastFileStartedBeforeSlowReleased = new AtomicBoolean(false);
+        when(aiReviewService.reviewFile(any(AiReviewRequest.class)))
+                .thenAnswer(invocation -> {
+                    AiReviewRequest request = invocation.getArgument(0);
+                    if ("src/main/java/Slow.java".equals(request.filePath())) {
+                        slowFileStarted.countDown();
+                        releaseSlowFile.await(1, TimeUnit.SECONDS);
+                        return aiReviewResult("Slow issue");
+                    }
+                    slowFileStarted.await(1, TimeUnit.SECONDS);
+                    fastFileStartedBeforeSlowReleased.set(releaseSlowFile.getCount() > 0);
+                    releaseSlowFile.countDown();
+                    return aiReviewResult("Fast issue");
+                });
+
+        List<ReviewIssue> issues = reviewer.review(1L, List.of(
+                reviewFile("src/main/java/Slow.java", "+slow", false),
+                reviewFile("src/main/java/Fast.java", "+fast", false)
+        ));
+
+        assertThat(fastFileStartedBeforeSlowReleased).isTrue();
+        assertThat(issues)
+                .extracting(ReviewIssue::getTitle)
+                .containsExactly("Slow issue", "Fast issue");
+    }
+
     private static ReviewFile reviewFile(String path, String patch, boolean skipped) {
         ReviewFile reviewFile = new ReviewFile();
         reviewFile.setFilePath(path);
@@ -123,11 +169,15 @@ class ReviewFileReviewerTest {
     }
 
     private static AiReviewResult aiReviewResult() {
+        return aiReviewResult("Bug");
+    }
+
+    private static AiReviewResult aiReviewResult(String title) {
         AiReviewIssue issue = new AiReviewIssue();
         issue.setLineNumber(1);
         issue.setIssueType("BUG_RISK");
         issue.setSeverity("HIGH");
-        issue.setTitle("Bug");
+        issue.setTitle(title);
         issue.setDescription("Risky change.");
         issue.setSuggestion("Fix it.");
 

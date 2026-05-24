@@ -14,4 +14,6 @@ public class ReviewProperties {
     private int maxPatchCharsPerFile = 12000;
 
     private int maxTotalPatchChars = 80000;
+
+    private int maxParallelFiles = 2;
 }

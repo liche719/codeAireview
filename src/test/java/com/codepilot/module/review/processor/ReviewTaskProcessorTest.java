@@ -137,7 +137,8 @@ class ReviewTaskProcessorTest {
                 new ReviewFileReviewer(
                         aiReviewService,
                         new ReviewIssueAssembler(),
-                        new ReviewContextBuilder(new ReviewContextSignalExtractor())
+                        new ReviewContextBuilder(new ReviewContextSignalExtractor()),
+                        new ReviewProperties()
                 )
         );
 

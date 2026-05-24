@@ -5,6 +5,7 @@ import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
+import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.context.ReviewContext;
 import com.codepilot.module.review.context.ReviewContextBuilder;
 import com.codepilot.module.review.entity.ReviewFile;
@@ -16,6 +17,11 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Component
@@ -28,40 +34,90 @@ public class ReviewFileReviewer {
 
     private final ReviewContextBuilder reviewContextBuilder;
 
+    private final ReviewProperties reviewProperties;
+
     public List<ReviewIssue> review(Long taskId, List<ReviewFile> reviewFiles) {
         if (reviewFiles == null || reviewFiles.isEmpty()) {
             return List.of();
         }
         ReviewContext reviewContext = reviewContextBuilder.build(reviewFiles);
+        List<ReviewFile> reviewableFiles = reviewFiles.stream()
+                .filter(reviewFile -> !Boolean.TRUE.equals(reviewFile.getSkipped()))
+                .toList();
         List<ReviewIssue> reviewIssues = new ArrayList<>();
-        int reviewableFileCount = 0;
         int failedFileCount = 0;
         Exception firstFailure = null;
-        for (ReviewFile reviewFile : reviewFiles) {
-            if (!Boolean.TRUE.equals(reviewFile.getSkipped())) {
-                reviewableFileCount++;
-                try {
-                    reviewIssues.addAll(reviewFileWithAi(taskId, reviewFile, reviewContext));
-                } catch (Exception exception) {
-                    failedFileCount++;
-                    if (firstFailure == null) {
-                        firstFailure = exception;
-                    }
-                    log.warn("AI review failed for file but review task will continue, taskId={}, filePath={}, errorType={}, message={}",
-                            taskId,
-                            reviewFile.getFilePath(),
-                            exception.getClass().getSimpleName(),
-                            SensitiveDataSanitizer.redact(exception.getMessage()));
-                    reviewIssues.add(failureIssue(taskId, reviewFile, exception));
+        for (FileReviewOutcome outcome : reviewFiles(taskId, reviewableFiles, reviewContext)) {
+            if (outcome.failure() != null) {
+                failedFileCount++;
+                if (firstFailure == null) {
+                    firstFailure = outcome.failure();
                 }
             }
+            reviewIssues.addAll(outcome.issues());
         }
-        if (reviewableFileCount > 0 && failedFileCount == reviewableFileCount) {
+        if (!reviewableFiles.isEmpty() && failedFileCount == reviewableFiles.size()) {
             throw new IllegalStateException("AI review failed for all reviewable files, failedCount=" + failedFileCount
                     + ", firstError=" + failureMessage(firstFailure),
                     firstFailure);
         }
         return reviewIssues;
+    }
+
+    private List<FileReviewOutcome> reviewFiles(
+            Long taskId,
+            List<ReviewFile> reviewFiles,
+            ReviewContext reviewContext
+    ) {
+        int parallelism = parallelism(reviewFiles.size());
+        if (parallelism <= 1 || reviewFiles.size() <= 1) {
+            return reviewFiles.stream()
+                    .map(reviewFile -> reviewFileSafely(taskId, reviewFile, reviewContext))
+                    .toList();
+        }
+
+        ExecutorService executorService = Executors.newFixedThreadPool(parallelism, threadFactory(taskId));
+        try {
+            List<CompletableFuture<FileReviewOutcome>> futures = reviewFiles.stream()
+                    .map(reviewFile -> CompletableFuture.supplyAsync(
+                            () -> reviewFileSafely(taskId, reviewFile, reviewContext),
+                            executorService
+                    ))
+                    .toList();
+            return futures.stream()
+                    .map(CompletableFuture::join)
+                    .toList();
+        } finally {
+            executorService.shutdown();
+        }
+    }
+
+    private FileReviewOutcome reviewFileSafely(Long taskId, ReviewFile reviewFile, ReviewContext reviewContext) {
+        try {
+            return new FileReviewOutcome(reviewFileWithAi(taskId, reviewFile, reviewContext), null);
+        } catch (Exception exception) {
+            log.warn("AI review failed for file but review task will continue, taskId={}, filePath={}, errorType={}, message={}",
+                    taskId,
+                    reviewFile.getFilePath(),
+                    exception.getClass().getSimpleName(),
+                    SensitiveDataSanitizer.redact(exception.getMessage()));
+            return new FileReviewOutcome(List.of(failureIssue(taskId, reviewFile, exception)), exception);
+        }
+    }
+
+    private int parallelism(int reviewableFileCount) {
+        int configuredParallelism = reviewProperties == null ? 1 : reviewProperties.getMaxParallelFiles();
+        return Math.min(Math.max(1, configuredParallelism), Math.max(1, reviewableFileCount));
+    }
+
+    private ThreadFactory threadFactory(Long taskId) {
+        AtomicInteger index = new AtomicInteger();
+        return runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("codepilot-review-file-" + (taskId == null ? "unknown" : taskId) + "-" + index.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
     }
 
     private List<ReviewIssue> reviewFileWithAi(Long taskId, ReviewFile reviewFile, ReviewContext reviewContext) {
@@ -112,5 +168,8 @@ public class ReviewFileReviewer {
             current = current.getCause();
         }
         return current;
+    }
+
+    private record FileReviewOutcome(List<ReviewIssue> issues, Exception failure) {
     }
 }

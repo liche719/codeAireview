@@ -16,7 +16,8 @@ class ReviewPropertiesTest {
         MapConfigurationPropertySource source = new MapConfigurationPropertySource(Map.of(
                 "codepilot.review.max-files-per-task", "10",
                 "codepilot.review.max-patch-chars-per-file", "5000",
-                "codepilot.review.max-total-patch-chars", "30000"
+                "codepilot.review.max-total-patch-chars", "30000",
+                "codepilot.review.max-parallel-files", "4"
         ));
 
         ReviewProperties properties = new Binder(source)
@@ -26,5 +27,6 @@ class ReviewPropertiesTest {
         assertThat(properties.getMaxFilesPerTask()).isEqualTo(10);
         assertThat(properties.getMaxPatchCharsPerFile()).isEqualTo(5000);
         assertThat(properties.getMaxTotalPatchChars()).isEqualTo(30000);
+        assertThat(properties.getMaxParallelFiles()).isEqualTo(4);
     }
 }
