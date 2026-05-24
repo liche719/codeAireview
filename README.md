@@ -132,6 +132,7 @@ powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1
 几个最关键的变量：
 
 - `CODEPILOT_API_AUTH_API_KEY`：内部 REST API 的访问密钥。默认保护 `/api/**`，但 GitHub Webhook 入口仍使用 GitHub HMAC 签名。
+- `CODEPILOT_API_RATE_LIMIT_MAX_REQUESTS_PER_WINDOW` / `CODEPILOT_API_RATE_LIMIT_WINDOW`：内部 REST API 固定窗口限流，默认每个 API Key / IP 每 `60s` 最多 `60` 次请求，用于降低 API Key 泄露或误用造成的 LLM 成本风险。
 - `CODEPILOT_GITHUB_TOKEN`：GitHub API Token，用于拉取 PR、创建评论和更新评论。
 - `CODEPILOT_GITHUB_COMMENT_ENABLED`：是否启用 GitHub PR 顶部 Summary 评论回写。
 - `CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED`：是否启用 GitHub PR inline review comment，默认关闭。

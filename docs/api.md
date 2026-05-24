@@ -8,6 +8,18 @@ X-CodePilot-Api-Key: <CODEPILOT_API_AUTH_API_KEY>
 
 如果未配置 `CODEPILOT_API_AUTH_API_KEY`，受保护接口会返回 `401`，避免公开环境裸奔。GitHub Webhook 入口不使用该 header，它依赖 `X-Hub-Signature-256` 做 GitHub HMAC 验签。
 
+默认 `/api/**` 还会经过单实例固定窗口限流，默认每个 API Key / IP 每 `60s` 最多 `60` 次请求。触发限流时返回：
+
+```json
+{
+  "code": 429,
+  "message": "API rate limit exceeded",
+  "data": null
+}
+```
+
+响应头会包含 `Retry-After`、`X-RateLimit-Limit`、`X-RateLimit-Remaining` 和 `X-RateLimit-Reset`。
+
 ## `POST /api/reviews`
 
 创建 PR 审查任务。

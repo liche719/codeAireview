@@ -63,6 +63,12 @@ codepilot:
     header-name: ${CODEPILOT_API_AUTH_HEADER_NAME:X-CodePilot-Api-Key}
     protected-path-patterns: ${CODEPILOT_API_AUTH_PROTECTED_PATH_PATTERNS:/api/**}
     exclude-path-patterns: ${CODEPILOT_API_AUTH_EXCLUDE_PATH_PATTERNS:/api/github/webhook,/api/github/webhook/**}
+  api-rate-limit:
+    enabled: ${CODEPILOT_API_RATE_LIMIT_ENABLED:true}
+    max-requests-per-window: ${CODEPILOT_API_RATE_LIMIT_MAX_REQUESTS_PER_WINDOW:60}
+    window: ${CODEPILOT_API_RATE_LIMIT_WINDOW:60s}
+    protected-path-patterns: ${CODEPILOT_API_RATE_LIMIT_PROTECTED_PATH_PATTERNS:/api/**}
+    exclude-path-patterns: ${CODEPILOT_API_RATE_LIMIT_EXCLUDE_PATH_PATTERNS:}
   github:
     api-base-url: https://api.github.com
     token: ${CODEPILOT_GITHUB_TOKEN:}

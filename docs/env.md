@@ -13,6 +13,21 @@
 - `CODEPILOT_API_AUTH_EXCLUDE_PATH_PATTERNS`
   - 鉴权排除路径，默认 `/api/github/webhook,/api/github/webhook/**`。GitHub Webhook 入口依赖 GitHub HMAC 签名，不使用内部 API Key。
 
+## 内部 REST API 限流
+
+- `CODEPILOT_API_RATE_LIMIT_ENABLED`
+  - 是否启用内部 REST API 固定窗口限流，默认 `true`。
+- `CODEPILOT_API_RATE_LIMIT_MAX_REQUESTS_PER_WINDOW`
+  - 每个 API Key / IP 在一个窗口内允许的最大请求数，默认 `60`。
+- `CODEPILOT_API_RATE_LIMIT_WINDOW`
+  - 限流窗口大小，默认 `60s`。
+- `CODEPILOT_API_RATE_LIMIT_PROTECTED_PATH_PATTERNS`
+  - 需要限流的路径模式，默认 `/api/**`。
+- `CODEPILOT_API_RATE_LIMIT_EXCLUDE_PATH_PATTERNS`
+  - 限流排除路径，默认空。生产环境如果要排除 GitHub Webhook，必须确认 Webhook Secret 和上游限流已经正确配置。
+
+触发限流时接口返回 `429`，并带 `Retry-After`、`X-RateLimit-Limit`、`X-RateLimit-Remaining`、`X-RateLimit-Reset` 响应头。该限流是单实例内存保护，适合防止 API Key 泄露或误用导致 LLM 成本暴涨；多实例生产环境仍建议在 Nginx / Caddy / API Gateway 层补充集中式限流。
+
 ## GitHub
 
 - `CODEPILOT_GITHUB_TOKEN`
