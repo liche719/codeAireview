@@ -21,6 +21,7 @@ import com.codepilot.module.command.git.GitPatchExecutor;
 import com.codepilot.module.command.mapper.PrCommandTaskMapper;
 import com.codepilot.module.command.service.PrCommandTaskLogService;
 import com.codepilot.module.command.service.PrCommandTaskService;
+import com.codepilot.module.command.state.PrCommandTaskStateManager;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
@@ -44,8 +45,6 @@ import java.util.List;
 public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, PrCommandTask>
         implements PrCommandTaskService {
 
-    private static final int GENERATED_PATCH_AUDIT_LIMIT = 4000;
-
     private static final int COMMENT_BODY_AUDIT_LIMIT = 2000;
 
     private final GithubCommandProperties properties;
@@ -67,6 +66,8 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     private final FixRequestAssembler fixRequestAssembler;
 
     private final FixResultCommenter fixResultCommenter;
+
+    private final PrCommandTaskStateManager commandTaskStateManager;
 
     @Value("${spring.rabbitmq.listener.simple.retry.max-attempts:3}")
     private int rabbitRetryMaxAttempts = 3;
@@ -127,13 +128,13 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             return;
         }
 
-        if (isTerminalStatus(task.getStatus())) {
+        if (commandTaskStateManager.isTerminalStatus(task.getStatus())) {
             log.info("Skip terminal PR command task message, commandTaskId={}, status={}",
                     commandTaskId, task.getStatus());
             return;
         }
 
-        markRunning(task);
+        commandTaskStateManager.markRunning(task);
         try {
             commandTaskLogService.record(task.getId(), "START", true, "修复命令已开始。", null);
             GithubPullRequestDetail detail = githubClient.getPullRequestDetail(
@@ -144,13 +145,12 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             if (!StringUtils.hasText(detail.getHeadSha())) {
                 throw new IllegalStateException("PR head sha is required before generating a fix");
             }
-            task.setHeadSha(detail.getHeadSha());
-            updateById(task);
+            commandTaskStateManager.updateHeadSha(task, detail.getHeadSha());
 
             assertWritableSameRepo(task, detail);
             List<ReviewIssue> fixableIssues = fixableIssueSelector.select(task);
             if (fixableIssues.isEmpty()) {
-                completeFailed(task, "未找到可修复的受支持 review 问题。");
+                commandTaskStateManager.markFailed(task, "未找到可修复的受支持 review 问题。");
                 fixResultCommenter.noFixableIssues(task);
                 return;
             }
@@ -158,7 +158,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             FixPromptInput promptInput = fixRequestAssembler.buildPromptInput(fixableIssues);
             String snippets = fixSnippetBuilder.build(task, detail.getHeadSha(), fixableIssues);
             if (!StringUtils.hasText(snippets)) {
-                completeFailed(task, "找到了可修复的问题，但没有有效的代码片段。");
+                commandTaskStateManager.markFailed(task, "找到了可修复的问题，但没有有效的代码片段。");
                 fixResultCommenter.missingSnippetContext(task);
                 return;
             }
@@ -170,14 +170,13 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             );
             String patch = fixResult == null ? null : fixResult.getPatch();
             if (!StringUtils.hasText(patch)) {
-                completeFailed(task, "模型没有生成补丁。");
+                commandTaskStateManager.markFailed(task, "模型没有生成补丁。");
                 fixResultCommenter.patchNotGenerated(task);
                 return;
             }
 
             FixPatchScopeValidationResult stats = fixPatchScopeValidator.validate(patch, promptInput.allowedPaths());
-            task.setGeneratedPatch(generatedPatchAuditPreview(patch));
-            updateById(task);
+            commandTaskStateManager.storeGeneratedPatchPreview(task, patch);
             commandTaskLogService.record(task.getId(), "PATCH_GENERATED", true, "补丁已生成。", stats.toString());
 
             GitPatchExecutionRequest request = fixRequestAssembler.buildExecutionRequest(
@@ -191,14 +190,13 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 if (executionResult.isRetryable()) {
                     throw new IllegalStateException(executionResult.getMessage());
                 }
-                completeFailed(task, executionResult.getMessage());
+                commandTaskStateManager.markFailed(task, executionResult.getMessage());
                 commandTaskLogService.record(task.getId(), "PATCH_EXECUTE", false, executionResult.getMessage(), executionResult.getDetail());
                 fixResultCommenter.patchValidationFailed(task, executionResult.getMessage());
                 return;
             }
 
-            task.setCommitSha(executionResult.getCommitSha());
-            completeSuccess(task);
+            commandTaskStateManager.markSuccess(task, executionResult.getCommitSha());
             commandTaskLogService.record(task.getId(), "PATCH_EXECUTE", true, executionResult.getMessage(), executionResult.getDetail());
             if (Boolean.TRUE.equals(task.getDryRun())) {
                 fixResultCommenter.dryRunCompleted(task, stats, fixResult.getSummary(), patch);
@@ -207,7 +205,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             }
         } catch (NonRetryableFixTaskException exception) {
             String message = SensitiveDataSanitizer.redact(exception.getMessage());
-            completeFailed(task, message);
+            commandTaskStateManager.markFailed(task, message);
             commandTaskLogService.record(task.getId(), "FAILED", false, message, null);
             fixResultCommenter.fixFailed(task, message);
         } catch (Exception exception) {
@@ -230,18 +228,14 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         return tasks == null || tasks.isEmpty() ? null : tasks.getFirst();
     }
 
-    private boolean isTerminalStatus(String status) {
-        return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status);
-    }
-
     private void handleRetryableFailure(PrCommandTask task, Exception exception) {
         String message = SensitiveDataSanitizer.redact(exception.getMessage());
         if (isFinalRetryAttempt()) {
-            completeFailed(task, message);
+            commandTaskStateManager.markFailed(task, message);
             commandTaskLogService.record(task.getId(), "FAILED", false, message, retryDetail(exception));
             fixResultCommenter.fixFailed(task, message);
         } else {
-            markRetrying(task, message);
+            commandTaskStateManager.markRetrying(task, message);
             commandTaskLogService.record(task.getId(), "RETRYING", false, message, retryDetail(exception));
         }
         throw new IllegalStateException("PR fix command task failed, commandTaskId=" + task.getId(), exception);
@@ -275,53 +269,8 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         }
     }
 
-    private void markRunning(PrCommandTask task) {
-        task.setStatus("RUNNING");
-        task.setStartedAt(LocalDateTime.now());
-        task.setUpdatedAt(LocalDateTime.now());
-        updateById(task);
-    }
-
-    private void markRetrying(PrCommandTask task, String message) {
-        task.setStatus("RUNNING");
-        task.setErrorMessage(truncate(message, 2000));
-        task.setUpdatedAt(LocalDateTime.now());
-        updateById(task);
-    }
-
-    private void completeSuccess(PrCommandTask task) {
-        task.setStatus("SUCCESS");
-        task.setErrorMessage(null);
-        task.setFinishedAt(LocalDateTime.now());
-        task.setUpdatedAt(LocalDateTime.now());
-        updateById(task);
-    }
-
-    private void completeFailed(PrCommandTask task, String message) {
-        task.setStatus("FAILED");
-        task.setErrorMessage(truncate(message, 2000));
-        task.setFinishedAt(LocalDateTime.now());
-        task.setUpdatedAt(LocalDateTime.now());
-        updateById(task);
-    }
-
-    private String generatedPatchAuditPreview(String patch) {
-        return SensitiveDataSanitizer.redactAndTruncate(patch, GENERATED_PATCH_AUDIT_LIMIT);
-    }
-
     private String commentBodyAuditPreview(String commentBody) {
         return SensitiveDataSanitizer.redactAndTruncate(commentBody, COMMENT_BODY_AUDIT_LIMIT);
-    }
-
-    private String truncate(String content, int maxLength) {
-        if (!StringUtils.hasText(content)) {
-            return content;
-        }
-        String redacted = SensitiveDataSanitizer.redact(content);
-        if (redacted.length() <= maxLength) {
-            return redacted;
-        }
-        return SensitiveDataSanitizer.truncatePreservingRedactionMarker(redacted, maxLength) + "...";
     }
 
 }

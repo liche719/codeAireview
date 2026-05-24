@@ -12,6 +12,7 @@ import com.codepilot.module.command.git.GitPatchExecutionResult;
 import com.codepilot.module.command.git.GitPatchExecutor;
 import com.codepilot.module.command.mapper.PrCommandTaskMapper;
 import com.codepilot.module.command.service.PrCommandTaskLogService;
+import com.codepilot.module.command.state.PrCommandTaskStateManager;
 import com.codepilot.module.agent.dto.CodeFixResult;
 import com.codepilot.module.agent.service.CodeFixService;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
@@ -280,6 +281,8 @@ class PrCommandTaskServiceImplTest {
 
         private final FixResultCommenter fixResultCommenter = new FixResultCommenter(githubClient);
 
+        private final PrCommandTaskStateManager commandTaskStateManager = new PrCommandTaskStateManager(mapper);
+
         private final org.mockito.ArgumentCaptor<PrCommandTask> taskCaptor =
                 org.mockito.ArgumentCaptor.forClass(PrCommandTask.class);
 
@@ -299,7 +302,8 @@ class PrCommandTaskServiceImplTest {
                     fixableIssueSelector,
                     fixSnippetBuilder,
                     fixRequestAssembler,
-                    fixResultCommenter
+                    fixResultCommenter,
+                    commandTaskStateManager
             );
             ReflectionTestUtils.setField(service, "baseMapper", mapper);
             ReflectionTestUtils.setField(fixRequestAssembler, "githubToken", "github-token");
