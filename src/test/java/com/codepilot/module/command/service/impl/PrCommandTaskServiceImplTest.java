@@ -2,6 +2,7 @@ package com.codepilot.module.command.service.impl;
 
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.config.GithubCommandProperties;
+import com.codepilot.module.command.failure.PrCommandTaskFailureHandler;
 import com.codepilot.module.command.fix.FixableIssueSelector;
 import com.codepilot.module.command.fix.FixPatchScopeValidator;
 import com.codepilot.module.command.fix.FixRequestAssembler;
@@ -125,7 +126,7 @@ class PrCommandTaskServiceImplTest {
         context.stubRunnableFixTask();
         when(context.gitPatchExecutor.execute(any(GitPatchExecutionRequest.class)))
                 .thenReturn(GitPatchExecutionResult.retryableFailure("temporary validation runner error", "detail"));
-        ReflectionTestUtils.setField(context.service, "rabbitRetryMaxAttempts", 3);
+        ReflectionTestUtils.setField(context.commandTaskFailureHandler, "rabbitRetryMaxAttempts", 3);
         registerRetryContext(0);
 
         assertThatThrownBy(() -> context.service.processFixTask(1L))
@@ -147,7 +148,7 @@ class PrCommandTaskServiceImplTest {
         context.stubRunnableFixTask();
         when(context.gitPatchExecutor.execute(any(GitPatchExecutionRequest.class)))
                 .thenReturn(GitPatchExecutionResult.retryableFailure("validation failed", "detail"));
-        ReflectionTestUtils.setField(context.service, "rabbitRetryMaxAttempts", 3);
+        ReflectionTestUtils.setField(context.commandTaskFailureHandler, "rabbitRetryMaxAttempts", 3);
         registerRetryContext(2);
 
         assertThatThrownBy(() -> context.service.processFixTask(1L))
@@ -283,6 +284,9 @@ class PrCommandTaskServiceImplTest {
 
         private final PrCommandTaskStateManager commandTaskStateManager = new PrCommandTaskStateManager(mapper);
 
+        private final PrCommandTaskFailureHandler commandTaskFailureHandler =
+                new PrCommandTaskFailureHandler(commandTaskStateManager, commandTaskLogService, fixResultCommenter);
+
         private final org.mockito.ArgumentCaptor<PrCommandTask> taskCaptor =
                 org.mockito.ArgumentCaptor.forClass(PrCommandTask.class);
 
@@ -303,7 +307,8 @@ class PrCommandTaskServiceImplTest {
                     fixSnippetBuilder,
                     fixRequestAssembler,
                     fixResultCommenter,
-                    commandTaskStateManager
+                    commandTaskStateManager,
+                    commandTaskFailureHandler
             );
             ReflectionTestUtils.setField(service, "baseMapper", mapper);
             ReflectionTestUtils.setField(fixRequestAssembler, "githubToken", "github-token");

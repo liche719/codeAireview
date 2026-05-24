@@ -7,6 +7,7 @@ import com.codepilot.module.agent.dto.CodeFixResult;
 import com.codepilot.module.agent.service.CodeFixService;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.entity.PrCommandTask;
+import com.codepilot.module.command.failure.PrCommandTaskFailureHandler;
 import com.codepilot.module.command.fix.FixableIssueSelector;
 import com.codepilot.module.command.fix.FixPromptInput;
 import com.codepilot.module.command.fix.FixPatchScopeValidationResult;
@@ -28,10 +29,7 @@ import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
 import com.codepilot.module.review.entity.ReviewIssue;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.retry.RetryContext;
-import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -69,8 +67,8 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
 
     private final PrCommandTaskStateManager commandTaskStateManager;
 
-    @Value("${spring.rabbitmq.listener.simple.retry.max-attempts:3}")
-    private int rabbitRetryMaxAttempts = 3;
+    private final PrCommandTaskFailureHandler commandTaskFailureHandler;
+
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -204,12 +202,9 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 fixResultCommenter.fixPushed(task);
             }
         } catch (NonRetryableFixTaskException exception) {
-            String message = SensitiveDataSanitizer.redact(exception.getMessage());
-            commandTaskStateManager.markFailed(task, message);
-            commandTaskLogService.record(task.getId(), "FAILED", false, message, null);
-            fixResultCommenter.fixFailed(task, message);
+            commandTaskFailureHandler.handleNonRetryable(task, exception);
         } catch (Exception exception) {
-            handleRetryableFailure(task, exception);
+            commandTaskFailureHandler.handleRetryable(task, exception);
         }
     }
 
@@ -226,36 +221,6 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 .orderByDesc(PrCommandTask::getId)
                 .last("LIMIT 1"));
         return tasks == null || tasks.isEmpty() ? null : tasks.getFirst();
-    }
-
-    private void handleRetryableFailure(PrCommandTask task, Exception exception) {
-        String message = SensitiveDataSanitizer.redact(exception.getMessage());
-        if (isFinalRetryAttempt()) {
-            commandTaskStateManager.markFailed(task, message);
-            commandTaskLogService.record(task.getId(), "FAILED", false, message, retryDetail(exception));
-            fixResultCommenter.fixFailed(task, message);
-        } else {
-            commandTaskStateManager.markRetrying(task, message);
-            commandTaskLogService.record(task.getId(), "RETRYING", false, message, retryDetail(exception));
-        }
-        throw new IllegalStateException("PR fix command task failed, commandTaskId=" + task.getId(), exception);
-    }
-
-    private boolean isFinalRetryAttempt() {
-        RetryContext retryContext = RetrySynchronizationManager.getContext();
-        if (retryContext == null) {
-            return true;
-        }
-        int maxAttempts = Math.max(1, rabbitRetryMaxAttempts);
-        return retryContext.getRetryCount() >= maxAttempts - 1;
-    }
-
-    private String retryDetail(Exception exception) {
-        RetryContext retryContext = RetrySynchronizationManager.getContext();
-        String attempt = retryContext == null
-                ? "attempt=1/1"
-                : "attempt=" + (retryContext.getRetryCount() + 1) + "/" + Math.max(1, rabbitRetryMaxAttempts);
-        return attempt + ", errorType=" + exception.getClass().getSimpleName();
     }
 
     private void assertWritableSameRepo(PrCommandTask task, GithubPullRequestDetail detail) {
