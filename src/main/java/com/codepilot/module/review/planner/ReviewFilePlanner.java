@@ -1,6 +1,7 @@
 package com.codepilot.module.review.planner;
 
 import com.codepilot.module.git.dto.GithubChangedFile;
+import com.codepilot.module.review.classifier.ReviewFileClassifier;
 import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.entity.ReviewFile;
 import lombok.RequiredArgsConstructor;
@@ -153,39 +154,43 @@ public class ReviewFilePlanner {
     }
 
     private int reviewPriority(ReviewFile reviewFile) {
-        String path = normalizePath(reviewFile == null ? null : reviewFile.getFilePath());
-        String patch = normalizePath(reviewFile == null ? null : reviewFile.getPatch());
+        String path = ReviewFileClassifier.normalizePath(reviewFile == null ? null : reviewFile.getFilePath());
+        String patch = reviewFile == null || reviewFile.getPatch() == null
+                ? ""
+                : reviewFile.getPatch().toLowerCase(Locale.ROOT);
         int score = 0;
 
-        if (isSecuritySensitivePath(path) || containsAny(patch, "password", "secret", "token", "auth", "permission")) {
+        if (ReviewFileClassifier.isSecuritySensitivePath(path)
+                || containsAny(patch, "password", "secret", "token", "auth", "permission")) {
             score += 1000;
         }
-        if (isDatabasePath(path) || containsAny(patch, "select ", "update ", "delete ", "insert ", "alter table")) {
+        if (ReviewFileClassifier.isDatabasePath(path)
+                || containsAny(patch, "select ", "update ", "delete ", "insert ", "alter table")) {
             score += 900;
         }
-        if (isPublicApiPath(path)) {
+        if (ReviewFileClassifier.isPublicApiPath(path)) {
             score += 800;
         }
-        if (isConfigurationPath(path)) {
+        if (ReviewFileClassifier.isConfigurationPath(path)) {
             score += 700;
         }
-        if (isDependencyManifestPath(path)) {
+        if (ReviewFileClassifier.isDependencyManifestPath(path)) {
             score += 650;
         }
-        if (isProductionCodePath(path)) {
+        if (ReviewFileClassifier.isProductionCodePath(path)) {
             score += 600;
         }
-        if (isTestPath(path)) {
+        if (ReviewFileClassifier.isTestPath(path)) {
             score += 350;
         }
-        if (isDocumentationPath(path)) {
+        if (ReviewFileClassifier.isDocumentationPath(path)) {
             score -= 250;
         }
         return score;
     }
 
     private boolean shouldSkipPath(String filePath) {
-        String normalizedPath = normalizePath(filePath);
+        String normalizedPath = ReviewFileClassifier.normalizePath(filePath);
 
         return normalizedPath.endsWith(".lock")
                 || normalizedPath.endsWith("package-lock.json")
@@ -197,105 +202,6 @@ public class ReviewFilePlanner {
                 || normalizedPath.contains("/target/")
                 || normalizedPath.startsWith("build/")
                 || normalizedPath.contains("/build/");
-    }
-
-    private boolean isSecuritySensitivePath(String path) {
-        return path.contains("security")
-                || path.contains("auth")
-                || path.contains("permission")
-                || path.contains("token")
-                || path.contains("secret")
-                || path.contains("credential");
-    }
-
-    private boolean isDatabasePath(String path) {
-        return path.contains("/db/migration/")
-                || path.contains("/migrations/")
-                || path.endsWith(".sql")
-                || path.endsWith("mapper.xml");
-    }
-
-    private boolean isPublicApiPath(String path) {
-        return path.contains("/controller/")
-                || path.contains("/controllers/")
-                || path.contains("/api/")
-                || path.contains("/dto/")
-                || path.contains("/request/")
-                || path.contains("/response/")
-                || path.contains("/graphql/")
-                || path.contains("/openapi/")
-                || path.contains("/swagger/")
-                || path.endsWith(".proto")
-                || path.endsWith(".graphql")
-                || path.endsWith(".graphqls");
-    }
-
-    private boolean isConfigurationPath(String path) {
-        return path.endsWith(".yml")
-                || path.endsWith(".yaml")
-                || path.endsWith(".properties")
-                || path.endsWith(".toml")
-                || path.endsWith(".env")
-                || path.endsWith("package.json")
-                || path.endsWith("tsconfig.json")
-                || path.endsWith(".eslintrc.json")
-                || path.contains("config.json")
-                || path.startsWith(".github/workflows/")
-                || path.equals("dockerfile")
-                || path.endsWith("/dockerfile")
-                || path.contains("docker-compose");
-    }
-
-    private boolean isDependencyManifestPath(String path) {
-        String fileName = fileName(path);
-        return fileName.equals("pom.xml")
-                || fileName.equals("build.gradle")
-                || fileName.equals("build.gradle.kts")
-                || fileName.equals("settings.gradle")
-                || fileName.equals("settings.gradle.kts")
-                || fileName.equals("gradle.properties")
-                || fileName.equals("package.json")
-                || fileName.equals("package-lock.json")
-                || fileName.equals("yarn.lock")
-                || fileName.equals("pnpm-lock.yaml")
-                || fileName.equals("go.mod")
-                || fileName.equals("go.sum")
-                || fileName.equals("requirements.txt")
-                || fileName.equals("pyproject.toml")
-                || fileName.equals("poetry.lock");
-    }
-
-    private boolean isProductionCodePath(String path) {
-        return (path.startsWith("src/main/")
-                || path.endsWith(".java")
-                || path.endsWith(".kt")
-                || path.endsWith(".go")
-                || path.endsWith(".ts")
-                || path.endsWith(".tsx")
-                || path.endsWith(".js")
-                || path.endsWith(".jsx")
-                || path.endsWith(".py"))
-                && !isTestPath(path);
-    }
-
-    private boolean isTestPath(String path) {
-        return path.contains("/test/")
-                || path.contains("/tests/")
-                || path.endsWith("test.java")
-                || path.endsWith("tests.java")
-                || path.endsWith(".spec.ts")
-                || path.endsWith(".test.ts")
-                || path.endsWith(".spec.tsx")
-                || path.endsWith(".test.tsx")
-                || path.endsWith(".spec.js")
-                || path.endsWith(".test.js");
-    }
-
-    private boolean isDocumentationPath(String path) {
-        return path.endsWith(".md")
-                || path.endsWith(".adoc")
-                || path.endsWith(".rst")
-                || path.startsWith("docs/");
     }
 
     private boolean containsAny(String content, String... needles) {
@@ -310,12 +216,4 @@ public class ReviewFilePlanner {
         return false;
     }
 
-    private String fileName(String path) {
-        int index = path.lastIndexOf('/');
-        return index < 0 ? path : path.substring(index + 1);
-    }
-
-    private String normalizePath(String path) {
-        return path == null ? "" : path.replace('\\', '/').trim().toLowerCase(Locale.ROOT);
-    }
 }

@@ -1,5 +1,6 @@
 package com.codepilot.module.review.context;
 
+import com.codepilot.module.review.classifier.ReviewFileClassifier;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -67,15 +68,15 @@ public class ReviewImpactPlanner {
             if (fileSummary == null || !StringUtils.hasText(fileSummary.filePath())) {
                 continue;
             }
-            String path = normalizePath(fileSummary.filePath());
+            String path = ReviewFileClassifier.normalizePath(fileSummary.filePath());
             if (!fileSummary.reviewable()) {
                 verificationHints.add(skippedFileHint(fileSummary));
             }
-            hasProductionCode = hasProductionCode || isProductionCode(path);
-            hasTestCode = hasTestCode || isTestPath(path);
-            hasConfig = hasConfig || isConfigurationPath(path);
-            hasDependency = hasDependency || isDependencyManifestPath(path);
-            hasDatabase = hasDatabase || isDatabasePath(path);
+            hasProductionCode = hasProductionCode || ReviewFileClassifier.isProductionCodePath(path);
+            hasTestCode = hasTestCode || ReviewFileClassifier.isTestPath(path);
+            hasConfig = hasConfig || ReviewFileClassifier.isConfigurationPath(path);
+            hasDependency = hasDependency || ReviewFileClassifier.isDependencyManifestPath(path);
+            hasDatabase = hasDatabase || ReviewFileClassifier.isDatabasePath(path);
             hasCi = hasCi || path.startsWith(".github/workflows/");
         }
 
@@ -228,79 +229,12 @@ public class ReviewImpactPlanner {
         }
     }
 
-    private boolean isProductionCode(String path) {
-        return (path.startsWith("src/main/")
-                || path.endsWith(".java")
-                || path.endsWith(".kt")
-                || path.endsWith(".go")
-                || path.endsWith(".ts")
-                || path.endsWith(".tsx")
-                || path.endsWith(".js")
-                || path.endsWith(".jsx")
-                || path.endsWith(".py"))
-                && !isTestPath(path);
-    }
-
     private String skippedFileHint(ReviewContext.FileSummary fileSummary) {
         String reason = StringUtils.hasText(fileSummary.skipReason())
                 ? " (" + fileSummary.skipReason().trim() + ")"
                 : "";
         return "Account for skipped file '" + fileSummary.filePath()
                 + "'" + reason + " when judging review completeness.";
-    }
-
-    private boolean isTestPath(String path) {
-        return path.contains("/test/")
-                || path.contains("/tests/")
-                || path.endsWith("test.java")
-                || path.endsWith("tests.java")
-                || path.endsWith(".spec.ts")
-                || path.endsWith(".test.ts")
-                || path.endsWith(".spec.tsx")
-                || path.endsWith(".test.tsx")
-                || path.endsWith(".spec.js")
-                || path.endsWith(".test.js");
-    }
-
-    private boolean isDatabasePath(String path) {
-        return path.contains("/db/migration/")
-                || path.contains("/migrations/")
-                || path.endsWith(".sql")
-                || path.endsWith("mapper.xml");
-    }
-
-    private boolean isConfigurationPath(String path) {
-        return path.endsWith(".yml")
-                || path.endsWith(".yaml")
-                || path.endsWith(".properties")
-                || path.endsWith(".toml")
-                || path.endsWith(".env")
-                || path.endsWith("package.json")
-                || path.endsWith("tsconfig.json")
-                || path.endsWith(".eslintrc.json")
-                || path.contains("config.json")
-                || path.startsWith(".github/workflows/")
-                || path.equals("dockerfile")
-                || path.contains("docker-compose");
-    }
-
-    private boolean isDependencyManifestPath(String path) {
-        String fileName = fileName(path);
-        return fileName.equals("pom.xml")
-                || fileName.equals("build.gradle")
-                || fileName.equals("build.gradle.kts")
-                || fileName.equals("settings.gradle")
-                || fileName.equals("settings.gradle.kts")
-                || fileName.equals("gradle.properties")
-                || fileName.equals("package.json")
-                || fileName.equals("package-lock.json")
-                || fileName.equals("yarn.lock")
-                || fileName.equals("pnpm-lock.yaml")
-                || fileName.equals("go.mod")
-                || fileName.equals("go.sum")
-                || fileName.equals("requirements.txt")
-                || fileName.equals("pyproject.toml")
-                || fileName.equals("poetry.lock");
     }
 
     private boolean isSecurityAnnotation(String annotation) {
@@ -313,16 +247,6 @@ public class ReviewImpactPlanner {
                 || normalized.contains("rolesallowed")
                 || normalized.contains("permitall")
                 || normalized.contains("authenticated");
-    }
-
-    private String normalizePath(String path) {
-        return path == null ? "" : path.replace('\\', '/').trim().toLowerCase(Locale.ROOT);
-    }
-
-    private String fileName(String path) {
-        String normalized = normalizePath(path);
-        int index = normalized.lastIndexOf('/');
-        return index < 0 ? normalized : normalized.substring(index + 1);
     }
 
     private List<String> limit(Set<String> values, int limit) {
