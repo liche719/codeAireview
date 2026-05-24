@@ -13,6 +13,9 @@ import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.agent.service.CodeFixService;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.entity.PrCommandTask;
+import com.codepilot.module.command.fix.FixPatchScopeValidationResult;
+import com.codepilot.module.command.fix.FixPatchScopeValidator;
+import com.codepilot.module.command.fix.NonRetryableFixTaskException;
 import com.codepilot.module.command.git.GitPatchExecutionRequest;
 import com.codepilot.module.command.git.GitPatchExecutionResult;
 import com.codepilot.module.command.git.GitPatchExecutor;
@@ -67,22 +70,6 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
 
     private static final int COMMENT_BODY_AUDIT_LIMIT = 2000;
 
-    private static final Set<String> BLOCKED_FIX_PATHS = Set.of(
-            ".env",
-            ".env.local",
-            ".env.production",
-            "docker-compose.yml",
-            "docker-compose.server.yml",
-            "dockerfile",
-            "pom.xml"
-    );
-
-    private static final List<String> BLOCKED_FIX_PATH_PREFIXES = List.of(
-            ".github/",
-            ".git/",
-            "src/main/resources/db/migration/"
-    );
-
     private final GithubCommandProperties properties;
 
     private final GithubClient githubClient;
@@ -100,6 +87,8 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     private final PrCommandTaskLogService commandTaskLogService;
 
     private final ObjectMapper objectMapper;
+
+    private final FixPatchScopeValidator fixPatchScopeValidator;
 
     @Value("${codepilot.github.token:}")
     private String githubToken;
@@ -209,7 +198,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 return;
             }
 
-            PatchStats stats = validatePatchScope(patch, allowedFixPaths(fixableIssues));
+            FixPatchScopeValidationResult stats = fixPatchScopeValidator.validate(patch, allowedFixPaths(fixableIssues));
             task.setGeneratedPatch(generatedPatchAuditPreview(patch));
             updateById(task);
             commandTaskLogService.record(task.getId(), "PATCH_GENERATED", true, "补丁已生成。", stats.toString());
@@ -473,67 +462,18 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         return builder.toString();
     }
 
-    PatchStats validatePatchScope(String patch, Set<String> allowedPaths) {
-        PatchStats stats = PatchStats.from(patch);
-        if (stats.filesChanged() > properties.getFixMaxFiles()) {
-            throw new NonRetryableFixTaskException("补丁修改的文件数过多：" + stats.filesChanged());
-        }
-        if (stats.changedLines() > properties.getFixMaxChangedLines()) {
-            throw new NonRetryableFixTaskException("补丁修改的行数过多：" + stats.changedLines());
-        }
-        if (stats.paths().isEmpty()) {
-            throw new NonRetryableFixTaskException("补丁没有声明被修改的文件路径。");
-        }
-        Set<String> normalizedAllowedPaths = normalizeAllowedPaths(allowedPaths);
-        for (String path : stats.paths()) {
-            if (isBlockedFixPath(path)) {
-                throw new NonRetryableFixTaskException("自动修复不允许修改敏感路径：" + path);
-            }
-            if (!normalizedAllowedPaths.isEmpty() && !normalizedAllowedPaths.contains(path)) {
-                throw new NonRetryableFixTaskException("自动修复只能修改被选中问题所在文件：" + path);
-            }
-        }
-        return stats;
-    }
-
     private Set<String> allowedFixPaths(List<ReviewIssue> fixableIssues) {
         Set<String> paths = new LinkedHashSet<>();
         if (fixableIssues == null) {
             return paths;
         }
         for (ReviewIssue issue : fixableIssues) {
-            String path = normalizePatchPath(issue == null ? null : issue.getFilePath());
+            String path = issue == null ? null : issue.getFilePath();
             if (StringUtils.hasText(path)) {
-                paths.add(path);
+                paths.add(path.trim());
             }
         }
         return paths;
-    }
-
-    private Set<String> normalizeAllowedPaths(Set<String> allowedPaths) {
-        Set<String> normalized = new LinkedHashSet<>();
-        if (allowedPaths == null) {
-            return normalized;
-        }
-        for (String allowedPath : allowedPaths) {
-            String path = normalizePatchPath(allowedPath);
-            if (StringUtils.hasText(path)) {
-                normalized.add(path);
-            }
-        }
-        return normalized;
-    }
-
-    private boolean isBlockedFixPath(String path) {
-        String normalized = normalizePatchPath(path);
-        if (!StringUtils.hasText(normalized)) {
-            return true;
-        }
-        String lowerCase = normalized.toLowerCase(Locale.ROOT);
-        if (BLOCKED_FIX_PATHS.contains(lowerCase)) {
-            return true;
-        }
-        return BLOCKED_FIX_PATH_PREFIXES.stream().anyMatch(lowerCase::startsWith);
     }
 
     private GitPatchExecutionRequest buildExecutionRequest(PrCommandTask task, GithubPullRequestDetail detail, String patch) {
@@ -568,7 +508,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         return "fix: CodePilot AI 自动修复";
     }
 
-    private String buildDryRunComment(PatchStats stats, String summary, String patch) {
+    private String buildDryRunComment(FixPatchScopeValidationResult stats, String summary, String patch) {
         return """
                 **CodePilot AI** 预演完成。
 
@@ -647,76 +587,4 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         return SensitiveDataSanitizer.truncatePreservingRedactionMarker(redacted, maxLength) + "...";
     }
 
-    record PatchStats(int filesChanged, int changedLines, Set<String> paths) {
-
-        private static PatchStats from(String patch) {
-            Set<String> files = new LinkedHashSet<>();
-            int changedLines = 0;
-            for (String line : patch.split("\\R")) {
-                if (line.startsWith("diff --git ")) {
-                    String[] parts = line.split("\\s+");
-                    if (parts.length >= 4) {
-                        addPatchPath(files, parts[2]);
-                        addPatchPath(files, parts[3]);
-                    }
-                }
-                if (line.startsWith("+++ ")) {
-                    String filePath = line.substring(4).trim();
-                    if (!"/dev/null".equals(filePath)) {
-                        addPatchPath(files, filePath);
-                    }
-                }
-                if (line.startsWith("--- ")) {
-                    String filePath = line.substring(4).trim();
-                    if (!"/dev/null".equals(filePath)) {
-                        addPatchPath(files, filePath);
-                    }
-                }
-                if ((line.startsWith("+") && !line.startsWith("+++"))
-                        || (line.startsWith("-") && !line.startsWith("---"))) {
-                    changedLines++;
-                }
-            }
-            return new PatchStats(files.isEmpty() && changedLines > 0 ? 1 : files.size(), changedLines, Set.copyOf(files));
-        }
-
-        private static void addPatchPath(Set<String> files, String rawPath) {
-            String path = normalizePatchPath(rawPath);
-            if ("/dev/null".equals(path)) {
-                return;
-            }
-            if (StringUtils.hasText(path)) {
-                files.add(path);
-            }
-        }
-
-        @Override
-        public String toString() {
-            return "filesChanged=" + filesChanged + ", changedLines=" + changedLines;
-        }
-    }
-
-    private static String normalizePatchPath(String rawPath) {
-        if (!StringUtils.hasText(rawPath)) {
-            return "";
-        }
-        String path = rawPath.trim().replace('\\', '/');
-        if (path.startsWith("\"") && path.endsWith("\"") && path.length() >= 2) {
-            path = path.substring(1, path.length() - 1);
-        }
-        if (path.startsWith("a/") || path.startsWith("b/")) {
-            path = path.substring(2);
-        }
-        while (path.startsWith("./")) {
-            path = path.substring(2);
-        }
-        return path;
-    }
-
-    private static class NonRetryableFixTaskException extends IllegalStateException {
-
-        private NonRetryableFixTaskException(String message) {
-            super(message);
-        }
-    }
 }
