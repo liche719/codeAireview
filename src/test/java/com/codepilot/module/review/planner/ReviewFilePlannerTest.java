@@ -84,6 +84,43 @@ class ReviewFilePlannerTest {
         assertThat(reviewFiles.get(1).getSkipReason()).isEqualTo("review total patch length limit exceeded");
     }
 
+    @Test
+    void shouldPrioritizeHighImpactFilesWhenFileBudgetIsLimited() {
+        ReviewProperties properties = new ReviewProperties();
+        properties.setMaxFilesPerTask(1);
+        ReviewFilePlanner planner = new ReviewFilePlanner(properties);
+
+        List<ReviewFile> reviewFiles = planner.plan(1L, List.of(
+                changedFile("README.md", "modified", "+docs"),
+                changedFile("src/main/java/com/example/security/AuthService.java", "modified", "+boolean allow = true;")
+        ));
+
+        assertThat(reviewFiles).extracting(ReviewFile::getFilePath)
+                .containsExactly(
+                        "README.md",
+                        "src/main/java/com/example/security/AuthService.java"
+                );
+        assertThat(reviewFiles).extracting(ReviewFile::getSkipped).containsExactly(true, false);
+        assertThat(reviewFiles.getFirst().getSkipReason()).isEqualTo("review file count limit exceeded");
+    }
+
+    @Test
+    void shouldPrioritizeHighImpactFilesWhenTotalPatchBudgetIsLimited() {
+        ReviewProperties properties = new ReviewProperties();
+        properties.setMaxFilesPerTask(10);
+        properties.setMaxPatchCharsPerFile(20);
+        properties.setMaxTotalPatchChars(10);
+        ReviewFilePlanner planner = new ReviewFilePlanner(properties);
+
+        List<ReviewFile> reviewFiles = planner.plan(1L, List.of(
+                changedFile("docs/usage.md", "modified", "123456"),
+                changedFile("src/main/resources/db/migration/V2__auth.sql", "modified", "123456")
+        ));
+
+        assertThat(reviewFiles).extracting(ReviewFile::getSkipped).containsExactly(true, false);
+        assertThat(reviewFiles.getFirst().getSkipReason()).isEqualTo("review total patch length limit exceeded");
+    }
+
     private GithubChangedFile changedFile(String filename, String status, String patch) {
         GithubChangedFile changedFile = new GithubChangedFile();
         changedFile.setFilename(filename);
