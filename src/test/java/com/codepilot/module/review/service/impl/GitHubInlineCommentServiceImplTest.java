@@ -108,6 +108,39 @@ class GitHubInlineCommentServiceImplTest {
     }
 
     @Test
+    void shouldPrioritizeHighSeverityToolIssuesWhenInlineCommentBudgetIsLimited() {
+        TestContext context = new TestContext(true, 1, "token");
+        ReviewIssue lowValueIssue = issue(11);
+        lowValueIssue.setId(1L);
+        lowValueIssue.setIssueType("STYLE");
+        lowValueIssue.setSeverity("LOW");
+        lowValueIssue.setSource("LLM");
+        lowValueIssue.setDescription("Minor style suggestion.");
+        ReviewIssue highValueIssue = issue(12);
+        highValueIssue.setId(2L);
+        highValueIssue.setIssueType("SECURITY");
+        highValueIssue.setSeverity("HIGH");
+        highValueIssue.setSource("TOOL");
+        highValueIssue.setDescription("The added code exposes a hardcoded secret.");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
+                .thenReturn(List.of(lowValueIssue, highValueIssue));
+        when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
+                .thenReturn(List.of(reviewFile()));
+        when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
+
+        context.service.commentInlineIssues(1L);
+
+        verify(context.githubClient, times(1))
+                .createPullRequestInlineComment(eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                        eq("src/Demo.java"), eq(12), eq("RIGHT"), any());
+        verify(context.githubClient, never())
+                .createPullRequestInlineComment(eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                        eq("src/Demo.java"), eq(11), eq("RIGHT"), any());
+    }
+
+    @Test
     void shouldBuildConciseInlineCommentBody() {
         TestContext context = new TestContext(true, 10, "token");
         when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
