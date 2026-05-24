@@ -7,6 +7,7 @@ import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.parser.AiReviewResultParser;
 import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
+import com.codepilot.module.agent.review.cache.ReviewLlmCache;
 import com.codepilot.module.agent.service.ReviewRagService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,8 @@ public class ReviewLlmReviewer {
     private final ReviewLlmInputLimiter reviewLlmInputLimiter;
 
     private final ReviewLlmCallLogger reviewLlmCallLogger;
+
+    private final ReviewLlmCache reviewLlmCache;
 
     public Optional<AiReviewResult> review(
             AiReviewRequest request,
@@ -71,13 +74,19 @@ public class ReviewLlmReviewer {
                     limitedInput.truncatedChangedFilesContext());
         }
 
+        ReviewLlmInput promptSafeInput = promptSafe(limitedInput);
+        Optional<AiReviewResult> cachedResult = reviewLlmCache.find(reviewLlmClient.providerName(), promptSafeInput);
+        if (cachedResult.isPresent()) {
+            return cachedResult;
+        }
+
         String responseText = null;
         String errorMessage = null;
         boolean success = false;
         long startTime = System.currentTimeMillis();
 
         try {
-            responseText = reviewLlmClient.review(promptSafe(limitedInput));
+            responseText = reviewLlmClient.review(promptSafeInput);
             if (!StringUtils.hasText(responseText)) {
                 errorMessage = "empty model response";
                 log.warn("LLM review returned empty content, provider={}, filePath={}",
@@ -86,6 +95,7 @@ public class ReviewLlmReviewer {
             }
 
             AiReviewResult parsedResult = aiReviewResultParser.parse(responseText);
+            reviewLlmCache.save(reviewLlmClient.providerName(), promptSafeInput, parsedResult);
             success = true;
             return Optional.of(parsedResult);
         } catch (Exception exception) {

@@ -104,6 +104,8 @@ codepilot:
     max-review-patch-chars: ${CODEPILOT_LLM_MAX_REVIEW_PATCH_CHARS:12000}
     max-review-rules-chars: ${CODEPILOT_LLM_MAX_REVIEW_RULES_CHARS:4000}
     max-review-context-chars: ${CODEPILOT_LLM_MAX_REVIEW_CONTEXT_CHARS:8000}
+    review-cache-enabled: ${CODEPILOT_LLM_REVIEW_CACHE_ENABLED:true}
+    review-cache-ttl-days: ${CODEPILOT_LLM_REVIEW_CACHE_TTL_DAYS:7}
   embedding:
     enabled: true
     provider: openai-compatible

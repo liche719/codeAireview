@@ -57,4 +57,17 @@ class DatabaseMigrationResourceTest {
                 .contains("WHERE head_sha IS NOT NULL")
                 .contains("status IN ('PENDING', 'RUNNING', 'SUCCESS')");
     }
+
+    @Test
+    void shouldCreateAiReviewCacheTableForReusableLlmReviewResults() throws Exception {
+        String migration = new ClassPathResource("db/migration/V10__add_ai_review_cache.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(migration)
+                .contains("CREATE TABLE IF NOT EXISTS ai_review_cache")
+                .contains("cache_key VARCHAR(128) NOT NULL")
+                .contains("result_json TEXT NOT NULL")
+                .contains("CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_review_cache_key")
+                .contains("CREATE INDEX IF NOT EXISTS idx_ai_review_cache_last_used_at");
+    }
 }

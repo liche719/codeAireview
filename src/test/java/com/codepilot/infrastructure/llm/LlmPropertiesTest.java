@@ -16,7 +16,9 @@ class LlmPropertiesTest {
         MapConfigurationPropertySource source = new MapConfigurationPropertySource(Map.of(
                 "codepilot.llm.max-review-patch-chars", "100",
                 "codepilot.llm.max-review-rules-chars", "200",
-                "codepilot.llm.max-review-context-chars", "300"
+                "codepilot.llm.max-review-context-chars", "300",
+                "codepilot.llm.review-cache-enabled", "false",
+                "codepilot.llm.review-cache-ttl-days", "3"
         ));
 
         LlmProperties properties = new Binder(source)
@@ -26,6 +28,8 @@ class LlmPropertiesTest {
         assertThat(properties.getMaxReviewPatchChars()).isEqualTo(100);
         assertThat(properties.getMaxReviewRulesChars()).isEqualTo(200);
         assertThat(properties.getMaxReviewContextChars()).isEqualTo(300);
+        assertThat(properties.isReviewCacheEnabled()).isFalse();
+        assertThat(properties.getReviewCacheTtlDays()).isEqualTo(3);
     }
 
     @Test
@@ -35,5 +39,7 @@ class LlmPropertiesTest {
         assertThat(properties.getMaxReviewPatchChars()).isEqualTo(12000);
         assertThat(properties.getMaxReviewRulesChars()).isEqualTo(4000);
         assertThat(properties.getMaxReviewContextChars()).isEqualTo(8000);
+        assertThat(properties.isReviewCacheEnabled()).isTrue();
+        assertThat(properties.getReviewCacheTtlDays()).isEqualTo(7);
     }
 }

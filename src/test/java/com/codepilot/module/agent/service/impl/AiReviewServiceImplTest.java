@@ -16,6 +16,7 @@ import com.codepilot.module.agent.review.ReviewLlmInputLimiter;
 import com.codepilot.module.agent.review.ReviewLlmCallLogger;
 import com.codepilot.module.agent.review.ReviewLlmReviewer;
 import com.codepilot.module.agent.review.ReviewResultMerger;
+import com.codepilot.module.agent.review.cache.ReviewLlmCache;
 import com.codepilot.module.agent.service.ReviewRagService;
 import com.codepilot.module.audit.entity.LlmCallLog;
 import com.codepilot.module.audit.service.LlmCallLogService;
@@ -269,6 +270,8 @@ class AiReviewServiceImplTest {
 
         private final LlmCallLogService llmCallLogService = mock(LlmCallLogService.class);
 
+        private final ReviewLlmCache reviewLlmCache = mock(ReviewLlmCache.class);
+
         @SuppressWarnings("unchecked")
         private final ObjectProvider<SqlRiskTool> sqlRiskToolProvider = mock(ObjectProvider.class);
 
@@ -303,6 +306,7 @@ class AiReviewServiceImplTest {
             when(reviewLlmClient.providerName()).thenReturn("test");
             when(reviewLlmClient.isAvailable()).thenReturn(true);
             when(reviewRagService.retrieveRelevantRules(any(), any())).thenReturn(List.of());
+            when(reviewLlmCache.find(any(), any())).thenReturn(Optional.empty());
             when(sqlRiskToolProvider.getIfAvailable()).thenReturn(new SqlRiskTool());
             when(secretScanToolProvider.getIfAvailable()).thenReturn(new SecretScanTool());
             when(testSuggestionToolProvider.getIfAvailable()).thenReturn(new TestSuggestionTool());
@@ -313,7 +317,8 @@ class AiReviewServiceImplTest {
                     reviewRagService,
                     new ReviewPromptBuilder(),
                     reviewLlmInputLimiter,
-                    reviewLlmCallLogger
+                    reviewLlmCallLogger,
+                    reviewLlmCache
             );
             service = new AiReviewServiceImpl(
                     deterministicReviewToolRunner,

@@ -28,4 +28,8 @@ public class LlmProperties {
     private int maxReviewRulesChars = 4000;
 
     private int maxReviewContextChars = 8000;
+
+    private boolean reviewCacheEnabled = true;
+
+    private int reviewCacheTtlDays = 7;
 }

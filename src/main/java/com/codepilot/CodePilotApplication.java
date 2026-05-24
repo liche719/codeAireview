@@ -8,7 +8,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         "com.codepilot.module.review.mapper",
         "com.codepilot.module.audit.mapper",
         "com.codepilot.module.rag.mapper",
-        "com.codepilot.module.command.mapper"
+        "com.codepilot.module.command.mapper",
+        "com.codepilot.module.agent.review.cache"
 })
 @SpringBootApplication
 public class CodePilotApplication {
