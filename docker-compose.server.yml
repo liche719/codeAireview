@@ -73,8 +73,6 @@ services:
       CODEPILOT_RABBITMQ_VIRTUAL_HOST: ${CODEPILOT_RABBITMQ_VIRTUAL_HOST:-/}
     ports:
       - "8080:8080"
-    volumes:
-      - maven-cache:/root/.m2
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,4 +84,3 @@ services:
 volumes:
   postgres-data:
   rabbitmq-data:
-  maven-cache:
