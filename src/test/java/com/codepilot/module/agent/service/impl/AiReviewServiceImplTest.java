@@ -3,6 +3,7 @@ package com.codepilot.module.agent.service.impl;
 import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.parser.AiReviewResultParser;
+import com.codepilot.module.agent.parser.AiReviewResultSchemaValidator;
 import com.codepilot.module.agent.prompt.AiReviewContextFormatter;
 import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
 import com.codepilot.module.agent.review.DeterministicReviewToolRunner;
@@ -194,6 +195,7 @@ class AiReviewServiceImplTest {
                           "issues": [
                             {
                               "filePath": "src/main/java/DemoService.java",
+                              "lineNumber": 1,
                               "issueType": "BUG_RISK",
                               "issueTypeZh": "Bug 风险",
                               "severity": "MEDIUM",
@@ -276,7 +278,7 @@ class AiReviewServiceImplTest {
 
             reviewLlmReviewer = new ReviewLlmReviewer(
                     assistantProvider,
-                    new AiReviewResultParser(new ObjectMapper()),
+                    new AiReviewResultParser(new ObjectMapper(), new AiReviewResultSchemaValidator()),
                     reviewRagService,
                     new ReviewPromptBuilder(),
                     reviewLlmCallLogger

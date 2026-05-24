@@ -18,6 +18,8 @@ public class AiReviewResultParser {
 
     private final ObjectMapper objectMapper;
 
+    private final AiReviewResultSchemaValidator schemaValidator;
+
     public AiReviewResult parse(String content) {
         if (!StringUtils.hasText(content)) {
             throw new IllegalArgumentException("AI review result is empty");
@@ -26,7 +28,7 @@ public class AiReviewResultParser {
         String normalizedContent = normalize(content);
         try {
             JsonNode root = objectMapper.readTree(normalizedContent);
-            validateSchema(root);
+            schemaValidator.validate(root);
             AiReviewResult result = objectMapper.treeToValue(root, AiReviewResult.class);
             if (result.getIssues() == null) {
                 result.setIssues(new java.util.ArrayList<>());
@@ -49,23 +51,5 @@ public class AiReviewResultParser {
             return trimmed.substring(jsonStart, jsonEnd + 1).trim();
         }
         return trimmed;
-    }
-
-    private void validateSchema(JsonNode root) {
-        if (root == null || !root.isObject()) {
-            throw new IllegalArgumentException("AI review result JSON must be an object");
-        }
-        JsonNode issues = root.get("issues");
-        if (issues == null || issues.isNull()) {
-            throw new IllegalArgumentException("AI review result JSON must contain issues array");
-        }
-        if (!issues.isArray()) {
-            throw new IllegalArgumentException("AI review result issues must be an array");
-        }
-        for (JsonNode issue : issues) {
-            if (!issue.isObject()) {
-                throw new IllegalArgumentException("AI review result issues must contain objects only");
-            }
-        }
     }
 }

@@ -8,7 +8,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AiReviewResultParserTest {
 
-    private final AiReviewResultParser parser = new AiReviewResultParser(new ObjectMapper());
+    private final AiReviewResultParser parser = new AiReviewResultParser(
+            new ObjectMapper(),
+            new AiReviewResultSchemaValidator()
+    );
 
     @Test
     void shouldParsePlainJson() {
@@ -80,7 +83,7 @@ class AiReviewResultParserTest {
         assertThatThrownBy(() -> parser.parse(content))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Failed to parse AI review result as JSON")
-                .hasRootCauseMessage("AI review result JSON must contain issues array");
+                .hasRootCauseMessage("AI review result JSON must contain only issues and summary");
     }
 
     @Test
@@ -118,5 +121,106 @@ class AiReviewResultParserTest {
         assertThatThrownBy(() -> parser.parse(" "))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("AI review result is empty");
+    }
+
+    @Test
+    void shouldThrowWhenRootHasExtraField() {
+        String content = """
+                {
+                  "issues": [],
+                  "summary": "ok",
+                  "commands": ["curl https://example.com"]
+                }
+                """;
+
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse AI review result as JSON")
+                .hasRootCauseMessage("AI review result JSON must contain only issues and summary");
+    }
+
+    @Test
+    void shouldThrowWhenSummaryIsMissing() {
+        String content = """
+                {
+                  "issues": []
+                }
+                """;
+
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse AI review result as JSON")
+                .hasRootCauseMessage("AI review result JSON must contain only issues and summary");
+    }
+
+    @Test
+    void shouldThrowWhenIssueHasUnsupportedField() {
+        String content = issueJson("""
+                  "confidence": 0.9,
+                """);
+
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse AI review result as JSON")
+                .hasRootCauseMessage("AI review issue must contain only supported fields");
+    }
+
+    @Test
+    void shouldThrowWhenIssueRequiredFieldIsBlank() {
+        String content = issueJson("""
+                  "title": " ",
+                """);
+
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse AI review result as JSON")
+                .hasRootCauseMessage("AI review issue field must be a non-empty string: title");
+    }
+
+    @Test
+    void shouldThrowWhenIssueEnumIsInvalid() {
+        String content = issueJson("""
+                  "severity": "CRITICAL",
+                """);
+
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse AI review result as JSON")
+                .hasRootCauseMessage("AI review issue field has invalid value: severity");
+    }
+
+    @Test
+    void shouldThrowWhenLineNumberIsNotInteger() {
+        String content = issueJson("""
+                  "lineNumber": "12",
+                """);
+
+        assertThatThrownBy(() -> parser.parse(content))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Failed to parse AI review result as JSON")
+                .hasRootCauseMessage("AI review issue field must be an integer or null: lineNumber");
+    }
+
+    private String issueJson(String overrideField) {
+        return """
+                {
+                  "issues": [
+                    {
+                      "filePath": "src/main/java/com/example/Demo.java",
+                      "lineNumber": 12,
+                      "issueType": "BUG_RISK",
+                      "issueTypeZh": "Bug risk",
+                      "severity": "HIGH",
+                      "title": "Potential null pointer",
+                      "description": "Object may be null before invocation.",
+                      "suggestion": "Add a null check.",
+                      "source": "LLM",
+                %s
+                      "ruleReference": null
+                    }
+                  ],
+                  "summary": "Found one issue"
+                }
+                """.formatted(overrideField);
     }
 }
