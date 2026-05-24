@@ -184,8 +184,8 @@ class ReviewFileReviewerTest {
         issue.setIssueType("BUG_RISK");
         issue.setSeverity("HIGH");
         issue.setTitle(title);
-        issue.setDescription("Risky change.");
-        issue.setSuggestion("Fix it.");
+        issue.setDescription("Risky change can break the reviewed behavior.");
+        issue.setSuggestion("Fix the risky change before merging.");
 
         AiReviewResult result = new AiReviewResult();
         result.setIssues(List.of(issue));
