@@ -16,4 +16,10 @@ public class RagProperties {
     private int maxContextChars = 2000;
 
     private int minContentLength = 20;
+
+    private boolean cacheEnabled = true;
+
+    private int cacheMaxSize = 256;
+
+    private int cacheTtlSeconds = 300;
 }

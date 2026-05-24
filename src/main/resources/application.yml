@@ -119,6 +119,9 @@ codepilot:
     top-k: 3
     max-context-chars: 2000
     min-content-length: 20
+    cache-enabled: ${CODEPILOT_RAG_CACHE_ENABLED:true}
+    cache-max-size: ${CODEPILOT_RAG_CACHE_MAX_SIZE:256}
+    cache-ttl-seconds: ${CODEPILOT_RAG_CACHE_TTL_SECONDS:300}
   tools:
     enabled: true
     sql-risk-enabled: true

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -156,6 +157,45 @@ class ReviewRagServiceImplTest {
         assertThat(contexts.getFirst().getType()).isEqualTo("GENERAL_RULE");
     }
 
+    @Test
+    void shouldReuseCachedRuleContextsForSameQueryAndRuleTypes() {
+        RagProperties properties = defaultProperties();
+        AtomicInteger searchCount = new AtomicInteger();
+        RuleSearchService ruleSearchService = request -> {
+            searchCount.incrementAndGet();
+            return new RuleSearchResponse(List.of(ruleRecord(1L, request.getType(), "Rule", 0.10D)));
+        };
+        ReviewRagServiceImpl service = new ReviewRagServiceImpl(properties, ruleSearchService);
+
+        var first = service.retrieveRelevantRules("src/main/java/DemoMapper.java", "+String sql = \"select * from user\";");
+        int searchesAfterFirstCall = searchCount.get();
+        var second = service.retrieveRelevantRules("src/main/java/DemoMapper.java", "+String sql = \"select * from user\";");
+        first.getFirst().setContent("mutated by caller");
+
+        assertThat(searchesAfterFirstCall).isGreaterThan(0);
+        assertThat(searchCount.get()).isEqualTo(searchesAfterFirstCall);
+        assertThat(second.getFirst().getContent()).isEqualTo("Rule");
+    }
+
+    @Test
+    void shouldBypassCacheWhenRagCacheIsDisabled() {
+        RagProperties properties = defaultProperties();
+        properties.setCacheEnabled(false);
+        AtomicInteger searchCount = new AtomicInteger();
+        RuleSearchService ruleSearchService = request -> {
+            searchCount.incrementAndGet();
+            return new RuleSearchResponse(List.of(ruleRecord(1L, request.getType(), "Rule", 0.10D)));
+        };
+        ReviewRagServiceImpl service = new ReviewRagServiceImpl(properties, ruleSearchService);
+
+        service.retrieveRelevantRules("src/main/java/DemoMapper.java", "+String sql = \"select * from user\";");
+        int searchesAfterFirstCall = searchCount.get();
+        service.retrieveRelevantRules("src/main/java/DemoMapper.java", "+String sql = \"select * from user\";");
+
+        assertThat(searchesAfterFirstCall).isGreaterThan(0);
+        assertThat(searchCount.get()).isEqualTo(searchesAfterFirstCall * 2);
+    }
+
     private RuleSearchRecord ruleRecord(Long chunkId, String type, String content, Double distance) {
         RuleSearchRecord record = new RuleSearchRecord();
         record.setChunkId(chunkId);
@@ -172,6 +212,9 @@ class ReviewRagServiceImplTest {
         properties.setTopK(3);
         properties.setMaxContextChars(2000);
         properties.setMinContentLength(1);
+        properties.setCacheEnabled(true);
+        properties.setCacheMaxSize(256);
+        properties.setCacheTtlSeconds(300);
         return properties;
     }
 }

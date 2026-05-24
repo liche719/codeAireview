@@ -12,12 +12,20 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -26,9 +34,13 @@ public class ReviewRagServiceImpl implements ReviewRagService {
 
     private static final int MAX_QUERY_CHARS = 1500;
 
+    private static final String CACHE_VERSION = "review-rag-v1";
+
     private final RagProperties ragProperties;
 
     private final RuleSearchService ruleSearchService;
+
+    private final Map<String, CachedRuleContext> cache = new ConcurrentHashMap<>();
 
     @Override
     public List<ReviewRuleContext> retrieveRelevantRules(String filePath, String patch) {
@@ -52,8 +64,17 @@ public class ReviewRagServiceImpl implements ReviewRagService {
 
             int topK = Math.max(1, ragProperties.getTopK());
             List<String> ruleTypes = inferRuleTypes(filePath, patch);
+            String cacheKey = buildCacheKey(query, topK, ruleTypes);
+            List<ReviewRuleContext> cachedContexts = getCached(cacheKey);
+            if (cachedContexts != null) {
+                log.info("RAG cache hit, filePath={}, ruleTypes={}, ruleCount={}, contextChars={}",
+                        filePath, ruleTypes, cachedContexts.size(), totalContentLength(cachedContexts));
+                return cachedContexts;
+            }
+
             List<RuleSearchRecord> records = searchByRuleTypes(query, topK, ruleTypes);
             List<ReviewRuleContext> contexts = limitContext(records);
+            putCached(cacheKey, contexts);
             log.info("RAG retrieved rules, filePath={}, ruleTypes={}, ruleCount={}, contextChars={}",
                     filePath, ruleTypes, contexts.size(), totalContentLength(contexts));
             return contexts;
@@ -62,6 +83,96 @@ public class ReviewRagServiceImpl implements ReviewRagService {
                     filePath, SensitiveDataSanitizer.redact(exception.getMessage()));
             return List.of();
         }
+    }
+
+    private List<ReviewRuleContext> getCached(String cacheKey) {
+        if (!isCacheEnabled() || !StringUtils.hasText(cacheKey)) {
+            return null;
+        }
+        CachedRuleContext cached = cache.get(cacheKey);
+        if (cached == null) {
+            return null;
+        }
+        if (cached.isExpired(cacheTtl())) {
+            cache.remove(cacheKey, cached);
+            return null;
+        }
+        cached.markAccessed();
+        return copyContexts(cached.contexts());
+    }
+
+    private void putCached(String cacheKey, List<ReviewRuleContext> contexts) {
+        if (!isCacheEnabled() || !StringUtils.hasText(cacheKey)) {
+            return;
+        }
+        cache.put(cacheKey, new CachedRuleContext(copyContexts(contexts)));
+        evictIfNeeded();
+    }
+
+    private void evictIfNeeded() {
+        int maxSize = Math.max(1, ragProperties.getCacheMaxSize());
+        if (cache.size() <= maxSize) {
+            return;
+        }
+        cache.entrySet().stream()
+                .sorted(Comparator.comparing(entry -> entry.getValue().lastAccessedAt()))
+                .limit(Math.max(1, cache.size() - maxSize))
+                .map(Map.Entry::getKey)
+                .toList()
+                .forEach(cache::remove);
+    }
+
+    private boolean isCacheEnabled() {
+        return ragProperties.isCacheEnabled()
+                && ragProperties.getCacheMaxSize() > 0
+                && ragProperties.getCacheTtlSeconds() > 0;
+    }
+
+    private Duration cacheTtl() {
+        return Duration.ofSeconds(Math.max(1, ragProperties.getCacheTtlSeconds()));
+    }
+
+    private String buildCacheKey(String query, int topK, List<String> ruleTypes) {
+        MessageDigest digest = sha256();
+        appendDigest(digest, CACHE_VERSION);
+        appendDigest(digest, query);
+        appendDigest(digest, Integer.toString(topK));
+        appendDigest(digest, Integer.toString(Math.max(0, ragProperties.getMaxContextChars())));
+        appendDigest(digest, String.join(",", ruleTypes == null ? List.of() : ruleTypes));
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    private MessageDigest sha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 digest is not available", exception);
+        }
+    }
+
+    private void appendDigest(MessageDigest digest, String value) {
+        digest.update((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
+        digest.update((byte) 0);
+    }
+
+    private List<ReviewRuleContext> copyContexts(List<ReviewRuleContext> contexts) {
+        if (contexts == null || contexts.isEmpty()) {
+            return List.of();
+        }
+        return contexts.stream()
+                .filter(Objects::nonNull)
+                .map(this::copyContext)
+                .toList();
+    }
+
+    private ReviewRuleContext copyContext(ReviewRuleContext source) {
+        ReviewRuleContext copy = new ReviewRuleContext();
+        copy.setChunkId(source.getChunkId());
+        copy.setDocumentId(source.getDocumentId());
+        copy.setType(source.getType());
+        copy.setContent(source.getContent());
+        copy.setDistance(source.getDistance());
+        return copy;
     }
 
     public String buildRuleSearchQuery(String filePath, String patch) {
@@ -243,5 +354,37 @@ public class ReviewRagServiceImpl implements ReviewRagService {
             return content;
         }
         return content.substring(0, Math.max(0, maxLength));
+    }
+
+    private static class CachedRuleContext {
+
+        private final List<ReviewRuleContext> contexts;
+
+        private final Instant createdAt;
+
+        private volatile Instant lastAccessedAt;
+
+        private CachedRuleContext(List<ReviewRuleContext> contexts) {
+            Instant now = Instant.now();
+            this.contexts = contexts == null ? List.of() : contexts;
+            this.createdAt = now;
+            this.lastAccessedAt = now;
+        }
+
+        private boolean isExpired(Duration ttl) {
+            return createdAt.plus(ttl).isBefore(Instant.now());
+        }
+
+        private void markAccessed() {
+            lastAccessedAt = Instant.now();
+        }
+
+        private List<ReviewRuleContext> contexts() {
+            return contexts;
+        }
+
+        private Instant lastAccessedAt() {
+            return lastAccessedAt;
+        }
     }
 }
