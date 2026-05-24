@@ -35,7 +35,9 @@ class ReviewContextSignalExtractorTest {
         List<ReviewContext.ReviewSignal> signals = extractor.reviewSignals(List.of(
                 reviewFile("src/main/java/AuthService.java", "+code", 20, 2, false, null),
                 reviewFile("src/main/resources/db/migration/V2__users.sql", "+alter", 3, 0, false, null),
-                reviewFile("src/main/resources/application.yml", "+flag", 1, 1, false, null)
+                reviewFile("src/main/resources/application.yml", "+flag", 1, 1, false, null),
+                reviewFile("pom.xml", "+dependency", 1, 0, false, null),
+                reviewFile("src/main/java/com/example/controller/UserController.java", "+endpoint", 5, 1, false, null)
         ));
 
         assertThat(signals)
@@ -44,7 +46,9 @@ class ReviewContextSignalExtractorTest {
                         "MISSING_TEST_CHANGE",
                         "DATABASE_CHANGE",
                         "SECURITY_SENSITIVE_CHANGE",
-                        "CONFIG_CHANGE"
+                        "CONFIG_CHANGE",
+                        "DEPENDENCY_CHANGE",
+                        "PUBLIC_API_CHANGE"
                 );
     }
 

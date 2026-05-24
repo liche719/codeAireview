@@ -82,6 +82,20 @@ public class ReviewContextSignalExtractor {
                     "Configuration files changed; check environment-specific defaults and deployment impact."
             ));
         }
+        if (hasPathMatching(reviewFiles, this::isDependencyManifestPath)) {
+            signals.add(new ReviewContext.ReviewSignal(
+                    "DEPENDENCY_CHANGE",
+                    "MEDIUM",
+                    "Dependency or build manifest changed; check supply-chain risk, version compatibility, and build reproducibility."
+            ));
+        }
+        if (hasPathMatching(reviewFiles, this::isPublicApiPath)) {
+            signals.add(new ReviewContext.ReviewSignal(
+                    "PUBLIC_API_CHANGE",
+                    "HIGH",
+                    "Public API surface changed; check backward compatibility, auth boundaries, clients, and API tests."
+            ));
+        }
         return signals;
     }
 
@@ -178,6 +192,41 @@ public class ReviewContextSignalExtractor {
                 || path.contains("docker-compose");
     }
 
+    private boolean isDependencyManifestPath(String path) {
+        String fileName = fileName(path);
+        return fileName.equals("pom.xml")
+                || fileName.equals("build.gradle")
+                || fileName.equals("build.gradle.kts")
+                || fileName.equals("settings.gradle")
+                || fileName.equals("settings.gradle.kts")
+                || fileName.equals("gradle.properties")
+                || fileName.equals("package.json")
+                || fileName.equals("package-lock.json")
+                || fileName.equals("yarn.lock")
+                || fileName.equals("pnpm-lock.yaml")
+                || fileName.equals("go.mod")
+                || fileName.equals("go.sum")
+                || fileName.equals("requirements.txt")
+                || fileName.equals("pyproject.toml")
+                || fileName.equals("poetry.lock");
+    }
+
+    private boolean isPublicApiPath(String path) {
+        String normalized = normalizePath(path);
+        return normalized.contains("/controller/")
+                || normalized.contains("/controllers/")
+                || normalized.contains("/api/")
+                || normalized.contains("/dto/")
+                || normalized.contains("/request/")
+                || normalized.contains("/response/")
+                || normalized.contains("/graphql/")
+                || normalized.contains("/openapi/")
+                || normalized.contains("/swagger/")
+                || normalized.endsWith(".proto")
+                || normalized.endsWith(".graphql")
+                || normalized.endsWith(".graphqls");
+    }
+
     private int sumPatchChars(List<ReviewFile> reviewFiles) {
         return reviewFiles.stream()
                 .map(ReviewFile::getPatch)
@@ -188,6 +237,12 @@ public class ReviewContextSignalExtractor {
 
     private String normalizePath(String path) {
         return path.replace('\\', '/').trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String fileName(String path) {
+        String normalized = normalizePath(path);
+        int index = normalized.lastIndexOf('/');
+        return index < 0 ? normalized : normalized.substring(index + 1);
     }
 
     private int valueOrZero(Integer value) {
