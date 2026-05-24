@@ -14,7 +14,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
@@ -32,10 +34,24 @@ public class SecretScanTool {
             "jdbcurl"
     );
 
-    @Tool("检测代码 Diff 中是否包含硬编码敏感信息，例如 password、token、secret、accessKey、apiKey、privateKey")
+    private static final Pattern QUOTED_LITERAL = Pattern.compile("[:=]\\s*([\"'])([^\"']+)\\1");
+
+    private static final Pattern ENVIRONMENT_LOOKUP = Pattern.compile(
+            "(?i)\\b(?:System\\.getenv|getenv|process\\.env|env\\(|environment\\.getProperty)\\b"
+    );
+
+    private static final Pattern GITHUB_TOKEN = Pattern.compile("\\bgh[pousr]_[A-Za-z0-9_]{20,}\\b");
+
+    private static final Pattern AWS_ACCESS_KEY = Pattern.compile("\\b(?:AKIA|ASIA)[A-Z0-9]{16}\\b");
+
+    private static final Pattern JWT_TOKEN = Pattern.compile("\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b");
+
+    private static final Pattern PRIVATE_KEY_HEADER = Pattern.compile("-----BEGIN [A-Z ]*PRIVATE KEY-----");
+
+    @Tool("Detect hardcoded secrets in added diff lines, including tokens, passwords, API keys, private keys, and JDBC URLs.")
     public List<ToolCheckResult> scanSecrets(
-            @P("当前审查文件路径") String filePath,
-            @P("当前审查文件的 GitHub Pull Request diff patch") String patch
+            @P("Current review file path") String filePath,
+            @P("Current GitHub Pull Request diff patch") String patch
     ) {
         long startTime = System.currentTimeMillis();
         try {
@@ -47,15 +63,17 @@ public class SecretScanTool {
             Set<String> reportedLines = new LinkedHashSet<>();
             for (DiffToolUtils.AddedLine addedLine : DiffToolUtils.addedLineEntries(patch)) {
                 String line = addedLine.text();
-                String normalized = line.toLowerCase(Locale.ROOT).replace("_", "").replace("-", "");
-                if (containsSensitiveKeyword(normalized) && reportedLines.add(normalized.trim())) {
+                Optional<SecretFinding> finding = secretFinding(line);
+                String fingerprint = normalizeKeywordText(line).trim();
+                if (finding.isPresent() && reportedLines.add(fingerprint)) {
                     results.add(ToolCheckResult.atLine(
                             addedLine.newLineNumber(),
                             "SECURITY",
-                            likelyHardcodedValue(line) ? "HIGH" : "MEDIUM",
-                            "新增代码疑似包含敏感信息",
-                            "新增行中出现 password、token、secret、apiKey 等敏感字段，存在硬编码或泄露风险。",
-                            "请使用环境变量、配置中心、密钥管理服务，并避免在日志或代码中明文保存敏感信息。"
+                            finding.get().severity(),
+                            "Added code appears to contain a hardcoded secret",
+                            "The added line matches a high-confidence secret pattern (" + finding.get().reason()
+                                    + "), which can leak credentials or hardcode sensitive access.",
+                            "Move the value to environment variables, a secret manager, or a configuration service, and rotate any credential that was committed."
                     ));
                 }
             }
@@ -70,11 +88,81 @@ public class SecretScanTool {
         }
     }
 
+    private Optional<SecretFinding> secretFinding(String line) {
+        if (!StringUtils.hasText(line)) {
+            return Optional.empty();
+        }
+        if (PRIVATE_KEY_HEADER.matcher(line).find()) {
+            return Optional.of(new SecretFinding("HIGH", "private key header"));
+        }
+        if (GITHUB_TOKEN.matcher(line).find()) {
+            return Optional.of(new SecretFinding("HIGH", "GitHub token"));
+        }
+        if (AWS_ACCESS_KEY.matcher(line).find()) {
+            return Optional.of(new SecretFinding("HIGH", "AWS access key"));
+        }
+        if (JWT_TOKEN.matcher(line).find()) {
+            return Optional.of(new SecretFinding("HIGH", "JWT token"));
+        }
+        if (hasSensitiveLiteralAssignment(line)) {
+            return Optional.of(new SecretFinding("HIGH", "literal secret assignment"));
+        }
+        if (containsSensitiveKeyword(normalizeKeywordText(line)) && likelyHardcodedValue(line)) {
+            return Optional.of(new SecretFinding("MEDIUM", "sensitive keyword with literal value"));
+        }
+        return Optional.empty();
+    }
+
+    private boolean likelyHardcodedValue(String line) {
+        return line.contains("=")
+                && (line.contains("\"") || line.contains("'"))
+                && !ENVIRONMENT_LOOKUP.matcher(line).find();
+    }
+
+    private boolean hasSensitiveLiteralAssignment(String line) {
+        if (!StringUtils.hasText(line) || ENVIRONMENT_LOOKUP.matcher(line).find()) {
+            return false;
+        }
+        int assignmentIndex = assignmentIndex(line);
+        if (assignmentIndex < 0) {
+            return false;
+        }
+        String leftSide = normalizeKeywordText(line.substring(0, assignmentIndex));
+        if (!containsSensitiveKeyword(leftSide)) {
+            return false;
+        }
+        java.util.regex.Matcher matcher = QUOTED_LITERAL.matcher(line.substring(assignmentIndex));
+        if (!matcher.find()) {
+            return false;
+        }
+        String value = matcher.group(2).trim();
+        return StringUtils.hasText(value)
+                && !value.startsWith("${")
+                && !value.startsWith("%{")
+                && !value.startsWith("{{")
+                && !value.startsWith("<");
+    }
+
+    private int assignmentIndex(String line) {
+        int equalsIndex = line.indexOf('=');
+        int colonIndex = line.indexOf(':');
+        if (equalsIndex < 0) {
+            return colonIndex;
+        }
+        if (colonIndex < 0) {
+            return equalsIndex;
+        }
+        return Math.min(equalsIndex, colonIndex);
+    }
+
+    private String normalizeKeywordText(String line) {
+        return line == null ? "" : line.toLowerCase(Locale.ROOT).replace("_", "").replace("-", "");
+    }
+
     private boolean containsSensitiveKeyword(String line) {
         return SENSITIVE_KEYWORDS.stream().anyMatch(line::contains);
     }
 
-    private boolean likelyHardcodedValue(String line) {
-        return line.contains("=") && (line.contains("\"") || line.contains("'"));
+    private record SecretFinding(String severity, String reason) {
     }
 }

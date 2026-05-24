@@ -14,7 +14,7 @@ class SecretScanToolTest {
                 "src/main/java/Demo.java",
                 """
                         @@ -8,1 +8,2 @@
-                        +String token = "abc123";
+                        +String token = "abc123456789";
                         """
         );
 
@@ -31,9 +31,9 @@ class SecretScanToolTest {
         var results = secretScanTool.scanSecrets(
                 "src/main/java/Demo.java",
                 """
-                        +String token = "abc123";
+                        +String token = "abc123456789";
                         +String password = "change-me";
-                        +String token = "abc123";
+                        +String token = "abc123456789";
                         """
         );
 
@@ -67,5 +67,36 @@ class SecretScanToolTest {
         );
 
         assertThat(results).isEmpty();
+    }
+
+    @Test
+    void shouldIgnoreSensitiveVariableNamesWithoutHardcodedValues() {
+        var results = secretScanTool.scanSecrets(
+                "src/main/java/Demo.java",
+                """
+                        +String tokenProvider = authTokenProvider.current();
+                        +String token = System.getenv("TOKEN");
+                        """
+        );
+
+        assertThat(results).isEmpty();
+    }
+
+    @Test
+    void shouldDetectCommonSecretValueFormats() {
+        var results = secretScanTool.scanSecrets(
+                "src/main/java/Demo.java",
+                """
+                        +String githubToken = "ghp_1234567890abcdefghijklmnopqr";
+                        +String awsKey = "AKIA1234567890ABCDEF";
+                        +String jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.VeryLongSignatureValue123";
+                        +String key = "-----BEGIN PRIVATE KEY-----";
+                        """
+        );
+
+        assertThat(results).hasSize(4);
+        assertThat(results)
+                .extracting(result -> result.getSeverity())
+                .containsOnly("HIGH");
     }
 }
