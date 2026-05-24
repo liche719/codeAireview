@@ -43,12 +43,14 @@ class FixRequestAssemblerTest {
                 task(),
                 prDetail(),
                 "patch",
-                " fix: demo\n\nwith extra spaces "
+                " fix: demo\n\nwith extra spaces ",
+                java.util.Set.of("src/main/java/Demo.java")
         );
 
         assertThat(request.getCloneUrl()).isEqualTo("https://github.com/liche719/codeAireview.git");
         assertThat(request.getBranch()).isEqualTo("feature/fix");
         assertThat(request.getPatch()).isEqualTo("patch");
+        assertThat(request.getAllowedPaths()).containsExactly("src/main/java/Demo.java");
         assertThat(request.getToken()).isEqualTo("github-token");
         assertThat(request.getCommitMessage()).isEqualTo("fix: demo with extra spaces");
         assertThat(request.getValidationCommand()).isEqualTo("git diff --check");
@@ -62,7 +64,13 @@ class FixRequestAssemblerTest {
     void shouldFallbackCommitMessageWhenModelMessageIsBlank() {
         FixRequestAssembler assembler = new FixRequestAssembler(new GithubCommandProperties(), new ObjectMapper());
 
-        GitPatchExecutionRequest request = assembler.buildExecutionRequest(task(), prDetail(), "patch", " ");
+        GitPatchExecutionRequest request = assembler.buildExecutionRequest(
+                task(),
+                prDetail(),
+                "patch",
+                " ",
+                java.util.Set.of("src/main/java/Demo.java")
+        );
 
         assertThat(request.getCommitMessage()).isEqualTo("fix: CodePilot AI 自动修复");
     }

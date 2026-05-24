@@ -1,5 +1,7 @@
 package com.codepilot.module.command.git;
 
+import com.codepilot.module.command.config.GithubCommandProperties;
+import com.codepilot.module.command.fix.FixPatchScopeValidator;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -7,15 +9,18 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class JGitPatchExecutorTest {
 
+    private final JGitPatchExecutor executor = new JGitPatchExecutor(
+            new FixPatchScopeValidator(new GithubCommandProperties())
+    );
+
     @Test
     void shouldAllowOnlyExplicitValidationCommands() {
-        JGitPatchExecutor executor = new JGitPatchExecutor();
-
         assertThat(executor.isValidationCommandAllowed(
                 "  git   diff   --check  ",
                 List.of("git diff --check")
@@ -34,8 +39,6 @@ class JGitPatchExecutorTest {
 
     @Test
     void shouldRejectShellValidationCommandsEvenWhenConfigured() {
-        JGitPatchExecutor executor = new JGitPatchExecutor();
-
         assertThat(executor.isValidationCommandAllowed(
                 "bash -lc mvn test",
                 List.of("bash -lc mvn test")
@@ -54,8 +57,6 @@ class JGitPatchExecutorTest {
 
     @Test
     void shouldRejectPathBasedValidationExecutables() {
-        JGitPatchExecutor executor = new JGitPatchExecutor();
-
         assertThat(executor.isValidationCommandAllowed(
                 "./gradlew test",
                 List.of("./gradlew test")
@@ -74,8 +75,6 @@ class JGitPatchExecutorTest {
 
     @Test
     void shouldRejectUnsafeValidationTokens() {
-        JGitPatchExecutor executor = new JGitPatchExecutor();
-
         assertThat(executor.isValidationCommandAllowed(
                 "mvn test > out.txt",
                 List.of("mvn test > out.txt")
@@ -94,8 +93,6 @@ class JGitPatchExecutorTest {
 
     @Test
     void shouldAllowSafeValidationArgumentsWhenExplicitlyConfigured() {
-        JGitPatchExecutor executor = new JGitPatchExecutor();
-
         assertThat(executor.isValidationCommandAllowed(
                 "mvn -q -DskipTests compile",
                 List.of("git diff --check", "mvn -q -DskipTests compile")
@@ -109,8 +106,6 @@ class JGitPatchExecutorTest {
 
     @Test
     void shouldOnlyRetryTransientGitStages() {
-        JGitPatchExecutor executor = new JGitPatchExecutor();
-
         assertThat(executor.isRetryableExecutionStage("clone")).isTrue();
         assertThat(executor.isRetryableExecutionStage("push")).isTrue();
         assertThat(executor.isRetryableExecutionStage("apply")).isFalse();
@@ -118,8 +113,39 @@ class JGitPatchExecutorTest {
     }
 
     @Test
+    void shouldRejectPatchExecutionWithoutAllowedPaths() {
+        GitPatchExecutionRequest request = validRequest();
+        request.setAllowedPaths(Set.of());
+
+        GitPatchExecutionResult result = executor.execute(request);
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.isRetryable()).isFalse();
+        assertThat(result.getMessage()).contains("allowedPaths are required");
+    }
+
+    @Test
+    void shouldRejectPatchExecutionOutsideAllowedPathsBeforeClone() {
+        GitPatchExecutionRequest request = validRequest();
+        request.setAllowedPaths(Set.of("src/main/java/Demo.java"));
+        request.setPatch("""
+                diff --git a/src/main/java/Other.java b/src/main/java/Other.java
+                --- a/src/main/java/Other.java
+                +++ b/src/main/java/Other.java
+                @@ -1 +1 @@
+                -old
+                +new
+                """);
+
+        GitPatchExecutionResult result = executor.execute(request);
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.isRetryable()).isFalse();
+        assertThat(result.getMessage()).contains("Automatic fixes can only modify selected issue files");
+    }
+
+    @Test
     void shouldRedactSecretsFromValidationOutput() throws Exception {
-        JGitPatchExecutor executor = new JGitPatchExecutor();
         Path outputFile = Files.createTempFile("codepilot-validation-test-", ".log");
         try {
             Files.writeString(outputFile, "token=ghp_123456789012345678901234567890123456");
@@ -135,7 +161,6 @@ class JGitPatchExecutorTest {
 
     @Test
     void shouldRedactSecretsBeforeTruncatingValidationOutput() throws Exception {
-        JGitPatchExecutor executor = new JGitPatchExecutor();
         Path outputFile = Files.createTempFile("codepilot-validation-test-", ".log");
         try {
             Files.writeString(
@@ -156,8 +181,6 @@ class JGitPatchExecutorTest {
 
     @Test
     void shouldAvoidLoggingCredentialsFromRemoteUrl() {
-        JGitPatchExecutor executor = new JGitPatchExecutor();
-
         String label = executor.safeRemoteLabel("https://user:token123456@example.com/owner/repo.git");
 
         assertThat(label).isEqualTo("example.com");
@@ -165,7 +188,6 @@ class JGitPatchExecutorTest {
 
     @Test
     void shouldIsolateValidationEnvironmentWhenInheritanceIsDisabled() throws Exception {
-        JGitPatchExecutor executor = new JGitPatchExecutor();
         Path workDir = Files.createTempDirectory("codepilot-validation-env-test-");
         try {
             Map<String, String> environment = new HashMap<>();
@@ -201,5 +223,26 @@ class JGitPatchExecutorTest {
                         });
             }
         }
+    }
+
+    private GitPatchExecutionRequest validRequest() {
+        GitPatchExecutionRequest request = new GitPatchExecutionRequest();
+        request.setCloneUrl("https://github.com/liche719/codeAireview.git");
+        request.setBranch("feature/fix");
+        request.setPatch("""
+                diff --git a/src/main/java/Demo.java b/src/main/java/Demo.java
+                --- a/src/main/java/Demo.java
+                +++ b/src/main/java/Demo.java
+                @@ -1 +1 @@
+                -old
+                +new
+                """);
+        request.setAllowedPaths(Set.of("src/main/java/Demo.java"));
+        request.setToken("github-token");
+        request.setCommitMessage("fix: demo");
+        request.setValidationCommand("git diff --check");
+        request.setAllowedValidationCommands(List.of("git diff --check"));
+        request.setDryRun(true);
+        return request;
     }
 }

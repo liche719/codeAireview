@@ -43,12 +43,14 @@ public class FixRequestAssembler {
             PrCommandTask task,
             GithubPullRequestDetail detail,
             String patch,
-            String commitMessage
+            String commitMessage,
+            Set<String> allowedPaths
     ) {
         GitPatchExecutionRequest request = new GitPatchExecutionRequest();
         request.setCloneUrl(detail.getHeadRepoCloneUrl());
         request.setBranch(detail.getHeadRef());
         request.setPatch(patch);
+        request.setAllowedPaths(allowedPaths == null ? Set.of() : new LinkedHashSet<>(allowedPaths));
         request.setToken(githubToken);
         request.setCommitMessage(resolveCommitMessage(commitMessage));
         request.setValidationCommand(properties.getFixValidationCommand());

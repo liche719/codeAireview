@@ -2,6 +2,7 @@ package com.codepilot.module.command.git;
 
 import lombok.extern.slf4j.Slf4j;
 import com.codepilot.common.util.SensitiveDataSanitizer;
+import com.codepilot.module.command.fix.FixPatchScopeValidator;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
@@ -42,12 +43,19 @@ public class JGitPatchExecutor implements GitPatchExecutor {
             "pwsh.exe"
     );
 
+    private final FixPatchScopeValidator fixPatchScopeValidator;
+
+    public JGitPatchExecutor(FixPatchScopeValidator fixPatchScopeValidator) {
+        this.fixPatchScopeValidator = fixPatchScopeValidator;
+    }
+
     @Override
     public GitPatchExecutionResult execute(GitPatchExecutionRequest request) {
         Path workDir = null;
         String stage = "validate-request";
         try {
             validateRequest(request);
+            enforcePatchScope(request);
             String branch = request.getBranch();
             String cloneUrl = request.getCloneUrl();
             boolean dryRun = request.isDryRun();
@@ -178,6 +186,13 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                 || !StringUtils.hasText(request.getToken())) {
             throw new IllegalArgumentException("cloneUrl, branch, patch and token are required");
         }
+    }
+
+    private void enforcePatchScope(GitPatchExecutionRequest request) {
+        if (request.getAllowedPaths() == null || request.getAllowedPaths().isEmpty()) {
+            throw new IllegalArgumentException("allowedPaths are required for patch execution");
+        }
+        fixPatchScopeValidator.validate(request.getPatch(), request.getAllowedPaths());
     }
 
     private void applyPatch(Git git, String patch) throws Exception {

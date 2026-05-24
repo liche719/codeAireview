@@ -105,7 +105,8 @@ public class PrCommandTaskRunner {
                     task,
                     detail,
                     patch,
-                    fixResult == null ? null : fixResult.getCommitMessage()
+                    fixResult == null ? null : fixResult.getCommitMessage(),
+                    promptInput.allowedPaths()
             );
             GitPatchExecutionResult executionResult = gitPatchExecutor.execute(request);
             if (!executionResult.isSuccess()) {

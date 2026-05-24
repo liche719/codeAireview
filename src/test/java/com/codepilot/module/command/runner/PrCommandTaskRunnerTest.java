@@ -49,6 +49,8 @@ class PrCommandTaskRunnerTest {
         verify(context.githubClient).getPullRequestDetail("liche719", "codeAireview", 12);
         verify(context.gitPatchExecutor).execute(context.executionRequestCaptor.capture());
         assertThat(context.executionRequestCaptor.getValue().isDryRun()).isTrue();
+        assertThat(context.executionRequestCaptor.getValue().getAllowedPaths())
+                .containsExactly("src/main/java/Demo.java");
         verify(context.commandTaskLogService).record(eq(1L), eq("PATCH_EXECUTE"), eq(true), eq("dry-run ok"), eq("detail"));
         verify(context.githubClient).createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(12),
                 org.mockito.ArgumentMatchers.contains("预演完成"));

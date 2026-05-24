@@ -3,7 +3,9 @@ package com.codepilot.module.command.git;
 import lombok.Data;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Data
 public class GitPatchExecutionRequest {
@@ -13,6 +15,8 @@ public class GitPatchExecutionRequest {
     private String branch;
 
     private String patch;
+
+    private Set<String> allowedPaths = new LinkedHashSet<>();
 
     private String token;
 
