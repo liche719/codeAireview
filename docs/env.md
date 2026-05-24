@@ -57,6 +57,8 @@
   - OpenAI-compatible Chat Completions 接口地址。
 - `CODEPILOT_LLM_MODEL`
   - Chat Model 名称。
+- `CODEPILOT_LLM_REVIEW_STRUCTURED_OUTPUT_ENABLED`
+  - 是否为 AI Review 专用模型启用 provider-native JSON schema 结构化输出，默认 `true`。如果使用的 OpenAI-compatible 服务不支持 JSON schema response format，可临时设置为 `false`，系统仍会保留后验 JSON parser/schema 校验。
 
 ## 数据库 / 中间件
 

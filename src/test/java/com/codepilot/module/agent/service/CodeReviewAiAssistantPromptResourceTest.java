@@ -1,5 +1,6 @@
 package com.codepilot.module.agent.service;
 
+import dev.langchain4j.service.spring.AiService;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 
@@ -9,6 +10,14 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CodeReviewAiAssistantPromptResourceTest {
+
+    @Test
+    void shouldUseStructuredReviewChatModel() {
+        AiService aiService = CodeReviewAiAssistant.class.getAnnotation(AiService.class);
+
+        assertThat(aiService).isNotNull();
+        assertThat(aiService.chatModel()).isEqualTo("structuredCodeReviewChatModel");
+    }
 
     @Test
     void shouldContainRequiredPromptPlaceholdersAndJsonContract() throws Exception {

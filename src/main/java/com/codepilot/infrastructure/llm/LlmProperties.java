@@ -29,6 +29,8 @@ public class LlmProperties {
 
     private int maxReviewContextChars = 8000;
 
+    private boolean reviewStructuredOutputEnabled = true;
+
     private boolean reviewCacheEnabled = true;
 
     private int reviewCacheTtlDays = 7;

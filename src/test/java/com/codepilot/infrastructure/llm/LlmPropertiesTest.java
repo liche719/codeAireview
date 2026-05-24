@@ -17,6 +17,7 @@ class LlmPropertiesTest {
                 "codepilot.llm.max-review-patch-chars", "100",
                 "codepilot.llm.max-review-rules-chars", "200",
                 "codepilot.llm.max-review-context-chars", "300",
+                "codepilot.llm.review-structured-output-enabled", "false",
                 "codepilot.llm.review-cache-enabled", "false",
                 "codepilot.llm.review-cache-ttl-days", "3"
         ));
@@ -28,6 +29,7 @@ class LlmPropertiesTest {
         assertThat(properties.getMaxReviewPatchChars()).isEqualTo(100);
         assertThat(properties.getMaxReviewRulesChars()).isEqualTo(200);
         assertThat(properties.getMaxReviewContextChars()).isEqualTo(300);
+        assertThat(properties.isReviewStructuredOutputEnabled()).isFalse();
         assertThat(properties.isReviewCacheEnabled()).isFalse();
         assertThat(properties.getReviewCacheTtlDays()).isEqualTo(3);
     }
@@ -39,6 +41,7 @@ class LlmPropertiesTest {
         assertThat(properties.getMaxReviewPatchChars()).isEqualTo(12000);
         assertThat(properties.getMaxReviewRulesChars()).isEqualTo(4000);
         assertThat(properties.getMaxReviewContextChars()).isEqualTo(8000);
+        assertThat(properties.isReviewStructuredOutputEnabled()).isTrue();
         assertThat(properties.isReviewCacheEnabled()).isTrue();
         assertThat(properties.getReviewCacheTtlDays()).isEqualTo(7);
     }

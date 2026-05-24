@@ -6,7 +6,7 @@ import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 import dev.langchain4j.service.spring.AiService;
 
-@AiService
+@AiService(chatModel = "structuredCodeReviewChatModel")
 public interface CodeReviewAiAssistant {
 
     @SystemMessage(fromResource = "prompts/ai-review-system-message.txt")
