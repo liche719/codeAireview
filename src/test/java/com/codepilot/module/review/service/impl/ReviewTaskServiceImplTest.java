@@ -226,7 +226,8 @@ class ReviewTaskServiceImplTest {
         verify(context.reviewTaskMapper, org.mockito.Mockito.atLeastOnce()).updateById(context.taskCaptor.capture());
         ReviewTask lastTaskUpdate = context.taskCaptor.getAllValues().getLast();
         assertThat(lastTaskUpdate.getStatus()).isEqualTo("FAILED");
-        assertThat(lastTaskUpdate.getErrorMessage()).contains("AI review failed for file src/main/java/Demo.java");
+        assertThat(lastTaskUpdate.getErrorMessage()).contains("AI review failed for all reviewable files");
+        assertThat(lastTaskUpdate.getErrorMessage()).contains("bad ai json");
         assertThat(lastTaskUpdate.getHeadSha()).isEqualTo("head-sha");
         verify(context.reviewCommentPublisher, never()).publish(any(ReviewTask.class));
         verify(context.reviewIssueService, never()).saveBatch(anyList());

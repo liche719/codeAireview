@@ -8,6 +8,7 @@ import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.context.ReviewContextBuilder;
 import com.codepilot.module.review.context.ReviewContextSignalExtractor;
 import com.codepilot.module.review.entity.ReviewFile;
+import com.codepilot.module.review.entity.ReviewIssue;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -62,7 +63,41 @@ class ReviewFileReviewerTest {
     }
 
     @Test
-    void shouldWrapFileReviewFailuresWithFilePath() {
+    void shouldContinueWhenSingleFileReviewFailsButOtherFilesSucceed() {
+        AiReviewService aiReviewService = mock(AiReviewService.class);
+        ReviewFileReviewer reviewer = new ReviewFileReviewer(
+                aiReviewService,
+                new ReviewIssueAssembler(),
+                new ReviewContextBuilder(new ReviewContextSignalExtractor())
+        );
+        when(aiReviewService.reviewFile(argThat(request ->
+                request != null && "src/main/java/Broken.java".equals(request.filePath()))))
+                .thenThrow(new IllegalArgumentException("bad model output"));
+        when(aiReviewService.reviewFile(argThat(request ->
+                request != null && "src/main/java/Healthy.java".equals(request.filePath()))))
+                .thenReturn(aiReviewResult());
+
+        List<ReviewIssue> issues = reviewer.review(1L, List.of(
+                reviewFile("src/main/java/Broken.java", "+broken", false),
+                reviewFile("src/main/java/Healthy.java", "+healthy", false)
+        ));
+
+        assertThat(issues)
+                .anySatisfy(issue -> {
+                    assertThat(issue.getFilePath()).isEqualTo("src/main/java/Broken.java");
+                    assertThat(issue.getIssueType()).isEqualTo("AI_REVIEW_FAILED");
+                    assertThat(issue.getSeverity()).isEqualTo("MEDIUM");
+                    assertThat(issue.getSource()).isEqualTo("SYSTEM");
+                    assertThat(issue.getDescription()).contains("bad model output");
+                })
+                .anySatisfy(issue -> {
+                    assertThat(issue.getFilePath()).isEqualTo("src/main/java/Healthy.java");
+                    assertThat(issue.getIssueType()).isEqualTo("BUG_RISK");
+                });
+    }
+
+    @Test
+    void shouldFailTaskWhenAllReviewableFilesFail() {
         AiReviewService aiReviewService = mock(AiReviewService.class);
         ReviewFileReviewer reviewer = new ReviewFileReviewer(
                 aiReviewService,
@@ -74,7 +109,8 @@ class ReviewFileReviewerTest {
 
         assertThatThrownBy(() -> reviewer.review(1L, List.of(reviewFile("src/main/java/Demo.java", "+code", false))))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("AI review failed for file src/main/java/Demo.java")
+                .hasMessageContaining("AI review failed for all reviewable files, failedCount=1")
+                .hasMessageContaining("bad model output")
                 .hasRootCauseMessage("bad model output");
     }
 
