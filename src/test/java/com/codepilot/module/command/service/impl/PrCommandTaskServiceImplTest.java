@@ -14,6 +14,7 @@ import com.codepilot.module.command.git.GitPatchExecutionResult;
 import com.codepilot.module.command.git.GitPatchExecutor;
 import com.codepilot.module.command.mapper.PrCommandTaskMapper;
 import com.codepilot.module.command.policy.FixPullRequestWritePolicy;
+import com.codepilot.module.command.runner.PrCommandTaskRunner;
 import com.codepilot.module.command.service.PrCommandTaskLogService;
 import com.codepilot.module.command.state.PrCommandTaskStateManager;
 import com.codepilot.module.agent.dto.CodeFixResult;
@@ -293,6 +294,21 @@ class PrCommandTaskServiceImplTest {
 
         private final PrCommandTaskCreator commandTaskCreator = new PrCommandTaskCreator(mapper);
 
+        private final PrCommandTaskRunner commandTaskRunner = new PrCommandTaskRunner(
+                githubClient,
+                codeFixService,
+                gitPatchExecutor,
+                commandTaskLogService,
+                fixPatchScopeValidator,
+                fixableIssueSelector,
+                fixSnippetBuilder,
+                fixRequestAssembler,
+                fixResultCommenter,
+                commandTaskStateManager,
+                commandTaskFailureHandler,
+                fixPullRequestWritePolicy
+        );
+
         private final org.mockito.ArgumentCaptor<PrCommandTask> taskCaptor =
                 org.mockito.ArgumentCaptor.forClass(PrCommandTask.class);
 
@@ -303,19 +319,9 @@ class PrCommandTaskServiceImplTest {
 
         private TestContext() {
             service = new PrCommandTaskServiceImpl(
-                    githubClient,
-                    codeFixService,
-                    gitPatchExecutor,
-                    commandTaskLogService,
-                    fixPatchScopeValidator,
-                    fixableIssueSelector,
-                    fixSnippetBuilder,
-                    fixRequestAssembler,
-                    fixResultCommenter,
                     commandTaskStateManager,
-                    commandTaskFailureHandler,
-                    fixPullRequestWritePolicy,
-                    commandTaskCreator
+                    commandTaskCreator,
+                    commandTaskRunner
             );
             ReflectionTestUtils.setField(service, "baseMapper", mapper);
             ReflectionTestUtils.setField(fixRequestAssembler, "githubToken", "github-token");
