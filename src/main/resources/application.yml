@@ -91,6 +91,7 @@ codepilot:
     fix-max-changed-lines: ${CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES:120}
     fix-validation-command: ${CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND:git diff --check}
     fix-allowed-validation-commands: ${CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS:git diff --check}
+    fix-validation-allow-build-commands: ${CODEPILOT_GITHUB_FIX_VALIDATION_ALLOW_BUILD_COMMANDS:false}
     fix-validation-inherit-environment: ${CODEPILOT_GITHUB_FIX_VALIDATION_INHERIT_ENVIRONMENT:false}
     fix-validation-timeout-seconds: ${CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS:300}
   review:

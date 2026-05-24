@@ -55,6 +55,7 @@ public class FixRequestAssembler {
         request.setCommitMessage(resolveCommitMessage(commitMessage));
         request.setValidationCommand(properties.getFixValidationCommand());
         request.setAllowedValidationCommands(properties.getFixAllowedValidationCommands());
+        request.setAllowBuildValidationCommands(properties.isFixValidationAllowBuildCommands());
         request.setInheritValidationEnvironment(properties.isFixValidationInheritEnvironment());
         request.setValidationTimeoutSeconds(properties.getFixValidationTimeoutSeconds());
         request.setDryRun(Boolean.TRUE.equals(task.getDryRun()));

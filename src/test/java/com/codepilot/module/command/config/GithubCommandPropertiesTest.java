@@ -17,6 +17,7 @@ class GithubCommandPropertiesTest {
                 "codepilot.github.fix-validation-command", "mvn -q -DskipTests compile",
                 "codepilot.github.fix-allowed-validation-commands[0]", "git diff --check",
                 "codepilot.github.fix-allowed-validation-commands[1]", "mvn -q -DskipTests compile",
+                "codepilot.github.fix-validation-allow-build-commands", "true",
                 "codepilot.github.fix-validation-inherit-environment", "true"
         ));
 
@@ -27,6 +28,7 @@ class GithubCommandPropertiesTest {
         assertThat(properties.getFixValidationCommand()).isEqualTo("mvn -q -DskipTests compile");
         assertThat(properties.getFixAllowedValidationCommands())
                 .containsExactly("git diff --check", "mvn -q -DskipTests compile");
+        assertThat(properties.isFixValidationAllowBuildCommands()).isTrue();
         assertThat(properties.isFixValidationInheritEnvironment()).isTrue();
     }
 
@@ -36,6 +38,7 @@ class GithubCommandPropertiesTest {
 
         assertThat(properties.getFixValidationCommand()).isEqualTo("git diff --check");
         assertThat(properties.getFixAllowedValidationCommands()).containsExactly("git diff --check");
+        assertThat(properties.isFixValidationAllowBuildCommands()).isFalse();
         assertThat(properties.isFixValidationInheritEnvironment()).isFalse();
     }
 }

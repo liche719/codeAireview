@@ -26,6 +26,8 @@ public class GitPatchExecutionRequest {
 
     private List<String> allowedValidationCommands = new ArrayList<>();
 
+    private boolean allowBuildValidationCommands;
+
     private boolean inheritValidationEnvironment;
 
     private int validationTimeoutSeconds;

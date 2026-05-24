@@ -43,6 +43,33 @@ public class JGitPatchExecutor implements GitPatchExecutor {
             "pwsh.exe"
     );
 
+    private static final Set<String> BUILD_VALIDATION_EXECUTABLES = Set.of(
+            "mvn",
+            "mvnw",
+            "mvn.cmd",
+            "gradle",
+            "gradlew",
+            "gradle.bat",
+            "npm",
+            "npm.cmd",
+            "yarn",
+            "yarn.cmd",
+            "pnpm",
+            "pnpm.cmd",
+            "node",
+            "node.exe",
+            "java",
+            "java.exe",
+            "python",
+            "python.exe",
+            "pytest",
+            "pytest.exe",
+            "go",
+            "go.exe",
+            "cargo",
+            "cargo.exe"
+    );
+
     private final FixPatchScopeValidator fixPatchScopeValidator;
 
     public JGitPatchExecutor(FixPatchScopeValidator fixPatchScopeValidator) {
@@ -105,6 +132,7 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                         workDir,
                         request.getValidationCommand(),
                         request.getAllowedValidationCommands(),
+                        request.isAllowBuildValidationCommands(),
                         request.isInheritValidationEnvironment(),
                         validationTimeoutSeconds
                 );
@@ -186,6 +214,7 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                 || !StringUtils.hasText(request.getToken())) {
             throw new IllegalArgumentException("cloneUrl, branch, patch and token are required");
         }
+        validateValidationCommandPolicy(request);
     }
 
     private void enforcePatchScope(GitPatchExecutionRequest request) {
@@ -193,6 +222,21 @@ public class JGitPatchExecutor implements GitPatchExecutor {
             throw new IllegalArgumentException("allowedPaths are required for patch execution");
         }
         fixPatchScopeValidator.validate(request.getPatch(), request.getAllowedPaths());
+    }
+
+    private void validateValidationCommandPolicy(GitPatchExecutionRequest request) {
+        if (request == null
+                || request.isAllowBuildValidationCommands()
+                || !StringUtils.hasText(request.getValidationCommand())) {
+            return;
+        }
+        ValidationCommand validationCommand = parseValidationCommand(request.getValidationCommand());
+        if (isBuildValidationCommand(validationCommand)) {
+            throw new IllegalArgumentException(
+                    "Validation command may execute PR code and is disabled by default. "
+                            + "Set codepilot.github.fix-validation-allow-build-commands=true only inside an isolated sandbox."
+            );
+        }
     }
 
     private void applyPatch(Git git, String patch) throws Exception {
@@ -205,6 +249,7 @@ public class JGitPatchExecutor implements GitPatchExecutor {
             Path workDir,
             String validationCommand,
             List<String> allowedValidationCommands,
+            boolean allowBuildValidationCommands,
             boolean inheritValidationEnvironment,
             int timeoutSeconds
     )
@@ -227,6 +272,13 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                     SensitiveDataSanitizer.redact("command=" + parsedCommand.normalized()
                             + ", allowedCommands=" + allowedValidationCommands
                     )
+            );
+        }
+        if (!allowBuildValidationCommands && isBuildValidationCommand(parsedCommand)) {
+            return GitPatchExecutionResult.failure(
+                    "Validation command may execute PR code and is disabled by default.",
+                    "command=" + parsedCommand.normalized()
+                            + ", set codepilot.github.fix-validation-allow-build-commands=true only inside an isolated sandbox"
             );
         }
         Path outputFile = Files.createTempFile("codepilot-validation-", ".log");
@@ -315,6 +367,14 @@ public class JGitPatchExecutor implements GitPatchExecutor {
         }
     }
 
+    boolean isBuildValidationCommand(String validationCommand) {
+        try {
+            return isBuildValidationCommand(parseValidationCommand(validationCommand));
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
+    }
+
     private boolean isValidationCommandAllowed(ValidationCommand validationCommand, List<String> allowedValidationCommands) {
         if (validationCommand == null || allowedValidationCommands == null || allowedValidationCommands.isEmpty()) {
             return false;
@@ -369,6 +429,14 @@ public class JGitPatchExecutor implements GitPatchExecutor {
             }
         }
         return new ValidationCommand(List.copyOf(tokens));
+    }
+
+    private boolean isBuildValidationCommand(ValidationCommand validationCommand) {
+        if (validationCommand == null || validationCommand.tokens().isEmpty()) {
+            return false;
+        }
+        String executable = validationCommand.tokens().get(0).toLowerCase(java.util.Locale.ROOT);
+        return BUILD_VALIDATION_EXECUTABLES.contains(executable);
     }
 
     private record ValidationCommand(List<String> tokens) {

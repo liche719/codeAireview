@@ -105,6 +105,29 @@ class JGitPatchExecutorTest {
     }
 
     @Test
+    void shouldClassifyBuildValidationCommandsAsUnsafeWithoutSandboxOptIn() {
+        assertThat(executor.isBuildValidationCommand("git diff --check")).isFalse();
+        assertThat(executor.isBuildValidationCommand("mvn -q -DskipTests compile")).isTrue();
+        assertThat(executor.isBuildValidationCommand("npm run lint")).isTrue();
+        assertThat(executor.isBuildValidationCommand("gradle test")).isTrue();
+    }
+
+    @Test
+    void shouldRejectBuildValidationCommandsByDefaultBeforeClone() {
+        GitPatchExecutionRequest request = validRequest();
+        request.setValidationCommand("mvn -q -DskipTests compile");
+        request.setAllowedValidationCommands(List.of("mvn -q -DskipTests compile"));
+        request.setAllowBuildValidationCommands(false);
+
+        GitPatchExecutionResult result = executor.execute(request);
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.isRetryable()).isFalse();
+        assertThat(result.getMessage()).contains("execute PR code");
+        assertThat(result.getDetail()).contains("stage=validate-request");
+    }
+
+    @Test
     void shouldOnlyRetryTransientGitStages() {
         assertThat(executor.isRetryableExecutionStage("clone")).isTrue();
         assertThat(executor.isRetryableExecutionStage("push")).isTrue();

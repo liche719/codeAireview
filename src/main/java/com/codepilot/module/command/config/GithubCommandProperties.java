@@ -30,6 +30,8 @@ public class GithubCommandProperties {
 
     private List<String> fixAllowedValidationCommands = new ArrayList<>(List.of("git diff --check"));
 
+    private boolean fixValidationAllowBuildCommands = false;
+
     private boolean fixValidationInheritEnvironment = false;
 
     private int fixValidationTimeoutSeconds = 300;

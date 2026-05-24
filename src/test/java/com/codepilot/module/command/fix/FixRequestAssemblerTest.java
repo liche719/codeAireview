@@ -34,6 +34,7 @@ class FixRequestAssemblerTest {
         GithubCommandProperties properties = new GithubCommandProperties();
         properties.setFixValidationCommand("git diff --check");
         properties.setFixAllowedValidationCommands(List.of("git diff --check"));
+        properties.setFixValidationAllowBuildCommands(true);
         properties.setFixValidationInheritEnvironment(false);
         properties.setFixValidationTimeoutSeconds(12);
         FixRequestAssembler assembler = new FixRequestAssembler(properties, new ObjectMapper());
@@ -55,6 +56,7 @@ class FixRequestAssemblerTest {
         assertThat(request.getCommitMessage()).isEqualTo("fix: demo with extra spaces");
         assertThat(request.getValidationCommand()).isEqualTo("git diff --check");
         assertThat(request.getAllowedValidationCommands()).containsExactly("git diff --check");
+        assertThat(request.isAllowBuildValidationCommands()).isTrue();
         assertThat(request.isInheritValidationEnvironment()).isFalse();
         assertThat(request.getValidationTimeoutSeconds()).isEqualTo(12);
         assertThat(request.isDryRun()).isTrue();
