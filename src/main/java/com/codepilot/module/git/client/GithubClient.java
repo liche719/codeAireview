@@ -2,11 +2,11 @@ package com.codepilot.module.git.client;
 
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.common.util.SensitiveDataSanitizer;
+import com.codepilot.module.git.config.GithubProperties;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -34,30 +34,23 @@ public class GithubClient {
 
     private static final int PER_PAGE = 100;
 
-    private static final int MAX_GITHUB_REQUEST_ATTEMPTS = 2;
-
-    private static final long DEFAULT_RATE_LIMIT_RETRY_DELAY_MILLIS = 1000L;
-
-    private static final long MAX_RATE_LIMIT_RETRY_DELAY_MILLIS = 2000L;
-
     private static final int MAX_RESPONSE_BODY_SUMMARY_LENGTH = 240;
 
     private final RestClient restClient;
 
     private final String token;
 
+    private final GithubProperties githubProperties;
+
     private final LongConsumer rateLimitSleeper;
 
     private volatile String authenticatedUserLogin;
 
-    public GithubClient(
-            @Value("${codepilot.github.api-base-url:https://api.github.com}") String apiBaseUrl,
-            @Value("${codepilot.github.token:}") String token
-    ) {
+    public GithubClient(GithubProperties githubProperties) {
         this(
-                token,
+                githubProperties == null ? new GithubProperties() : githubProperties,
                 RestClient.builder()
-                        .baseUrl(apiBaseUrl)
+                        .baseUrl(githubProperties == null ? "https://api.github.com" : githubProperties.getApiBaseUrl())
                         .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
                         .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
                         .build(),
@@ -66,7 +59,18 @@ public class GithubClient {
     }
 
     GithubClient(String token, RestClient restClient, LongConsumer rateLimitSleeper) {
+        GithubProperties properties = new GithubProperties();
+        properties.setToken(token);
+        this.githubProperties = properties;
         this.token = token;
+        this.restClient = restClient;
+        this.rateLimitSleeper = rateLimitSleeper;
+    }
+
+    GithubClient(GithubProperties githubProperties, RestClient restClient, LongConsumer rateLimitSleeper) {
+        GithubProperties safeProperties = githubProperties == null ? new GithubProperties() : githubProperties;
+        this.githubProperties = safeProperties;
+        this.token = safeProperties.getToken();
         this.restClient = restClient;
         this.rateLimitSleeper = rateLimitSleeper;
     }
@@ -348,7 +352,8 @@ public class GithubClient {
     }
 
     private <T> T executeGithubRequest(String operation, GithubRequestSupplier<T> supplier) {
-        for (int attempt = 1; attempt <= MAX_GITHUB_REQUEST_ATTEMPTS; attempt++) {
+        int maxAttempts = Math.max(1, githubProperties.getRateLimitMaxAttempts());
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 return supplier.get();
             } catch (RestClientResponseException exception) {
@@ -358,7 +363,7 @@ public class GithubClient {
                 if (!shouldRetryRateLimit(exception, attempt)) {
                     throw buildRateLimitException(operation, exception);
                 }
-                long delayMillis = resolveRetryDelayMillis(exception);
+                long delayMillis = resolveRetryDelayMillis(exception, attempt);
                 log.warn("GitHub API rate limit hit, retrying request, operation={}, attempt={}, delayMillis={}, status={}, message={}",
                         operation,
                         attempt,
@@ -395,7 +400,7 @@ public class GithubClient {
     }
 
     private boolean shouldRetryRateLimit(RestClientResponseException exception, int attempt) {
-        if (attempt >= MAX_GITHUB_REQUEST_ATTEMPTS) {
+        if (attempt >= Math.max(1, githubProperties.getRateLimitMaxAttempts())) {
             return false;
         }
         if (exception.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
@@ -404,15 +409,28 @@ public class GithubClient {
         return StringUtils.hasText(firstHeader(exception.getResponseHeaders(), HttpHeaders.RETRY_AFTER));
     }
 
-    private long resolveRetryDelayMillis(RestClientResponseException exception) {
+    private long resolveRetryDelayMillis(RestClientResponseException exception, int attempt) {
         Long retryAfterMillis = parseRetryAfterMillis(firstHeader(exception.getResponseHeaders(), HttpHeaders.RETRY_AFTER));
         if (retryAfterMillis == null) {
             retryAfterMillis = parseRateLimitResetMillis(firstHeader(exception.getResponseHeaders(), "X-RateLimit-Reset"));
         }
         if (retryAfterMillis == null) {
-            retryAfterMillis = DEFAULT_RATE_LIMIT_RETRY_DELAY_MILLIS;
+            retryAfterMillis = exponentialBackoffDelayMillis(attempt);
         }
-        return Math.min(Math.max(retryAfterMillis, 0L), MAX_RATE_LIMIT_RETRY_DELAY_MILLIS);
+        return Math.min(Math.max(retryAfterMillis, 0L), Math.max(0L, githubProperties.getRateLimitMaxDelayMillis()));
+    }
+
+    private long exponentialBackoffDelayMillis(int attempt) {
+        long initialDelayMillis = Math.max(0L, githubProperties.getRateLimitInitialDelayMillis());
+        if (initialDelayMillis == 0L) {
+            return 0L;
+        }
+        double multiplier = Math.max(1.0D, githubProperties.getRateLimitBackoffMultiplier());
+        double delay = initialDelayMillis * Math.pow(multiplier, Math.max(0, attempt - 1));
+        if (delay >= Long.MAX_VALUE) {
+            return Long.MAX_VALUE;
+        }
+        return (long) delay;
     }
 
     private Long parseRetryAfterMillis(String retryAfter) {

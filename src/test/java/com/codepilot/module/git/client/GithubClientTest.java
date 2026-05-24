@@ -1,6 +1,7 @@
 package com.codepilot.module.git.client;
 
 import com.codepilot.common.exception.BusinessException;
+import com.codepilot.module.git.config.GithubProperties;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,34 @@ class GithubClientTest {
         assertThat(files).hasSize(1);
         assertThat(files.getFirst().getFilename()).isEqualTo("src/main/java/Demo.java");
         assertThat(context.retryDelays).containsExactly(1000L);
+        context.server.verify();
+    }
+
+    @Test
+    void shouldUseExponentialBackoffForRepeatedSecondaryRateLimitResponses() {
+        GithubProperties properties = new GithubProperties();
+        properties.setToken("token");
+        properties.setRateLimitMaxAttempts(4);
+        properties.setRateLimitInitialDelayMillis(250L);
+        properties.setRateLimitBackoffMultiplier(2.0D);
+        properties.setRateLimitMaxDelayMillis(1000L);
+        TestContext context = new TestContext(properties);
+        String filesUrl = "https://api.github.test/repos/liche719/codeAireview/pulls/123/files?per_page=100&page=1";
+        context.server.expect(once(), requestTo(filesUrl))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"message\":\"secondary rate limit\"}"));
+        context.server.expect(once(), requestTo(filesUrl))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"message\":\"secondary rate limit\"}"));
+        context.server.expect(once(), requestTo(filesUrl))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        List<GithubChangedFile> files = context.client.listPullRequestFiles("liche719", "codeAireview", 123);
+
+        assertThat(files).isEmpty();
+        assertThat(context.retryDelays).containsExactly(250L, 500L);
         context.server.verify();
     }
 
@@ -158,12 +187,20 @@ class GithubClientTest {
         private final GithubClient client;
 
         private TestContext() {
+            this(new GithubProperties());
+        }
+
+        private TestContext(GithubProperties properties) {
+            properties.setApiBaseUrl("https://api.github.test");
+            if (!org.springframework.util.StringUtils.hasText(properties.getToken())) {
+                properties.setToken("token");
+            }
             RestClient.Builder builder = RestClient.builder()
                     .baseUrl("https://api.github.test")
                     .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
                     .defaultHeader("X-GitHub-Api-Version", "2022-11-28");
             this.server = MockRestServiceServer.bindTo(builder).build();
-            this.client = new GithubClient("token", builder.build(), retryDelays::add);
+            this.client = new GithubClient(properties, builder.build(), retryDelays::add);
         }
     }
 }
