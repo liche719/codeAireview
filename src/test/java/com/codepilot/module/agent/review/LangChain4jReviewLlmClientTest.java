@@ -34,7 +34,8 @@ class LangChain4jReviewLlmClientTest {
                 false
         ));
 
-        assertThat(client.providerName()).isEqualTo("langchain4j");
+        assertThat(client.providerName()).isEqualTo("openai-compatible");
+        assertThat(client.supports("OPENAI-COMPATIBLE")).isTrue();
         assertThat(client.isAvailable()).isTrue();
         assertThat(response).isEqualTo("{}");
         verify(assistant).review("src/Demo.java", "+code", "rules", "files");

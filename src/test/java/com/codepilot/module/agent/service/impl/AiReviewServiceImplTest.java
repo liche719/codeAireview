@@ -9,6 +9,7 @@ import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
 import com.codepilot.module.agent.review.DeterministicReviewToolRunner;
 import com.codepilot.module.agent.review.ReviewIssueDeduplicator;
 import com.codepilot.module.agent.review.ReviewLlmClient;
+import com.codepilot.module.agent.review.ReviewLlmClientRegistry;
 import com.codepilot.module.agent.review.ReviewLlmGate;
 import com.codepilot.module.agent.review.ReviewLlmInput;
 import com.codepilot.module.agent.review.ReviewLlmInputLimiter;
@@ -27,6 +28,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -182,7 +184,7 @@ class AiReviewServiceImplTest {
                     assertThat(issue.getSource()).isEqualTo("TOOL");
                     assertThat(issue.getLineNumber()).isEqualTo(1);
                 });
-        verify(context.reviewLlmClientProvider, never()).getIfAvailable();
+        verify(context.reviewLlmClientRegistry, never()).select();
         verify(context.llmCallLogService, never()).save(any());
     }
 
@@ -261,8 +263,7 @@ class AiReviewServiceImplTest {
 
         private final ReviewLlmClient reviewLlmClient = mock(ReviewLlmClient.class);
 
-        @SuppressWarnings("unchecked")
-        private final ObjectProvider<ReviewLlmClient> reviewLlmClientProvider = mock(ObjectProvider.class);
+        private final ReviewLlmClientRegistry reviewLlmClientRegistry = mock(ReviewLlmClientRegistry.class);
 
         private final ReviewRagService reviewRagService = mock(ReviewRagService.class);
 
@@ -298,7 +299,7 @@ class AiReviewServiceImplTest {
         private TestContext() {
             llmProperties.setEnabled(true);
             llmProperties.setApiKey("test-key");
-            when(reviewLlmClientProvider.getIfAvailable()).thenReturn(reviewLlmClient);
+            when(reviewLlmClientRegistry.select()).thenReturn(Optional.of(reviewLlmClient));
             when(reviewLlmClient.providerName()).thenReturn("test");
             when(reviewLlmClient.isAvailable()).thenReturn(true);
             when(reviewRagService.retrieveRelevantRules(any(), any())).thenReturn(List.of());
@@ -307,7 +308,7 @@ class AiReviewServiceImplTest {
             when(testSuggestionToolProvider.getIfAvailable()).thenReturn(new TestSuggestionTool());
 
             reviewLlmReviewer = new ReviewLlmReviewer(
-                    reviewLlmClientProvider,
+                    reviewLlmClientRegistry,
                     new AiReviewResultParser(new ObjectMapper(), new AiReviewResultSchemaValidator()),
                     reviewRagService,
                     new ReviewPromptBuilder(),

@@ -10,7 +10,6 @@ import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
 import com.codepilot.module.agent.service.ReviewRagService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -22,7 +21,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class ReviewLlmReviewer {
 
-    private final ObjectProvider<ReviewLlmClient> reviewLlmClientProvider;
+    private final ReviewLlmClientRegistry reviewLlmClientRegistry;
 
     private final AiReviewResultParser aiReviewResultParser;
 
@@ -43,9 +42,9 @@ public class ReviewLlmReviewer {
         String filePath = request == null ? null : request.filePath();
         String patch = request == null ? null : request.patch();
 
-        ReviewLlmClient reviewLlmClient = reviewLlmClientProvider.getIfAvailable();
+        ReviewLlmClient reviewLlmClient = reviewLlmClientRegistry.select().orElse(null);
         if (reviewLlmClient == null) {
-            log.warn("Skip llm review because ReviewLlmClient bean is unavailable, filePath={}, deterministicIssueCount={}",
+            log.warn("Skip llm review because no ReviewLlmClient is configured, filePath={}, deterministicIssueCount={}",
                     filePath, deterministicIssueCount);
             return Optional.empty();
         }

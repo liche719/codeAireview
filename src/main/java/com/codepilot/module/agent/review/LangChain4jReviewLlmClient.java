@@ -5,18 +5,26 @@ import dev.langchain4j.service.Result;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+
+import java.util.Locale;
 
 @Component
 @RequiredArgsConstructor
 public class LangChain4jReviewLlmClient implements ReviewLlmClient {
 
-    private static final String PROVIDER_NAME = "langchain4j";
+    private static final String PROVIDER_NAME = "openai-compatible";
 
     private final ObjectProvider<CodeReviewAiAssistant> codeReviewAiAssistantProvider;
 
     @Override
     public String providerName() {
         return PROVIDER_NAME;
+    }
+
+    @Override
+    public boolean supports(String provider) {
+        return PROVIDER_NAME.equals(normalize(provider));
     }
 
     @Override
@@ -34,5 +42,11 @@ public class LangChain4jReviewLlmClient implements ReviewLlmClient {
                 input.changedFilesContext()
         );
         return result == null ? null : result.content();
+    }
+
+    private String normalize(String provider) {
+        return StringUtils.hasText(provider)
+                ? provider.trim().toLowerCase(Locale.ROOT)
+                : "";
     }
 }

@@ -12,9 +12,9 @@ import com.codepilot.module.audit.service.LlmCallLogService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -32,13 +32,12 @@ class ReviewLlmReviewerTest {
         properties.setMaxReviewRulesChars(80);
         properties.setMaxReviewContextChars(60);
         ReviewLlmClient reviewLlmClient = mock(ReviewLlmClient.class);
-        @SuppressWarnings("unchecked")
-        ObjectProvider<ReviewLlmClient> reviewLlmClientProvider = mock(ObjectProvider.class);
+        ReviewLlmClientRegistry reviewLlmClientRegistry = mock(ReviewLlmClientRegistry.class);
         ReviewRagService reviewRagService = mock(ReviewRagService.class);
         LlmCallLogService llmCallLogService = mock(LlmCallLogService.class);
         ReviewRuleContext ruleContext = new ReviewRuleContext();
         ruleContext.setContent("rule ".repeat(100));
-        when(reviewLlmClientProvider.getIfAvailable()).thenReturn(reviewLlmClient);
+        when(reviewLlmClientRegistry.select()).thenReturn(Optional.of(reviewLlmClient));
         when(reviewLlmClient.providerName()).thenReturn("test");
         when(reviewLlmClient.isAvailable()).thenReturn(true);
         when(reviewRagService.retrieveRelevantRules(any(), any())).thenReturn(List.of(ruleContext));
@@ -50,7 +49,7 @@ class ReviewLlmReviewerTest {
                         }
                         """);
         ReviewLlmReviewer reviewer = new ReviewLlmReviewer(
-                reviewLlmClientProvider,
+                reviewLlmClientRegistry,
                 new AiReviewResultParser(new ObjectMapper(), new AiReviewResultSchemaValidator()),
                 reviewRagService,
                 new ReviewPromptBuilder(),
