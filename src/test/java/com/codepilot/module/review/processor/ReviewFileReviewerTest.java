@@ -7,6 +7,7 @@ import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.context.ReviewContextBuilder;
+import com.codepilot.module.review.context.ReviewContextRelationshipExtractor;
 import com.codepilot.module.review.context.ReviewContextSignalExtractor;
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
@@ -35,7 +36,7 @@ class ReviewFileReviewerTest {
         ReviewFileReviewer reviewer = new ReviewFileReviewer(
                 aiReviewService,
                 new ReviewIssueAssembler(),
-                new ReviewContextBuilder(new ReviewContextSignalExtractor()),
+                new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
                 new ReviewProperties()
         );
         when(aiReviewService.reviewFile(any(AiReviewRequest.class)))
@@ -73,7 +74,7 @@ class ReviewFileReviewerTest {
         ReviewFileReviewer reviewer = new ReviewFileReviewer(
                 aiReviewService,
                 new ReviewIssueAssembler(),
-                new ReviewContextBuilder(new ReviewContextSignalExtractor()),
+                new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
                 new ReviewProperties()
         );
         when(aiReviewService.reviewFile(argThat(request ->
@@ -108,7 +109,7 @@ class ReviewFileReviewerTest {
         ReviewFileReviewer reviewer = new ReviewFileReviewer(
                 aiReviewService,
                 new ReviewIssueAssembler(),
-                new ReviewContextBuilder(new ReviewContextSignalExtractor()),
+                new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
                 new ReviewProperties()
         );
         when(aiReviewService.reviewFile(any(AiReviewRequest.class)))
@@ -129,7 +130,7 @@ class ReviewFileReviewerTest {
         ReviewFileReviewer reviewer = new ReviewFileReviewer(
                 aiReviewService,
                 new ReviewIssueAssembler(),
-                new ReviewContextBuilder(new ReviewContextSignalExtractor()),
+                new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
                 reviewProperties
         );
         CountDownLatch slowFileStarted = new CountDownLatch(1);

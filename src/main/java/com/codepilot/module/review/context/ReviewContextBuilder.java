@@ -12,13 +12,19 @@ public class ReviewContextBuilder {
 
     private final ReviewContextSignalExtractor reviewContextSignalExtractor;
 
+    private final ReviewContextRelationshipExtractor reviewContextRelationshipExtractor;
+
     ReviewContextBuilder() {
-        this(new ReviewContextSignalExtractor());
+        this(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor());
     }
 
     @Autowired
-    public ReviewContextBuilder(ReviewContextSignalExtractor reviewContextSignalExtractor) {
+    public ReviewContextBuilder(
+            ReviewContextSignalExtractor reviewContextSignalExtractor,
+            ReviewContextRelationshipExtractor reviewContextRelationshipExtractor
+    ) {
         this.reviewContextSignalExtractor = reviewContextSignalExtractor;
+        this.reviewContextRelationshipExtractor = reviewContextRelationshipExtractor;
     }
 
     public ReviewContext build(List<ReviewFile> reviewFiles) {
@@ -52,7 +58,7 @@ public class ReviewContextBuilder {
                 skippedFiles,
                 reviewContextSignalExtractor.fileSummaries(reviewFiles),
                 semanticFileContexts,
-                reviewContextSignalExtractor.repoRelationshipHints(reviewFiles, semanticFileContexts),
+                reviewContextRelationshipExtractor.repoRelationshipHints(reviewFiles, semanticFileContexts),
                 reviewContextSignalExtractor.reviewSignals(reviewFiles)
         );
     }

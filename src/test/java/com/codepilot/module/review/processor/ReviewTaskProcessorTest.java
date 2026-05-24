@@ -9,6 +9,7 @@ import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.context.ReviewContextBuilder;
+import com.codepilot.module.review.context.ReviewContextRelationshipExtractor;
 import com.codepilot.module.review.context.ReviewContextSignalExtractor;
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
@@ -137,7 +138,7 @@ class ReviewTaskProcessorTest {
                 new ReviewFileReviewer(
                         aiReviewService,
                         new ReviewIssueAssembler(),
-                        new ReviewContextBuilder(new ReviewContextSignalExtractor()),
+                        new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
                         new ReviewProperties()
                 )
         );

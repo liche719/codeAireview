@@ -9,7 +9,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ReviewContextBuilderTest {
 
-    private final ReviewContextBuilder builder = new ReviewContextBuilder(new ReviewContextSignalExtractor());
+    private final ReviewContextBuilder builder = new ReviewContextBuilder(
+            new ReviewContextSignalExtractor(),
+            new ReviewContextRelationshipExtractor()
+    );
 
     @Test
     void shouldBuildPullRequestReviewContext() {
