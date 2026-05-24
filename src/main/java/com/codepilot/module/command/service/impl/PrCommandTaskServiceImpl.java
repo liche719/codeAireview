@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.agent.dto.CodeFixResult;
 import com.codepilot.module.agent.service.CodeFixService;
-import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.failure.PrCommandTaskFailureHandler;
 import com.codepilot.module.command.fix.FixableIssueSelector;
@@ -20,6 +19,7 @@ import com.codepilot.module.command.git.GitPatchExecutionRequest;
 import com.codepilot.module.command.git.GitPatchExecutionResult;
 import com.codepilot.module.command.git.GitPatchExecutor;
 import com.codepilot.module.command.mapper.PrCommandTaskMapper;
+import com.codepilot.module.command.policy.FixPullRequestWritePolicy;
 import com.codepilot.module.command.service.PrCommandTaskLogService;
 import com.codepilot.module.command.service.PrCommandTaskService;
 import com.codepilot.module.command.state.PrCommandTaskStateManager;
@@ -45,8 +45,6 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
 
     private static final int COMMENT_BODY_AUDIT_LIMIT = 2000;
 
-    private final GithubCommandProperties properties;
-
     private final GithubClient githubClient;
 
     private final CodeFixService codeFixService;
@@ -68,6 +66,8 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
     private final PrCommandTaskStateManager commandTaskStateManager;
 
     private final PrCommandTaskFailureHandler commandTaskFailureHandler;
+
+    private final FixPullRequestWritePolicy fixPullRequestWritePolicy;
 
 
     @Override
@@ -145,7 +145,7 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
             }
             commandTaskStateManager.updateHeadSha(task, detail.getHeadSha());
 
-            assertWritableSameRepo(task, detail);
+            fixPullRequestWritePolicy.assertWritableSameRepo(task, detail);
             List<ReviewIssue> fixableIssues = fixableIssueSelector.select(task);
             if (fixableIssues.isEmpty()) {
                 commandTaskStateManager.markFailed(task, "未找到可修复的受支持 review 问题。");
@@ -221,17 +221,6 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 .orderByDesc(PrCommandTask::getId)
                 .last("LIMIT 1"));
         return tasks == null || tasks.isEmpty() ? null : tasks.getFirst();
-    }
-
-    private void assertWritableSameRepo(PrCommandTask task, GithubPullRequestDetail detail) {
-        String expectedRepo = task.getRepoOwner() + "/" + task.getRepoName();
-        if (!expectedRepo.equalsIgnoreCase(detail.getHeadRepoFullName())
-                || !expectedRepo.equalsIgnoreCase(detail.getBaseRepoFullName())) {
-            throw new NonRetryableFixTaskException("仅允许对当前仓库中的分支执行修复。");
-        }
-        if (!StringUtils.hasText(detail.getHeadRef()) || !StringUtils.hasText(detail.getHeadRepoCloneUrl())) {
-            throw new NonRetryableFixTaskException("PR head 分支信息不完整。");
-        }
     }
 
     private String commentBodyAuditPreview(String commentBody) {
