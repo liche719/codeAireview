@@ -1,22 +1,18 @@
 package com.codepilot.module.agent.service.impl;
 
 import com.codepilot.module.agent.dto.AiReviewContext;
-import com.codepilot.module.agent.dto.AiReviewIssue;
 import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.prompt.AiReviewContextFormatter;
 import com.codepilot.module.agent.review.DeterministicReviewToolRunner;
-import com.codepilot.module.agent.review.ReviewIssueDeduplicator;
 import com.codepilot.module.agent.review.ReviewLlmGate;
 import com.codepilot.module.agent.review.ReviewLlmReviewer;
+import com.codepilot.module.agent.review.ReviewResultMerger;
 import com.codepilot.module.agent.service.AiReviewService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-
-import java.util.ArrayList;
-import java.util.List;
 
 @Slf4j
 @Service
@@ -31,7 +27,7 @@ public class AiReviewServiceImpl implements AiReviewService {
 
     private final ReviewLlmReviewer reviewLlmReviewer;
 
-    private final ReviewIssueDeduplicator reviewIssueDeduplicator;
+    private final ReviewResultMerger reviewResultMerger;
 
     @Override
     public AiReviewResult reviewFile(AiReviewRequest request) {
@@ -55,25 +51,7 @@ public class AiReviewServiceImpl implements AiReviewService {
         if (llmResult == null) {
             return deterministicResult;
         }
-        return mergeResults(llmResult, deterministicResult);
-    }
-
-    private AiReviewResult mergeResults(AiReviewResult llmResult, AiReviewResult deterministicResult) {
-        List<AiReviewIssue> mergedIssues = new ArrayList<>();
-        if (llmResult != null && llmResult.getIssues() != null) {
-            mergedIssues.addAll(llmResult.getIssues());
-        }
-        if (deterministicResult != null && deterministicResult.getIssues() != null) {
-            mergedIssues.addAll(deterministicResult.getIssues());
-        }
-        AiReviewResult mergedResult = llmResult == null ? AiReviewResult.empty() : llmResult;
-        mergedResult.setIssues(reviewIssueDeduplicator.dedupe(mergedIssues));
-        if (!StringUtils.hasText(mergedResult.getSummary())
-                && deterministicResult != null
-                && StringUtils.hasText(deterministicResult.getSummary())) {
-            mergedResult.setSummary(deterministicResult.getSummary());
-        }
-        return mergedResult;
+        return reviewResultMerger.merge(llmResult, deterministicResult);
     }
 
     private int issueCount(AiReviewResult result) {

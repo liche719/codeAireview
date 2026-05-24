@@ -10,6 +10,7 @@ import com.codepilot.module.agent.review.ReviewIssueDeduplicator;
 import com.codepilot.module.agent.review.ReviewLlmGate;
 import com.codepilot.module.agent.review.ReviewLlmCallLogger;
 import com.codepilot.module.agent.review.ReviewLlmReviewer;
+import com.codepilot.module.agent.review.ReviewResultMerger;
 import com.codepilot.module.agent.service.CodeReviewAiAssistant;
 import com.codepilot.module.agent.service.ReviewRagService;
 import com.codepilot.module.audit.entity.LlmCallLog;
@@ -285,7 +286,7 @@ class AiReviewServiceImplTest {
                     new AiReviewContextFormatter(),
                     new ReviewLlmGate(llmProperties),
                     reviewLlmReviewer,
-                    reviewIssueDeduplicator
+                    new ReviewResultMerger(reviewIssueDeduplicator)
             );
         }
     }
