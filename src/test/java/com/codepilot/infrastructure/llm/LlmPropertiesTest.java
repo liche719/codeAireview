@@ -19,7 +19,9 @@ class LlmPropertiesTest {
                 "codepilot.llm.max-review-context-chars", "300",
                 "codepilot.llm.review-structured-output-enabled", "false",
                 "codepilot.llm.review-cache-enabled", "false",
-                "codepilot.llm.review-cache-ttl-days", "3"
+                "codepilot.llm.review-cache-ttl-days", "3",
+                "codepilot.llm.call-log-cleanup-enabled", "false",
+                "codepilot.llm.call-log-retention-days", "14"
         ));
 
         LlmProperties properties = new Binder(source)
@@ -32,6 +34,8 @@ class LlmPropertiesTest {
         assertThat(properties.isReviewStructuredOutputEnabled()).isFalse();
         assertThat(properties.isReviewCacheEnabled()).isFalse();
         assertThat(properties.getReviewCacheTtlDays()).isEqualTo(3);
+        assertThat(properties.isCallLogCleanupEnabled()).isFalse();
+        assertThat(properties.getCallLogRetentionDays()).isEqualTo(14);
     }
 
     @Test
@@ -44,5 +48,7 @@ class LlmPropertiesTest {
         assertThat(properties.isReviewStructuredOutputEnabled()).isTrue();
         assertThat(properties.isReviewCacheEnabled()).isTrue();
         assertThat(properties.getReviewCacheTtlDays()).isEqualTo(7);
+        assertThat(properties.isCallLogCleanupEnabled()).isTrue();
+        assertThat(properties.getCallLogRetentionDays()).isEqualTo(30);
     }
 }

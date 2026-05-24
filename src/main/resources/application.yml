@@ -114,6 +114,9 @@ codepilot:
     review-cache-ttl-days: ${CODEPILOT_LLM_REVIEW_CACHE_TTL_DAYS:7}
     review-cache-cleanup-enabled: ${CODEPILOT_LLM_REVIEW_CACHE_CLEANUP_ENABLED:true}
     review-cache-cleanup-cron: ${CODEPILOT_LLM_REVIEW_CACHE_CLEANUP_CRON:0 0 */6 * * *}
+    call-log-cleanup-enabled: ${CODEPILOT_LLM_CALL_LOG_CLEANUP_ENABLED:true}
+    call-log-retention-days: ${CODEPILOT_LLM_CALL_LOG_RETENTION_DAYS:30}
+    call-log-cleanup-cron: ${CODEPILOT_LLM_CALL_LOG_CLEANUP_CRON:0 30 */6 * * *}
   embedding:
     enabled: true
     provider: openai-compatible

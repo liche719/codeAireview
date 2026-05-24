@@ -36,4 +36,8 @@ public class LlmProperties {
     private int reviewCacheTtlDays = 7;
 
     private boolean reviewCacheCleanupEnabled = true;
+
+    private boolean callLogCleanupEnabled = true;
+
+    private int callLogRetentionDays = 30;
 }
