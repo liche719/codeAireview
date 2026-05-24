@@ -132,4 +132,56 @@ class AiReviewContextFormatterTest {
                 .contains("src/main/java/File30.java")
                 .doesNotContain("src/main/java/File31.java");
     }
+
+    @Test
+    void shouldFormatCurrentFileRelatedChangedFiles() {
+        AiReviewContext context = new AiReviewContext(
+                List.of(
+                        "src/main/java/com/example/UserService.java",
+                        "src/test/java/com/example/UserServiceTest.java",
+                        "src/main/java/com/example/UserController.java",
+                        "src/main/java/com/example/order/OrderService.java"
+                ),
+                4,
+                4,
+                0,
+                20,
+                2,
+                300,
+                List.of(),
+                List.of(
+                        fileSummary("src/main/java/com/example/UserService.java"),
+                        fileSummary("src/test/java/com/example/UserServiceTest.java"),
+                        fileSummary("src/main/java/com/example/UserController.java"),
+                        fileSummary("src/main/java/com/example/order/OrderService.java")
+                ),
+                List.of()
+        );
+
+        String formatted = formatter.formatForFile(context, "src/main/java/com/example/UserService.java");
+        String currentFileFocusSection = formatted.substring(
+                formatted.indexOf("Current file focus:"),
+                formatted.indexOf("File summaries:")
+        );
+
+        assertThat(formatted)
+                .contains("Current file focus:")
+                .contains("- Current file: src/main/java/com/example/UserService.java")
+                .contains("src/test/java/com/example/UserServiceTest.java (matching source/test pair)")
+                .contains("src/main/java/com/example/UserController.java (same directory)");
+        assertThat(currentFileFocusSection)
+                .doesNotContain("src/main/java/com/example/order/OrderService.java (");
+    }
+
+    private AiReviewContext.FileSummary fileSummary(String filePath) {
+        return new AiReviewContext.FileSummary(
+                filePath,
+                "modified",
+                1,
+                0,
+                10,
+                true,
+                null
+        );
+    }
 }

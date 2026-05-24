@@ -4,7 +4,10 @@ import com.codepilot.module.agent.dto.AiReviewContext;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 @Component
 public class AiReviewContextFormatter {
@@ -17,7 +20,13 @@ public class AiReviewContextFormatter {
 
     private static final int SKIPPED_FILE_CONTEXT_LIMIT = 20;
 
+    private static final int RELATED_FILE_CONTEXT_LIMIT = 10;
+
     public String format(AiReviewContext context) {
+        return formatForFile(context, null);
+    }
+
+    public String formatForFile(AiReviewContext context, String currentFilePath) {
         AiReviewContext safeContext = context == null ? AiReviewContext.empty() : context;
         List<String> allChangedFiles = safeContext.allChangedFiles();
         if (allChangedFiles.isEmpty()) {
@@ -39,6 +48,7 @@ public class AiReviewContextFormatter {
                 .append(safeContext.totalPatchChars())
                 .append("):\n");
         appendChangedFiles(builder, allChangedFiles);
+        appendCurrentFileFocus(builder, safeContext, currentFilePath);
         appendReviewSignals(builder, safeContext.reviewSignals());
         appendFileSummaries(builder, safeContext.fileSummaries());
         appendSkippedFiles(builder, safeContext.skippedFiles());
@@ -55,6 +65,85 @@ public class AiReviewContextFormatter {
                     .append(allChangedFiles.size() - CHANGED_FILE_CONTEXT_LIMIT)
                     .append(" more changed files omitted\n");
         }
+    }
+
+    private void appendCurrentFileFocus(
+            StringBuilder builder,
+            AiReviewContext context,
+            String currentFilePath
+    ) {
+        if (!StringUtils.hasText(currentFilePath)) {
+            return;
+        }
+        builder.append("\nCurrent file focus:\n")
+                .append("- Current file: ")
+                .append(singleLine(currentFilePath))
+                .append('\n');
+
+        Map<String, String> relatedFiles = relatedChangedFiles(context, currentFilePath);
+        if (relatedFiles.isEmpty()) {
+            builder.append("- Related changed files: none detected\n");
+            return;
+        }
+
+        builder.append("- Related changed files:\n");
+        int index = 0;
+        for (Map.Entry<String, String> relatedFile : relatedFiles.entrySet()) {
+            if (index >= RELATED_FILE_CONTEXT_LIMIT) {
+                builder.append("  - ")
+                        .append(relatedFiles.size() - RELATED_FILE_CONTEXT_LIMIT)
+                        .append(" more related changed files omitted\n");
+                break;
+            }
+            builder.append("  - ")
+                    .append(singleLine(relatedFile.getKey()))
+                    .append(" (")
+                    .append(relatedFile.getValue())
+                    .append(")\n");
+            index++;
+        }
+    }
+
+    private Map<String, String> relatedChangedFiles(AiReviewContext context, String currentFilePath) {
+        String normalizedCurrentFilePath = normalizePath(currentFilePath);
+        if (!StringUtils.hasText(normalizedCurrentFilePath)) {
+            return Map.of();
+        }
+        Map<String, String> relatedFiles = new LinkedHashMap<>();
+        changedFileCandidates(context).forEach(candidate -> {
+            String normalizedCandidate = normalizePath(candidate);
+            if (!StringUtils.hasText(normalizedCandidate) || normalizedCandidate.equals(normalizedCurrentFilePath)) {
+                return;
+            }
+            String reason = relationReason(normalizedCurrentFilePath, normalizedCandidate);
+            if (reason != null) {
+                relatedFiles.putIfAbsent(candidate, reason);
+            }
+        });
+        return relatedFiles;
+    }
+
+    private List<String> changedFileCandidates(AiReviewContext context) {
+        if (!context.fileSummaries().isEmpty()) {
+            return context.fileSummaries().stream()
+                    .map(AiReviewContext.FileSummary::filePath)
+                    .filter(StringUtils::hasText)
+                    .toList();
+        }
+        return context.allChangedFiles();
+    }
+
+    private String relationReason(String currentFilePath, String candidateFilePath) {
+        if (codeIdentity(currentFilePath).equals(codeIdentity(candidateFilePath))) {
+            return "matching source/test pair";
+        }
+        if (sameBaseName(currentFilePath, candidateFilePath)) {
+            return "same base name";
+        }
+        if (directory(currentFilePath).equals(directory(candidateFilePath))) {
+            return "same directory";
+        }
+        return null;
     }
 
     private void appendReviewSignals(StringBuilder builder, List<AiReviewContext.ReviewSignal> reviewSignals) {
@@ -143,4 +232,42 @@ public class AiReviewContextFormatter {
                 .replace('\t', ' ')
                 .trim();
     }
+
+    private String normalizePath(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        return value.replace('\\', '/')
+                .trim()
+                .toLowerCase(Locale.ROOT);
+    }
+
+    private String directory(String path) {
+        int index = path.lastIndexOf('/');
+        return index < 0 ? "" : path.substring(0, index);
+    }
+
+    private boolean sameBaseName(String left, String right) {
+        return baseNameWithoutTestSuffix(left).equals(baseNameWithoutTestSuffix(right));
+    }
+
+    private String baseNameWithoutTestSuffix(String path) {
+        String fileName = path.substring(path.lastIndexOf('/') + 1);
+        String withoutExtension = fileName.replaceFirst("\\.[^.]+$", "");
+        return withoutExtension
+                .replaceFirst("(?i)(test|tests|spec)$", "")
+                .replaceFirst("(?i)\\.(test|spec)$", "");
+    }
+
+    private String codeIdentity(String path) {
+        String normalized = path
+                .replace("src/test/java/", "src/main/java/")
+                .replace("src/test/kotlin/", "src/main/kotlin/")
+                .replace("src/test/", "src/main/")
+                .replace("/__tests__/", "/")
+                .replace("/tests/", "/");
+        String directory = directory(normalized);
+        return directory + "/" + baseNameWithoutTestSuffix(normalized);
+    }
+
 }

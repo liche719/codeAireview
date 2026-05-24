@@ -42,7 +42,7 @@ public class AiReviewServiceImpl implements AiReviewService {
             return AiReviewResult.empty();
         }
 
-        String allChangedFilesText = aiReviewContextFormatter.format(context);
+        String allChangedFilesText = aiReviewContextFormatter.formatForFile(context, filePath);
         AiReviewResult deterministicResult = deterministicReviewToolRunner.run(filePath, patch, allChangedFilesText);
         if (!reviewLlmGate.isAvailable(filePath, issueCount(deterministicResult))) {
             return deterministicResult;
