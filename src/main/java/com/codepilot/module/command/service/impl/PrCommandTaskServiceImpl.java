@@ -9,8 +9,10 @@ import com.codepilot.module.agent.service.CodeFixService;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.fix.FixableIssueSelector;
+import com.codepilot.module.command.fix.FixPromptInput;
 import com.codepilot.module.command.fix.FixPatchScopeValidationResult;
 import com.codepilot.module.command.fix.FixPatchScopeValidator;
+import com.codepilot.module.command.fix.FixRequestAssembler;
 import com.codepilot.module.command.fix.FixSnippetBuilder;
 import com.codepilot.module.command.fix.NonRetryableFixTaskException;
 import com.codepilot.module.command.git.GitPatchExecutionRequest;
@@ -23,7 +25,6 @@ import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
 import com.codepilot.module.review.entity.ReviewIssue;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,12 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 @Slf4j
 @Service
@@ -62,16 +58,13 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
 
     private final PrCommandTaskLogService commandTaskLogService;
 
-    private final ObjectMapper objectMapper;
-
     private final FixPatchScopeValidator fixPatchScopeValidator;
 
     private final FixableIssueSelector fixableIssueSelector;
 
     private final FixSnippetBuilder fixSnippetBuilder;
 
-    @Value("${codepilot.github.token:}")
-    private String githubToken;
+    private final FixRequestAssembler fixRequestAssembler;
 
     @Value("${spring.rabbitmq.listener.simple.retry.max-attempts:3}")
     private int rabbitRetryMaxAttempts = 3;
@@ -160,17 +153,19 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 return;
             }
 
-            String issuesJson = buildIssuesJson(fixableIssues);
+            FixPromptInput promptInput = fixRequestAssembler.buildPromptInput(fixableIssues);
             String snippets = fixSnippetBuilder.build(task, detail.getHeadSha(), fixableIssues);
             if (!StringUtils.hasText(snippets)) {
                 completeFailed(task, "找到了可修复的问题，但没有有效的代码片段。");
                 comment(task, "我找到了可修复的问题，但没有加载到足够的代码上下文来生成安全补丁。");
                 return;
             }
-            String limits = "maxFiles=" + properties.getFixMaxFiles()
-                    + ", maxChangedLines=" + properties.getFixMaxChangedLines()
-                    + ", output=unified diff only";
-            CodeFixResult fixResult = codeFixService.generateFix(task.getId(), issuesJson, snippets, limits);
+            CodeFixResult fixResult = codeFixService.generateFix(
+                    task.getId(),
+                    promptInput.issuesJson(),
+                    snippets,
+                    promptInput.limits()
+            );
             String patch = fixResult == null ? null : fixResult.getPatch();
             if (!StringUtils.hasText(patch)) {
                 completeFailed(task, "模型没有生成补丁。");
@@ -178,12 +173,17 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
                 return;
             }
 
-            FixPatchScopeValidationResult stats = fixPatchScopeValidator.validate(patch, allowedFixPaths(fixableIssues));
+            FixPatchScopeValidationResult stats = fixPatchScopeValidator.validate(patch, promptInput.allowedPaths());
             task.setGeneratedPatch(generatedPatchAuditPreview(patch));
             updateById(task);
             commandTaskLogService.record(task.getId(), "PATCH_GENERATED", true, "补丁已生成。", stats.toString());
 
-            GitPatchExecutionRequest request = buildExecutionRequest(task, detail, patch, fixResult == null ? null : fixResult.getCommitMessage());
+            GitPatchExecutionRequest request = fixRequestAssembler.buildExecutionRequest(
+                    task,
+                    detail,
+                    patch,
+                    fixResult == null ? null : fixResult.getCommitMessage()
+            );
             GitPatchExecutionResult executionResult = gitPatchExecutor.execute(request);
             if (!executionResult.isSuccess()) {
                 if (executionResult.isRetryable()) {
@@ -272,69 +272,6 @@ public class PrCommandTaskServiceImpl extends ServiceImpl<PrCommandTaskMapper, P
         if (!StringUtils.hasText(detail.getHeadRef()) || !StringUtils.hasText(detail.getHeadRepoCloneUrl())) {
             throw new NonRetryableFixTaskException("PR head 分支信息不完整。");
         }
-    }
-
-    private String buildIssuesJson(List<ReviewIssue> issues) throws Exception {
-        List<Map<String, Object>> promptIssues = new ArrayList<>();
-        for (ReviewIssue issue : issues) {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("filePath", issue.getFilePath());
-            item.put("lineNumber", issue.getLineNumber());
-            item.put("issueType", issue.getIssueType());
-            item.put("issueTypeZh", issue.getIssueTypeZh());
-            item.put("severity", issue.getSeverity());
-            item.put("title", issue.getTitle());
-            item.put("description", issue.getDescription());
-            item.put("suggestion", issue.getSuggestion());
-            promptIssues.add(item);
-        }
-        return objectMapper.writeValueAsString(promptIssues);
-    }
-
-    private Set<String> allowedFixPaths(List<ReviewIssue> fixableIssues) {
-        Set<String> paths = new LinkedHashSet<>();
-        if (fixableIssues == null) {
-            return paths;
-        }
-        for (ReviewIssue issue : fixableIssues) {
-            String path = issue == null ? null : issue.getFilePath();
-            if (StringUtils.hasText(path)) {
-                paths.add(path.trim());
-            }
-        }
-        return paths;
-    }
-
-    private GitPatchExecutionRequest buildExecutionRequest(PrCommandTask task, GithubPullRequestDetail detail, String patch) {
-        return buildExecutionRequest(task, detail, patch, null);
-    }
-
-    private GitPatchExecutionRequest buildExecutionRequest(PrCommandTask task, GithubPullRequestDetail detail, String patch, String commitMessage) {
-        GitPatchExecutionRequest request = new GitPatchExecutionRequest();
-        request.setCloneUrl(detail.getHeadRepoCloneUrl());
-        request.setBranch(detail.getHeadRef());
-        request.setPatch(patch);
-        request.setToken(githubToken);
-        request.setCommitMessage(resolveCommitMessage(commitMessage));
-        request.setValidationCommand(properties.getFixValidationCommand());
-        request.setAllowedValidationCommands(properties.getFixAllowedValidationCommands());
-        request.setInheritValidationEnvironment(properties.isFixValidationInheritEnvironment());
-        request.setValidationTimeoutSeconds(properties.getFixValidationTimeoutSeconds());
-        request.setDryRun(Boolean.TRUE.equals(task.getDryRun()));
-        return request;
-    }
-
-    private String resolveCommitMessage(String modelCommitMessage) {
-        if (StringUtils.hasText(modelCommitMessage)) {
-            String normalized = modelCommitMessage.replaceAll("\\s+", " ").trim();
-            if (normalized.length() > 120) {
-                normalized = normalized.substring(0, 120).trim();
-            }
-            if (StringUtils.hasText(normalized)) {
-                return normalized;
-            }
-        }
-        return "fix: CodePilot AI 自动修复";
     }
 
     private String buildDryRunComment(FixPatchScopeValidationResult stats, String summary, String patch) {
