@@ -7,9 +7,7 @@ import com.codepilot.module.agent.dto.AiReviewResult;
 import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.parser.AiReviewResultParser;
 import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
-import com.codepilot.module.agent.service.CodeReviewAiAssistant;
 import com.codepilot.module.agent.service.ReviewRagService;
-import dev.langchain4j.service.Result;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -24,7 +22,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class ReviewLlmReviewer {
 
-    private final ObjectProvider<CodeReviewAiAssistant> codeReviewAiAssistantProvider;
+    private final ObjectProvider<ReviewLlmClient> reviewLlmClientProvider;
 
     private final AiReviewResultParser aiReviewResultParser;
 
@@ -45,10 +43,15 @@ public class ReviewLlmReviewer {
         String filePath = request == null ? null : request.filePath();
         String patch = request == null ? null : request.patch();
 
-        CodeReviewAiAssistant codeReviewAiAssistant = codeReviewAiAssistantProvider.getIfAvailable();
-        if (codeReviewAiAssistant == null) {
-            log.warn("Skip llm review because CodeReviewAiAssistant bean is unavailable, filePath={}, deterministicIssueCount={}",
+        ReviewLlmClient reviewLlmClient = reviewLlmClientProvider.getIfAvailable();
+        if (reviewLlmClient == null) {
+            log.warn("Skip llm review because ReviewLlmClient bean is unavailable, filePath={}, deterministicIssueCount={}",
                     filePath, deterministicIssueCount);
+            return Optional.empty();
+        }
+        if (!reviewLlmClient.isAvailable()) {
+            log.warn("Skip llm review because ReviewLlmClient is unavailable, provider={}, filePath={}, deterministicIssueCount={}",
+                    reviewLlmClient.providerName(), filePath, deterministicIssueCount);
             return Optional.empty();
         }
         if (!reviewLlmInputLimiter.isPatchWithinBudget(patch)) {
@@ -75,16 +78,11 @@ public class ReviewLlmReviewer {
         long startTime = System.currentTimeMillis();
 
         try {
-            Result<String> result = codeReviewAiAssistant.review(
-                    promptSafe(limitedInput.filePath()),
-                    promptSafe(limitedInput.patch()),
-                    promptSafe(limitedInput.rulesContext()),
-                    promptSafe(limitedInput.changedFilesContext())
-            );
-            responseText = result == null ? null : result.content();
+            responseText = reviewLlmClient.review(promptSafe(limitedInput));
             if (!StringUtils.hasText(responseText)) {
                 errorMessage = "empty model response";
-                log.warn("LangChain4j review returned empty content, filePath={}", filePath);
+                log.warn("LLM review returned empty content, provider={}, filePath={}",
+                        reviewLlmClient.providerName(), filePath);
                 throw new IllegalStateException(errorMessage);
             }
 
@@ -93,8 +91,8 @@ public class ReviewLlmReviewer {
             return Optional.of(parsedResult);
         } catch (Exception exception) {
             errorMessage = SensitiveDataSanitizer.redact(exception.getMessage());
-            log.warn("LangChain4j ai review failed, filePath={}, errorType={}, message={}",
-                    filePath, exception.getClass().getSimpleName(), errorMessage);
+            log.warn("LLM review failed, provider={}, filePath={}, errorType={}, message={}",
+                    reviewLlmClient.providerName(), filePath, exception.getClass().getSimpleName(), errorMessage);
             throw exception;
         } finally {
             long costTimeMs = System.currentTimeMillis() - startTime;
@@ -111,6 +109,17 @@ public class ReviewLlmReviewer {
                     responseText
             );
         }
+    }
+
+    private ReviewLlmInput promptSafe(ReviewLlmInput input) {
+        return new ReviewLlmInput(
+                promptSafe(input.filePath()),
+                promptSafe(input.patch()),
+                promptSafe(input.rulesContext()),
+                promptSafe(input.changedFilesContext()),
+                input.truncatedRulesContext(),
+                input.truncatedChangedFilesContext()
+        );
     }
 
     private String promptSafe(String content) {

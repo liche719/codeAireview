@@ -6,12 +6,10 @@ import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.parser.AiReviewResultParser;
 import com.codepilot.module.agent.parser.AiReviewResultSchemaValidator;
 import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
-import com.codepilot.module.agent.service.CodeReviewAiAssistant;
 import com.codepilot.module.agent.service.ReviewRagService;
 import com.codepilot.module.audit.entity.LlmCallLog;
 import com.codepilot.module.audit.service.LlmCallLogService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.service.Result;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -33,32 +31,33 @@ class ReviewLlmReviewerTest {
         properties.setMaxReviewPatchChars(1000);
         properties.setMaxReviewRulesChars(80);
         properties.setMaxReviewContextChars(60);
-        CodeReviewAiAssistant assistant = mock(CodeReviewAiAssistant.class);
+        ReviewLlmClient reviewLlmClient = mock(ReviewLlmClient.class);
         @SuppressWarnings("unchecked")
-        ObjectProvider<CodeReviewAiAssistant> assistantProvider = mock(ObjectProvider.class);
+        ObjectProvider<ReviewLlmClient> reviewLlmClientProvider = mock(ObjectProvider.class);
         ReviewRagService reviewRagService = mock(ReviewRagService.class);
         LlmCallLogService llmCallLogService = mock(LlmCallLogService.class);
         ReviewRuleContext ruleContext = new ReviewRuleContext();
         ruleContext.setContent("rule ".repeat(100));
-        when(assistantProvider.getIfAvailable()).thenReturn(assistant);
+        when(reviewLlmClientProvider.getIfAvailable()).thenReturn(reviewLlmClient);
+        when(reviewLlmClient.providerName()).thenReturn("test");
+        when(reviewLlmClient.isAvailable()).thenReturn(true);
         when(reviewRagService.retrieveRelevantRules(any(), any())).thenReturn(List.of(ruleContext));
-        when(assistant.review(any(), any(), any(), any()))
-                .thenReturn(new Result<>("""
+        when(reviewLlmClient.review(any()))
+                .thenReturn("""
                         {
                           "issues": [],
                           "summary": "ok"
                         }
-                        """, null, List.of(), null, List.of()));
+                        """);
         ReviewLlmReviewer reviewer = new ReviewLlmReviewer(
-                assistantProvider,
+                reviewLlmClientProvider,
                 new AiReviewResultParser(new ObjectMapper(), new AiReviewResultSchemaValidator()),
                 reviewRagService,
                 new ReviewPromptBuilder(),
                 new ReviewLlmInputLimiter(properties),
                 new ReviewLlmCallLogger(properties, llmCallLogService)
         );
-        ArgumentCaptor<String> rulesCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> changedFilesCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<ReviewLlmInput> inputCaptor = ArgumentCaptor.forClass(ReviewLlmInput.class);
         ArgumentCaptor<LlmCallLog> logCaptor = ArgumentCaptor.forClass(LlmCallLog.class);
 
         reviewer.review(
@@ -67,9 +66,9 @@ class ReviewLlmReviewerTest {
                 0
         );
 
-        verify(assistant).review(any(), any(), rulesCaptor.capture(), changedFilesCaptor.capture());
-        assertThat(rulesCaptor.getValue()).hasSize(80).contains("[TRUNCATED");
-        assertThat(changedFilesCaptor.getValue()).hasSize(60).contains("[TRUNCATED");
+        verify(reviewLlmClient).review(inputCaptor.capture());
+        assertThat(inputCaptor.getValue().rulesContext()).hasSize(80).contains("[TRUNCATED");
+        assertThat(inputCaptor.getValue().changedFilesContext()).hasSize(60).contains("[TRUNCATED");
         verify(llmCallLogService).save(logCaptor.capture());
         assertThat(logCaptor.getValue().getRequestSummary())
                 .contains("rulesTruncated=true")
