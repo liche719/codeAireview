@@ -5,6 +5,7 @@ import com.codepilot.module.agent.dto.AiReviewContext;
 import com.codepilot.module.agent.dto.AiReviewIssue;
 import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.dto.AiReviewResult;
+import com.codepilot.module.agent.prompt.AiReviewContextFormatter;
 import com.codepilot.module.agent.review.DeterministicReviewToolRunner;
 import com.codepilot.module.agent.review.ReviewIssueDeduplicator;
 import com.codepilot.module.agent.review.ReviewLlmReviewer;
@@ -22,11 +23,11 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AiReviewServiceImpl implements AiReviewService {
 
-    private static final int SKIPPED_FILE_CONTEXT_LIMIT = 20;
-
     private final LlmProperties llmProperties;
 
     private final DeterministicReviewToolRunner deterministicReviewToolRunner;
+
+    private final AiReviewContextFormatter aiReviewContextFormatter;
 
     private final ReviewLlmReviewer reviewLlmReviewer;
 
@@ -42,7 +43,7 @@ public class AiReviewServiceImpl implements AiReviewService {
             return AiReviewResult.empty();
         }
 
-        String allChangedFilesText = buildReviewContextText(context);
+        String allChangedFilesText = aiReviewContextFormatter.format(context);
         AiReviewResult deterministicResult = deterministicReviewToolRunner.run(filePath, patch, allChangedFilesText);
         if (!llmProperties.isEnabled()) {
             log.info("Skip llm review because llm is disabled, filePath={}, deterministicIssueCount={}",
@@ -62,50 +63,6 @@ public class AiReviewServiceImpl implements AiReviewService {
             return deterministicResult;
         }
         return mergeResults(llmResult, deterministicResult);
-    }
-
-    private String buildReviewContextText(AiReviewContext context) {
-        AiReviewContext safeContext = context == null ? AiReviewContext.empty() : context;
-        List<String> allChangedFiles = safeContext.allChangedFiles();
-        if (allChangedFiles.isEmpty()) {
-            return "No changed file list was provided.";
-        }
-
-        StringBuilder builder = new StringBuilder()
-                .append("Changed files (")
-                .append(safeContext.totalFileCount())
-                .append(" total, ")
-                .append(safeContext.reviewableFileCount())
-                .append(" reviewable, ")
-                .append(safeContext.skippedFileCount())
-                .append(" skipped, +")
-                .append(safeContext.totalAdditions())
-                .append(" / -")
-                .append(safeContext.totalDeletions())
-                .append(", patchChars=")
-                .append(safeContext.totalPatchChars())
-                .append("):\n");
-        builder.append(String.join("\n", allChangedFiles));
-
-        List<AiReviewContext.SkippedFile> skippedFiles = safeContext.skippedFiles();
-        if (!skippedFiles.isEmpty()) {
-            builder.append("\n\nSkipped files:\n");
-            int limit = Math.min(skippedFiles.size(), SKIPPED_FILE_CONTEXT_LIMIT);
-            for (int index = 0; index < limit; index++) {
-                AiReviewContext.SkippedFile skippedFile = skippedFiles.get(index);
-                builder.append("- ")
-                        .append(skippedFile.filePath())
-                        .append(": ")
-                        .append(StringUtils.hasText(skippedFile.reason()) ? skippedFile.reason() : "skipped")
-                        .append('\n');
-            }
-            if (skippedFiles.size() > SKIPPED_FILE_CONTEXT_LIMIT) {
-                builder.append("- ")
-                        .append(skippedFiles.size() - SKIPPED_FILE_CONTEXT_LIMIT)
-                        .append(" more skipped files omitted\n");
-            }
-        }
-        return builder.toString();
     }
 
     private AiReviewResult mergeResults(AiReviewResult llmResult, AiReviewResult deterministicResult) {

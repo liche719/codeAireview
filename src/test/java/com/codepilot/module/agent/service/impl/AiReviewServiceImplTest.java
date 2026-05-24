@@ -3,6 +3,7 @@ package com.codepilot.module.agent.service.impl;
 import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.parser.AiReviewResultParser;
+import com.codepilot.module.agent.prompt.AiReviewContextFormatter;
 import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
 import com.codepilot.module.agent.review.DeterministicReviewToolRunner;
 import com.codepilot.module.agent.review.ReviewIssueDeduplicator;
@@ -281,6 +282,7 @@ class AiReviewServiceImplTest {
             service = new AiReviewServiceImpl(
                     llmProperties,
                     deterministicReviewToolRunner,
+                    new AiReviewContextFormatter(),
                     reviewLlmReviewer,
                     reviewIssueDeduplicator
             );
