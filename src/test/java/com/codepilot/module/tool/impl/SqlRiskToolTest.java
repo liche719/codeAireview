@@ -36,6 +36,50 @@ class SqlRiskToolTest {
     }
 
     @Test
+    void shouldDetectSqlStringConcatenationWithMethodCall() {
+        var results = sqlRiskTool.checkSqlRisk(
+                "src/main/java/DemoService.java",
+                """
+                        @@ -42,1 +42,2 @@
+                        +String sql = "select * from user where id = " + request.getUserId();
+                        """
+        );
+
+        assertThat(results)
+                .anySatisfy(result -> {
+                    assertThat(result.getIssueType()).isEqualTo("SQL_RISK");
+                    assertThat(result.getSeverity()).isEqualTo("HIGH");
+                    assertThat(result.getLineNumber()).isEqualTo(42);
+                    assertThat(result.getTitle()).contains("拼接");
+                });
+    }
+
+    @Test
+    void shouldNotFlagLiteralOnlySqlStringConcatenation() {
+        var results = sqlRiskTool.checkSqlRisk(
+                "src/main/java/DemoService.java",
+                """
+                        +String sql = "select id, name " + "from user " + "where status = ?";
+                        """
+        );
+
+        assertThat(results)
+                .noneSatisfy(result -> assertThat(result.getTitle()).contains("拼接"));
+    }
+
+    @Test
+    void shouldNotFlagNonSqlStringConcatenation() {
+        var results = sqlRiskTool.checkSqlRisk(
+                "src/main/java/DemoService.java",
+                """
+                        +String message = "select option " + optionName;
+                        """
+        );
+
+        assertThat(results).isEmpty();
+    }
+
+    @Test
     void shouldDetectMyBatisPlaceholderRisk() {
         var results = sqlRiskTool.checkSqlRisk("src/main/resources/mapper/UserMapper.xml", "+select * from user order by ${sort}");
 
