@@ -220,7 +220,14 @@ public class GithubClient {
             return graphqlIssues;
         }
 
-        GithubPullRequestDetail detail = getPullRequestDetail(owner, repo, pullNumber);
+        GithubPullRequestDetail detail;
+        try {
+            detail = getPullRequestDetail(owner, repo, pullNumber);
+        } catch (BusinessException exception) {
+            log.warn("GitHub PR detail lookup failed, return empty linked issues, owner={}, repo={}, pullNumber={}, message={}",
+                    owner, repo, pullNumber, SensitiveDataSanitizer.redact(exception.getMessage()));
+            return List.of();
+        }
         List<GithubLinkedIssue> bodyIssues = linkedIssuesFromBody(owner, repo, detail.getBody());
         log.info("GitHub PR linked issues resolved from PR body, owner={}, repo={}, pullNumber={}, issueCount={}",
                 owner, repo, pullNumber, bodyIssues.size());

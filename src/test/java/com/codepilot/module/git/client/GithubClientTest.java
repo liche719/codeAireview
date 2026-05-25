@@ -290,6 +290,26 @@ class GithubClientTest {
         context.server.verify();
     }
 
+    @Test
+    void shouldReturnEmptyLinkedIssuesWhenPullRequestDetailUnavailableAfterGraphqlFailure() {
+        TestContext context = new TestContext();
+        context.server.expect(once(), requestTo("https://api.github.test/graphql"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"message\":\"Resource not accessible by integration\"}"));
+        context.server.expect(once(), requestTo("https://api.github.test/repos/liche719/codeAireview/pulls/123"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"message\":\"Resource not accessible by integration\"}"));
+
+        List<GithubLinkedIssue> issues = context.client.listPullRequestLinkedIssues("liche719", "codeAireview", 123);
+
+        assertThat(issues).isEmpty();
+        context.server.verify();
+    }
+
     private static class TestContext {
 
         private final List<Long> retryDelays = new ArrayList<>();
