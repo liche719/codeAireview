@@ -70,10 +70,9 @@ docker compose -f docker-compose.server.yml down
 
 如果使用 `.github/workflows/deploy.yml` 自动部署，需要在 GitHub 仓库中配置这些值：
 
-- Repository variables：`CODEPILOT_DEPLOY_HOST`、`CODEPILOT_DEPLOY_USER`、`CODEPILOT_DEPLOY_DIR`。
-- Repository secrets：`CODEPILOT_DEPLOY_SSH_KEY`、`CODEPILOT_DEPLOY_KNOWN_HOSTS`。
-
-`CODEPILOT_DEPLOY_SSH_KEY` 应该是专用部署用户的 SSH 私钥，不要使用 root 密码。`CODEPILOT_DEPLOY_KNOWN_HOSTS` 必须填写已固定的服务器 host key，例如通过 `ssh-keyscan your-host` 获取后人工核验再保存，避免 CI 在部署时跳过主机校验。
+- Repository variables：`CODEPILOT_DEPLOY_HOST`、`CODEPILOT_DEPLOY_USER`、`CODEPILOT_DEPLOY_DIR`。如果不配置，workflow 会回退到默认值：`121.43.251.65`、`root`、`/opt/codeAireview`。
+- Repository secret：`SERVER_PASSWORD`。当前部署 workflow 使用密码方式登录服务器，不再强制要求 SSH key。
+- 如果你后续想改回 SSH key 部署，可以再扩展 workflow 让它同时支持 `CODEPILOT_DEPLOY_SSH_KEY` 和 `CODEPILOT_DEPLOY_KNOWN_HOSTS`。
 
 ## 6. 常见调整
 
