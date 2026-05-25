@@ -16,6 +16,7 @@ class GithubClientSpringWiringTest {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(TestConfig.class)) {
             assertThat(context.getBean(GithubClient.class)).isNotNull();
             assertThat(context.containsBean("githubProperties")).isTrue();
+            assertThat(context.getBean(GithubProperties.class)).isNotNull();
         }
     }
 
