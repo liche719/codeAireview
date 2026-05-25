@@ -5,9 +5,21 @@ import org.springframework.core.io.ClassPathResource;
 
 import java.nio.charset.StandardCharsets;
 
+import dev.langchain4j.service.spring.AiService;
+import dev.langchain4j.service.spring.AiServiceWiringMode;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class GithubCommandChatAiAssistantPromptResourceTest {
+
+    @Test
+    void shouldUseExplicitChatModelWiring() {
+        AiService aiService = GithubCommandChatAiAssistant.class.getAnnotation(AiService.class);
+
+        assertThat(aiService).isNotNull();
+        assertThat(aiService.wiringMode()).isEqualTo(AiServiceWiringMode.EXPLICIT);
+        assertThat(aiService.chatModel()).isEqualTo("codeReviewChatModel");
+    }
 
     @Test
     void shouldIsolateUntrustedGithubCommentInputs() throws Exception {

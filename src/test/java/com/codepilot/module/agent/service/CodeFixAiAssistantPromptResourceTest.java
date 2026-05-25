@@ -6,9 +6,21 @@ import org.springframework.core.io.ClassPathResource;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import dev.langchain4j.service.spring.AiService;
+import dev.langchain4j.service.spring.AiServiceWiringMode;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CodeFixAiAssistantPromptResourceTest {
+
+    @Test
+    void shouldUseExplicitChatModelWiring() {
+        AiService aiService = CodeFixAiAssistant.class.getAnnotation(AiService.class);
+
+        assertThat(aiService).isNotNull();
+        assertThat(aiService.wiringMode()).isEqualTo(AiServiceWiringMode.EXPLICIT);
+        assertThat(aiService.chatModel()).isEqualTo("codeReviewChatModel");
+    }
 
     @Test
     void shouldContainRequiredPromptPlaceholdersAndJsonContract() throws Exception {
