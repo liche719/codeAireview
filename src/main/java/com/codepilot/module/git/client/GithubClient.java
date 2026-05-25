@@ -8,6 +8,7 @@ import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubLinkedIssue;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -62,6 +63,7 @@ public class GithubClient {
 
     private volatile String authenticatedUserLogin;
 
+    @Autowired
     public GithubClient(GithubProperties githubProperties) {
         this(
                 githubProperties == null ? new GithubProperties() : githubProperties,
