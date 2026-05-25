@@ -13,6 +13,7 @@ public interface GithubCommandChatAiAssistant {
     String reply(
             @V("commentBody") String commentBody,
             @V("commandText") String commandText,
+            @V("linkedIssuesContext") String linkedIssuesContext,
             @V("owner") String owner,
             @V("repo") String repo,
             @V("pullNumber") Integer pullNumber

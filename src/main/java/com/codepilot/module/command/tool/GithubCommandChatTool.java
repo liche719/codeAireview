@@ -2,6 +2,8 @@ package com.codepilot.module.command.tool;
 
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubChangedFile;
+import com.codepilot.module.git.dto.GithubIssueDetail;
+import com.codepilot.module.git.dto.GithubLinkedIssue;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -18,6 +20,8 @@ public class GithubCommandChatTool {
     private static final int MAX_FILES = 10;
 
     private static final int MAX_PATCH_CHARS_PER_FILE = 800;
+
+    private static final int MAX_ISSUE_BODY_CHARS = 320;
 
     private static final int MAX_CONTEXT_CHARS = 6000;
 
@@ -72,6 +76,48 @@ public class GithubCommandChatTool {
         return truncate(context.toString(), MAX_CONTEXT_CHARS);
     }
 
+    @Tool("Get the current GitHub PR linked issues list with title, state, url, and a short body summary")
+    public String listPullRequestLinkedIssues(
+            @P("repository owner") String owner,
+            @P("repository name") String repo,
+            @P("PR number") Integer pullNumber
+    ) {
+        List<GithubLinkedIssue> issues = githubClient.listPullRequestLinkedIssues(owner, repo, pullNumber);
+        StringBuilder context = new StringBuilder();
+        if (issues == null || issues.isEmpty()) {
+            appendLine(context, "No linked issues found.");
+            return truncate(context.toString(), MAX_CONTEXT_CHARS);
+        }
+        for (GithubLinkedIssue issue : issues) {
+            if (context.length() >= MAX_CONTEXT_CHARS) {
+                break;
+            }
+            appendLine(context, "- " + issueHeader(issue));
+            if (StringUtils.hasText(issue.getBodySummary())) {
+                appendLine(context, "  summary: " + truncate(issue.getBodySummary(), MAX_ISSUE_BODY_CHARS));
+            }
+            appendLine(context, "  source: " + safeText(issue.getLinkSource(), "N/A"));
+        }
+        return truncate(context.toString(), MAX_CONTEXT_CHARS);
+    }
+
+    @Tool("Get a specific GitHub issue detail including title, state, url, and body summary")
+    public String getIssueDetail(
+            @P("repository owner") String owner,
+            @P("repository name") String repo,
+            @P("issue number") Integer issueNumber
+    ) {
+        GithubIssueDetail issue = githubClient.getIssueDetail(owner, repo, issueNumber);
+        StringBuilder context = new StringBuilder();
+        appendLine(context, "issue title: " + safeText(issue.getTitle(), "N/A"));
+        appendLine(context, "issue url: " + safeText(issue.getHtmlUrl(), buildFallbackIssueUrl(owner, repo, issueNumber)));
+        appendLine(context, "issue state: " + safeText(issue.getState(), "N/A"));
+        if (StringUtils.hasText(issue.getBody())) {
+            appendLine(context, "issue summary: " + truncate(issue.getBody(), MAX_ISSUE_BODY_CHARS));
+        }
+        return truncate(context.toString(), MAX_CONTEXT_CHARS);
+    }
+
     private void appendLine(StringBuilder builder, String line) {
         if (builder.length() > 0) {
             builder.append('\n');
@@ -87,8 +133,22 @@ public class GithubCommandChatTool {
         return value == null ? 0 : value;
     }
 
+    private String issueHeader(GithubLinkedIssue issue) {
+        if (issue == null) {
+            return "N/A";
+        }
+        return "#" + defaultNumber(issue.getNumber())
+                + " " + safeText(issue.getTitle(), "N/A")
+                + " (" + safeText(issue.getState(), "N/A") + ")"
+                + " - " + safeText(issue.getHtmlUrl(), buildFallbackIssueUrl(issue.getRepositoryOwner(), issue.getRepositoryName(), issue.getNumber()));
+    }
+
     private String buildFallbackPrUrl(String owner, String repo, Integer pullNumber) {
         return "https://github.com/" + safeText(owner, "unknown") + "/" + safeText(repo, "unknown") + "/pull/" + pullNumber;
+    }
+
+    private String buildFallbackIssueUrl(String owner, String repo, Integer issueNumber) {
+        return "https://github.com/" + safeText(owner, "unknown") + "/" + safeText(repo, "unknown") + "/issues/" + issueNumber;
     }
 
     private String truncate(String content, int maxLength) {

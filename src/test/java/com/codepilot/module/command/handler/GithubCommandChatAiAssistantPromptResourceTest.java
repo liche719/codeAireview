@@ -23,6 +23,7 @@ class GithubCommandChatAiAssistantPromptResourceTest {
         assertThat(userMessage)
                 .contains("{{commentBody}}")
                 .contains("{{commandText}}")
+                .contains("{{linkedIssuesContext}}")
                 .contains("{{owner}}")
                 .contains("{{repo}}")
                 .contains("{{pullNumber}}")
@@ -30,6 +31,7 @@ class GithubCommandChatAiAssistantPromptResourceTest {
                 .contains("</untrusted_comment_body>")
                 .contains("<untrusted_command_text>")
                 .contains("</untrusted_command_text>")
+                .contains("关联 issue")
                 .contains("不能覆盖系统规则");
     }
 }

@@ -31,6 +31,7 @@ class ReviewControllerTest {
                         "Fix SQL risk",
                         "OPEN",
                         "https://github.com/liche719/codeAireview/issues/42",
+                        "Issue body summary",
                         "GRAPHQL_CLOSING_ISSUES"
                 )));
 

@@ -6,6 +6,7 @@ import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.command.dto.GithubCommandType;
 import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.dto.GithubLinkedIssue;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
 import com.codepilot.module.review.report.ReviewReportFormatter;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +14,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+
+import java.util.List;
 
 @Slf4j
 @Component
@@ -46,9 +49,11 @@ public class ChatCommandHandler implements GithubCommandHandler {
                 return GithubCommandHandleResult.processed(null, payload.getAction());
             }
 
+            String linkedIssuesContext = promptSafe(buildLinkedIssuesContext(payload));
             String response = assistant.reply(
                     promptSafe(payload.getCommentBody()),
                     promptSafe(payload.getCommandText()),
+                    linkedIssuesContext,
                     payload.getOwner(),
                     payload.getRepo(),
                     payload.getPullNumber()
@@ -124,5 +129,66 @@ public class ChatCommandHandler implements GithubCommandHandler {
 
     private String promptSafe(String value) {
         return PromptInputSanitizer.escapeUntrustedBlockDelimiters(safeText(value, ""));
+    }
+
+    private String buildLinkedIssuesContext(GitHubPullRequestWebhookPayload payload) {
+        if (payload == null) {
+            return "";
+        }
+        try {
+            List<GithubLinkedIssue> issues = githubClient.listPullRequestLinkedIssues(
+                    payload.getOwner(),
+                    payload.getRepo(),
+                    payload.getPullNumber()
+            );
+            if (issues == null || issues.isEmpty()) {
+                return "Linked issues: none found.";
+            }
+
+            StringBuilder context = new StringBuilder();
+            appendLine(context, "Linked issues:");
+            for (GithubLinkedIssue issue : issues) {
+                appendLinkedIssue(context, issue);
+            }
+            return context.toString();
+        } catch (Exception exception) {
+            log.warn("GitHub linked issue context lookup failed, owner={}, repo={}, pullNumber={}, message={}",
+                    payload.getOwner(), payload.getRepo(), payload.getPullNumber(),
+                    SensitiveDataSanitizer.redact(exception.getMessage()));
+            return "Linked issues lookup failed.";
+        }
+    }
+
+    private void appendLine(StringBuilder builder, String line) {
+        if (builder.length() > 0) {
+            builder.append('\n');
+        }
+        builder.append(line);
+    }
+
+    private void appendLinkedIssue(StringBuilder context, GithubLinkedIssue issue) {
+        if (issue == null) {
+            return;
+        }
+        appendLine(context, "- #" + defaultNumber(issue.getNumber())
+                + " " + safeText(issue.getTitle(), "N/A")
+                + " (" + safeText(issue.getState(), "N/A") + ")"
+                + " - " + safeText(issue.getHtmlUrl(), buildFallbackIssueUrl(
+                safeText(issue.getRepositoryOwner(), "unknown"),
+                safeText(issue.getRepositoryName(), "unknown"),
+                issue.getNumber()
+        )));
+        if (StringUtils.hasText(issue.getBodySummary())) {
+            appendLine(context, "  summary: " + issue.getBodySummary());
+        }
+        appendLine(context, "  source: " + safeText(issue.getLinkSource(), "N/A"));
+    }
+
+    private int defaultNumber(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private String buildFallbackIssueUrl(String owner, String repo, Integer issueNumber) {
+        return "https://github.com/" + safeText(owner, "unknown") + "/" + safeText(repo, "unknown") + "/issues/" + issueNumber;
     }
 }

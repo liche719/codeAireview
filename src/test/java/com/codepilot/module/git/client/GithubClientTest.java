@@ -198,6 +198,7 @@ class GithubClientTest {
                                       "title": "Fix SQL injection",
                                       "state": "OPEN",
                                       "url": "https://github.com/liche719/codeAireview/issues/42",
+                                      "body": "This issue describes unsafe SQL concatenation in the user lookup path.",
                                       "repository": {
                                         "name": "codeAireview",
                                         "owner": {
@@ -226,6 +227,7 @@ class GithubClientTest {
                     assertThat(issue.getTitle()).isEqualTo("Fix SQL injection");
                     assertThat(issue.getState()).isEqualTo("OPEN");
                     assertThat(issue.getHtmlUrl()).isEqualTo("https://github.com/liche719/codeAireview/issues/42");
+                    assertThat(issue.getBodySummary()).contains("unsafe SQL concatenation");
                     assertThat(issue.getLinkSource()).isEqualTo("GRAPHQL_CLOSING_ISSUES");
                 });
         context.server.verify();
@@ -259,6 +261,7 @@ class GithubClientTest {
                           "number": 42,
                           "title": "Fix SQL injection",
                           "state": "open",
+                          "body": "This issue describes unsafe SQL concatenation in the user lookup path.",
                           "html_url": "https://github.com/liche719/codeAireview/issues/42"
                         }
                         """,
@@ -287,6 +290,7 @@ class GithubClientTest {
         assertThat(issues)
                 .extracting(GithubLinkedIssue::getLinkSource)
                 .containsOnly("PR_BODY_CLOSING_KEYWORD");
+        assertThat(issues.getFirst().getBodySummary()).contains("unsafe SQL concatenation");
         context.server.verify();
     }
 

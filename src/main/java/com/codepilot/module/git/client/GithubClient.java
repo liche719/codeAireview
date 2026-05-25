@@ -1,9 +1,11 @@
 package com.codepilot.module.git.client;
 
 import com.codepilot.common.exception.BusinessException;
+import com.codepilot.common.util.MarkdownSanitizer;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.git.config.GithubProperties;
 import com.codepilot.module.git.dto.GithubChangedFile;
+import com.codepilot.module.git.dto.GithubIssueDetail;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubLinkedIssue;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
@@ -39,6 +41,8 @@ public class GithubClient {
     private static final int PER_PAGE = 100;
 
     private static final int MAX_RESPONSE_BODY_SUMMARY_LENGTH = 240;
+
+    private static final int MAX_ISSUE_BODY_SUMMARY_LENGTH = 320;
 
     private static final int MAX_LINKED_ISSUES = 20;
 
@@ -203,6 +207,28 @@ public class GithubClient {
         }
         log.info("GitHub PR detail fetched, owner={}, repo={}, pullNumber={}, headSha={}",
                 owner, repo, pullNumber, detail.getHeadSha());
+        return detail;
+    }
+
+    public GithubIssueDetail getIssueDetail(String owner, String repo, Integer issueNumber) {
+        GithubIssueDetail detail = executeGithubRequest("failed to get GitHub issue detail", () ->
+                restClient.get()
+                        .uri("/repos/{owner}/{repo}/issues/{issueNumber}", owner, repo, issueNumber)
+                        .headers(this::setAuthorization)
+                        .retrieve()
+                        .body(GithubIssueDetail.class)
+        );
+        if (detail == null) {
+            throw new BusinessException("GitHub issue detail response is empty");
+        }
+        if (!StringUtils.hasText(detail.getRepositoryOwner())) {
+            detail.setRepositoryOwner(owner);
+        }
+        if (!StringUtils.hasText(detail.getRepositoryName())) {
+            detail.setRepositoryName(repo);
+        }
+        log.info("GitHub issue detail fetched, owner={}, repo={}, issueNumber={}, state={}",
+                owner, repo, issueNumber, detail.getState());
         return detail;
     }
 
@@ -412,6 +438,7 @@ public class GithubClient {
                                           title
                                           state
                                           url
+                                          body
                                           repository {
                                             name
                                             owner {
@@ -489,6 +516,7 @@ public class GithubClient {
                     stringValue(nodeMap.get("title")),
                     stringValue(nodeMap.get("state")),
                     stringValue(nodeMap.get("url")),
+                    summarizeIssueBody(nodeMap.get("body")),
                     "GRAPHQL_CLOSING_ISSUES"
             ));
         }
@@ -517,14 +545,15 @@ public class GithubClient {
 
     private GithubLinkedIssue fetchIssueDetailOrReference(String owner, String repo, Integer issueNumber) {
         try {
-            Map<String, Object> issue = requestIssueDetail(owner, repo, issueNumber);
+            GithubIssueDetail issue = getIssueDetail(owner, repo, issueNumber);
             return new GithubLinkedIssue(
-                    owner,
-                    repo,
+                    safeRepositoryOwner(issue, owner),
+                    safeRepositoryName(issue, repo),
                     issueNumber,
-                    stringValue(issue.get("title")),
-                    stringValue(issue.get("state")),
-                    stringValue(issue.get("html_url")),
+                    issue.getTitle(),
+                    issue.getState(),
+                    issue.getHtmlUrl(),
+                    summarizeIssueBody(issue.getBody()),
                     "PR_BODY_CLOSING_KEYWORD"
             );
         } catch (BusinessException exception) {
@@ -537,6 +566,7 @@ public class GithubClient {
                     null,
                     null,
                     "https://github.com/" + owner + "/" + repo + "/issues/" + issueNumber,
+                    null,
                     "PR_BODY_CLOSING_KEYWORD"
             );
         }
@@ -765,6 +795,25 @@ public class GithubClient {
                 .reduce((left, right) -> left + "; " + right)
                 .orElse("unknown GraphQL error");
         return SensitiveDataSanitizer.redactAndTruncate(summary, MAX_RESPONSE_BODY_SUMMARY_LENGTH);
+    }
+
+    private String summarizeIssueBody(Object body) {
+        if (body == null) {
+            return null;
+        }
+        return MarkdownSanitizer.sanitizeInlineText(body.toString(), MAX_ISSUE_BODY_SUMMARY_LENGTH, null);
+    }
+
+    private String safeRepositoryOwner(GithubIssueDetail issue, String fallback) {
+        return issue != null && StringUtils.hasText(issue.getRepositoryOwner())
+                ? issue.getRepositoryOwner()
+                : fallback;
+    }
+
+    private String safeRepositoryName(GithubIssueDetail issue, String fallback) {
+        return issue != null && StringUtils.hasText(issue.getRepositoryName())
+                ? issue.getRepositoryName()
+                : fallback;
     }
 
     private String graphqlErrorMessage(Object error) {

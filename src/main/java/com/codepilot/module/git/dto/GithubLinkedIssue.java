@@ -21,5 +21,7 @@ public class GithubLinkedIssue {
 
     private String htmlUrl;
 
+    private String bodySummary;
+
     private String linkSource;
 }
