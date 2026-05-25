@@ -67,6 +67,30 @@ X-CodePilot-Api-Key: <CODEPILOT_API_AUTH_API_KEY>
 
 查看审查问题列表。
 
+## `GET /api/reviews/{taskId}/linked-issues`
+
+查看当前 PR 在 GitHub 上关联的 closing issues。系统会优先使用 GitHub GraphQL `closingIssuesReferences`，如果不可用或为空，则回退解析 PR 描述里的 `fixes #123` / `closes owner/repo#123` / `resolves https://github.com/owner/repo/issues/123`。
+
+返回示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": [
+    {
+      "repositoryOwner": "liche719",
+      "repositoryName": "codeAireview",
+      "number": 12,
+      "title": "Fix SQL review false positive",
+      "state": "OPEN",
+      "htmlUrl": "https://github.com/liche719/codeAireview/issues/12",
+      "linkSource": "GRAPHQL_CLOSING_ISSUES"
+    }
+  ]
+}
+```
+
 ## `POST /api/rules`
 
 创建规范文档。

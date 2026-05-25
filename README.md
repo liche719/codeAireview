@@ -209,6 +209,13 @@ curl http://localhost:8080/api/reviews/123/issues ^
   -H "X-CodePilot-Api-Key: change-me-local-dev-key"
 ```
 
+### 查询 PR 关联 Issue
+
+```bash
+curl http://localhost:8080/api/reviews/123/linked-issues ^
+  -H "X-CodePilot-Api-Key: change-me-local-dev-key"
+```
+
 ### 创建规则文档
 
 ```bash

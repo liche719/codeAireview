@@ -4,6 +4,7 @@ import com.codepilot.common.exception.BusinessException;
 import com.codepilot.module.git.config.GithubProperties;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubIssueComment;
+import com.codepilot.module.git.dto.GithubLinkedIssue;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -175,6 +176,117 @@ class GithubClientTest {
         assertThat(comments.getFirst().getId()).isEqualTo(1001L);
         assertThat(comments.getFirst().getBody()).contains("codepilot-inline-review");
         assertThat(comments.getFirst().getUserLogin()).isEqualTo("x-pilotx");
+        context.server.verify();
+    }
+
+    @Test
+    void shouldListPullRequestLinkedIssuesFromGraphqlClosingReferences() {
+        TestContext context = new TestContext();
+        context.server.expect(once(), requestTo("https://api.github.test/graphql"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer token"))
+                .andRespond(withSuccess(
+                        """
+                        {
+                          "data": {
+                            "repository": {
+                              "pullRequest": {
+                                "closingIssuesReferences": {
+                                  "nodes": [
+                                    {
+                                      "number": 42,
+                                      "title": "Fix SQL injection",
+                                      "state": "OPEN",
+                                      "url": "https://github.com/liche719/codeAireview/issues/42",
+                                      "repository": {
+                                        "name": "codeAireview",
+                                        "owner": {
+                                          "login": "liche719"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        }
+                        """,
+                        MediaType.APPLICATION_JSON
+                ));
+
+        List<GithubLinkedIssue> issues = context.client.listPullRequestLinkedIssues("liche719", "codeAireview", 123);
+
+        assertThat(issues)
+                .singleElement()
+                .satisfies(issue -> {
+                    assertThat(issue.getRepositoryOwner()).isEqualTo("liche719");
+                    assertThat(issue.getRepositoryName()).isEqualTo("codeAireview");
+                    assertThat(issue.getNumber()).isEqualTo(42);
+                    assertThat(issue.getTitle()).isEqualTo("Fix SQL injection");
+                    assertThat(issue.getState()).isEqualTo("OPEN");
+                    assertThat(issue.getHtmlUrl()).isEqualTo("https://github.com/liche719/codeAireview/issues/42");
+                    assertThat(issue.getLinkSource()).isEqualTo("GRAPHQL_CLOSING_ISSUES");
+                });
+        context.server.verify();
+    }
+
+    @Test
+    void shouldFallbackToPullRequestBodyClosingKeywordsWhenGraphqlUnavailable() {
+        TestContext context = new TestContext();
+        context.server.expect(once(), requestTo("https://api.github.test/graphql"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"message\":\"Resource not accessible by integration\"}"));
+        context.server.expect(once(), requestTo("https://api.github.test/repos/liche719/codeAireview/pulls/123"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(
+                        """
+                        {
+                          "number": 123,
+                          "title": "Patch SQL issue",
+                          "body": "Fixes #42 and resolves liche719/codeAireview#43"
+                        }
+                        """,
+                        MediaType.APPLICATION_JSON
+                ));
+        context.server.expect(once(), requestTo("https://api.github.test/repos/liche719/codeAireview/issues/42"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(
+                        """
+                        {
+                          "number": 42,
+                          "title": "Fix SQL injection",
+                          "state": "open",
+                          "html_url": "https://github.com/liche719/codeAireview/issues/42"
+                        }
+                        """,
+                        MediaType.APPLICATION_JSON
+                ));
+        context.server.expect(once(), requestTo("https://api.github.test/repos/liche719/codeAireview/issues/43"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(
+                        """
+                        {
+                          "number": 43,
+                          "title": "Add regression test",
+                          "state": "closed",
+                          "html_url": "https://github.com/liche719/codeAireview/issues/43"
+                        }
+                        """,
+                        MediaType.APPLICATION_JSON
+                ));
+
+        List<GithubLinkedIssue> issues = context.client.listPullRequestLinkedIssues("liche719", "codeAireview", 123);
+
+        assertThat(issues).hasSize(2);
+        assertThat(issues)
+                .extracting(GithubLinkedIssue::getNumber)
+                .containsExactly(42, 43);
+        assertThat(issues)
+                .extracting(GithubLinkedIssue::getLinkSource)
+                .containsOnly("PR_BODY_CLOSING_KEYWORD");
         context.server.verify();
     }
 

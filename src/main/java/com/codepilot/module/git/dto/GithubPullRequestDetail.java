@@ -15,6 +15,8 @@ public class GithubPullRequestDetail {
 
     private String title;
 
+    private String body;
+
     private String headSha;
 
     private String headRef;

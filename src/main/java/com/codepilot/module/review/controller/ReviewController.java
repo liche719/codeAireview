@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.common.response.Result;
+import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.dto.GithubLinkedIssue;
 import com.codepilot.module.review.dto.ReviewCreateRequest;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.entity.ReviewFile;
@@ -35,6 +37,8 @@ public class ReviewController {
 
     private final ReviewIssueService reviewIssueService;
 
+    private final GithubClient githubClient;
+
     @PostMapping
     public Result<ReviewCreateResponse> createReview(@Valid @RequestBody ReviewCreateRequest request) {
         return Result.success(reviewTaskService.createTask(request.getPrUrl()));
@@ -65,6 +69,19 @@ public class ReviewController {
         return Result.success(issues);
     }
 
+    @GetMapping("/{taskId}/linked-issues")
+    public Result<List<GithubLinkedIssue>> listLinkedIssues(@PathVariable Long taskId) {
+        ReviewTask task = reviewTaskService.getById(taskId);
+        if (task == null) {
+            throw new BusinessException("review task not found");
+        }
+        return Result.success(githubClient.listPullRequestLinkedIssues(
+                task.getRepoOwner(),
+                task.getRepoName(),
+                task.getPrNumber()
+        ));
+    }
+
     @GetMapping
     public Result<Page<ReviewTask>> pageReviewTasks(
             @RequestParam(defaultValue = "1") long current,
@@ -77,4 +94,3 @@ public class ReviewController {
         return Result.success(page);
     }
 }
-
