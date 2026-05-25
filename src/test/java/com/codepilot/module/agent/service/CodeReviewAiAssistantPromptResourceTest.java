@@ -1,6 +1,7 @@
 package com.codepilot.module.agent.service;
 
 import dev.langchain4j.service.spring.AiService;
+import dev.langchain4j.service.spring.AiServiceWiringMode;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 
@@ -16,6 +17,7 @@ class CodeReviewAiAssistantPromptResourceTest {
         AiService aiService = CodeReviewAiAssistant.class.getAnnotation(AiService.class);
 
         assertThat(aiService).isNotNull();
+        assertThat(aiService.wiringMode()).isEqualTo(AiServiceWiringMode.EXPLICIT);
         assertThat(aiService.chatModel()).isEqualTo("structuredCodeReviewChatModel");
     }
 
