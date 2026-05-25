@@ -1,6 +1,7 @@
 package com.codepilot.module.review.context;
 
 import com.codepilot.module.agent.dto.AiReviewContext;
+import com.codepilot.module.review.planner.ReviewPlan;
 
 import java.util.List;
 
@@ -17,6 +18,7 @@ public record ReviewContext(
         List<SemanticFileContext> semanticFileContexts,
         List<RepoRelationshipHint> repoRelationshipHints,
         ReviewImpactPlan reviewImpactPlan,
+        ReviewPlan reviewPlan,
         List<RelatedPatchExcerpt> relatedPatchExcerpts,
         List<RepoSourceExcerpt> repoSourceExcerpts,
         List<ReviewSignal> reviewSignals
@@ -49,6 +51,7 @@ public record ReviewContext(
                         && hasText(relationship.reason()))
                 .toList();
         reviewImpactPlan = reviewImpactPlan == null ? ReviewImpactPlan.empty() : reviewImpactPlan;
+        reviewPlan = reviewPlan == null ? ReviewPlan.empty() : reviewPlan;
         relatedPatchExcerpts = relatedPatchExcerpts == null
                 ? List.of()
                 : relatedPatchExcerpts.stream()
@@ -88,6 +91,7 @@ public record ReviewContext(
                 List.of(),
                 List.of(),
                 ReviewImpactPlan.empty(),
+                ReviewPlan.empty(),
                 List.of(),
                 List.of(),
                 List.of()
@@ -121,6 +125,7 @@ public record ReviewContext(
                 semanticFileContexts,
                 repoRelationshipHints,
                 ReviewImpactPlan.empty(),
+                ReviewPlan.empty(),
                 List.of(),
                 List.of(),
                 reviewSignals
@@ -176,6 +181,7 @@ public record ReviewContext(
                         reviewImpactPlan.priorityFocuses(),
                         reviewImpactPlan.verificationHints()
                 ),
+                toAiReviewPlan(reviewPlan),
                 relatedPatchExcerpts.stream()
                         .map(excerpt -> new AiReviewContext.RelatedPatchExcerpt(
                                 excerpt.sourceFile(),
@@ -201,6 +207,47 @@ public record ReviewContext(
                                 reviewSignal.message()
                         ))
                         .toList()
+        );
+    }
+
+    private AiReviewContext.ReviewPlan toAiReviewPlan(ReviewPlan reviewPlan) {
+        ReviewPlan safePlan = reviewPlan == null ? ReviewPlan.empty() : reviewPlan;
+        return new AiReviewContext.ReviewPlan(
+                safePlan.changeTypes(),
+                safePlan.riskAreas().stream()
+                        .map(riskArea -> new AiReviewContext.ReviewPlan.RiskArea(
+                                riskArea.type(),
+                                riskArea.severity(),
+                                riskArea.reason()
+                        ))
+                        .toList(),
+                safePlan.priorityFiles().stream()
+                        .map(priorityFile -> new AiReviewContext.ReviewPlan.PriorityFile(
+                                priorityFile.filePath(),
+                                priorityFile.score(),
+                                priorityFile.reasons()
+                        ))
+                        .toList(),
+                safePlan.fileFocuses().stream()
+                        .map(fileFocus -> new AiReviewContext.ReviewPlan.FileFocus(
+                                fileFocus.filePath(),
+                                fileFocus.focuses(),
+                                fileFocus.verificationHints(),
+                                fileFocus.relatedFiles()
+                        ))
+                        .toList(),
+                safePlan.crossFileFocuses().stream()
+                        .map(crossFileFocus -> new AiReviewContext.ReviewPlan.CrossFileFocus(
+                                crossFileFocus.type(),
+                                crossFileFocus.files(),
+                                crossFileFocus.reason(),
+                                crossFileFocus.verificationHint()
+                        ))
+                        .toList(),
+                safePlan.verificationHints(),
+                safePlan.requiresRepoContext(),
+                safePlan.confidence(),
+                safePlan.plannerWarnings()
         );
     }
 

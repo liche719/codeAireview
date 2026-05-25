@@ -77,6 +77,20 @@ class ReviewReportFormatterTest {
     }
 
     @Test
+    void shouldExposeIssueEvidenceTrace() {
+        ReviewIssue issue = issue("HIGH", "SECURITY", "Security risk", "verified issue");
+        issue.setSource("LLM");
+        issue.setRuleReference("SECURITY_RULE | PATCH_VERIFIED:PATCH_LINE");
+
+        String markdown = formatter.formatMarkdown(reviewTask("HIGH"), List.of(issue));
+
+        assertThat(markdown).contains("- **Evidence**:");
+        assertThat(markdown).contains("source=LLM");
+        assertThat(markdown).contains("rule=SECURITY\\_RULE");
+        assertThat(markdown).contains("grounding=changed diff line");
+    }
+
+    @Test
     void shouldLimitVisibleIssuesToTwenty() {
         List<ReviewIssue> issues = new ArrayList<>();
         for (int i = 1; i <= 21; i++) {

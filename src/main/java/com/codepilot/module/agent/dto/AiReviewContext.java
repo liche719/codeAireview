@@ -15,6 +15,7 @@ public record AiReviewContext(
         List<SemanticFileContext> semanticFileContexts,
         List<RepoRelationshipHint> repoRelationshipHints,
         ReviewImpactPlan reviewImpactPlan,
+        ReviewPlan reviewPlan,
         List<RelatedPatchExcerpt> relatedPatchExcerpts,
         List<RepoSourceExcerpt> repoSourceExcerpts,
         List<ReviewSignal> reviewSignals
@@ -47,6 +48,7 @@ public record AiReviewContext(
                         && hasText(relationship.reason()))
                 .toList();
         reviewImpactPlan = reviewImpactPlan == null ? ReviewImpactPlan.empty() : reviewImpactPlan;
+        reviewPlan = reviewPlan == null ? ReviewPlan.empty() : reviewPlan;
         relatedPatchExcerpts = relatedPatchExcerpts == null
                 ? List.of()
                 : relatedPatchExcerpts.stream()
@@ -95,6 +97,7 @@ public record AiReviewContext(
                 List.of(),
                 List.of(),
                 ReviewImpactPlan.empty(),
+                ReviewPlan.empty(),
                 List.of(),
                 List.of(),
                 List.of()
@@ -128,8 +131,46 @@ public record AiReviewContext(
                 semanticFileContexts,
                 repoRelationshipHints,
                 ReviewImpactPlan.empty(),
+                ReviewPlan.empty(),
                 List.of(),
                 List.of(),
+                reviewSignals
+        );
+    }
+
+    public AiReviewContext(
+            List<String> allChangedFiles,
+            int totalFileCount,
+            int reviewableFileCount,
+            int skippedFileCount,
+            int totalAdditions,
+            int totalDeletions,
+            int totalPatchChars,
+            List<SkippedFile> skippedFiles,
+            List<FileSummary> fileSummaries,
+            List<SemanticFileContext> semanticFileContexts,
+            List<RepoRelationshipHint> repoRelationshipHints,
+            ReviewImpactPlan reviewImpactPlan,
+            List<RelatedPatchExcerpt> relatedPatchExcerpts,
+            List<RepoSourceExcerpt> repoSourceExcerpts,
+            List<ReviewSignal> reviewSignals
+    ) {
+        this(
+                allChangedFiles,
+                totalFileCount,
+                reviewableFileCount,
+                skippedFileCount,
+                totalAdditions,
+                totalDeletions,
+                totalPatchChars,
+                skippedFiles,
+                fileSummaries,
+                semanticFileContexts,
+                repoRelationshipHints,
+                reviewImpactPlan,
+                ReviewPlan.empty(),
+                relatedPatchExcerpts,
+                repoSourceExcerpts,
                 reviewSignals
         );
     }
@@ -163,6 +204,7 @@ public record AiReviewContext(
                 semanticFileContexts,
                 repoRelationshipHints,
                 reviewImpactPlan,
+                ReviewPlan.empty(),
                 relatedPatchExcerpts,
                 List.of(),
                 reviewSignals
@@ -197,6 +239,7 @@ public record AiReviewContext(
                 semanticFileContexts,
                 repoRelationshipHints,
                 reviewImpactPlan,
+                ReviewPlan.empty(),
                 List.of(),
                 List.of(),
                 reviewSignals
@@ -228,6 +271,7 @@ public record AiReviewContext(
                 List.of(),
                 List.of(),
                 ReviewImpactPlan.empty(),
+                ReviewPlan.empty(),
                 List.of(),
                 List.of(),
                 reviewSignals
@@ -260,6 +304,7 @@ public record AiReviewContext(
                 semanticFileContexts,
                 List.of(),
                 ReviewImpactPlan.empty(),
+                ReviewPlan.empty(),
                 List.of(),
                 List.of(),
                 reviewSignals
@@ -285,6 +330,7 @@ public record AiReviewContext(
                 List.of(),
                 List.of(),
                 ReviewImpactPlan.empty(),
+                ReviewPlan.empty(),
                 List.of(),
                 List.of(),
                 List.of()
@@ -371,6 +417,122 @@ public record AiReviewContext(
         }
     }
 
+    public record ReviewPlan(
+            List<String> changeTypes,
+            List<RiskArea> riskAreas,
+            List<PriorityFile> priorityFiles,
+            List<FileFocus> fileFocuses,
+            List<CrossFileFocus> crossFileFocuses,
+            List<String> verificationHints,
+            boolean requiresRepoContext,
+            double confidence,
+            List<String> plannerWarnings
+    ) {
+        public ReviewPlan {
+            changeTypes = sanitizeTextList(changeTypes, 8);
+            riskAreas = riskAreas == null
+                    ? List.of()
+                    : riskAreas.stream()
+                    .filter(riskArea -> riskArea != null
+                            && hasText(riskArea.type())
+                            && hasText(riskArea.severity())
+                            && hasText(riskArea.reason()))
+                    .limit(10)
+                    .toList();
+            priorityFiles = priorityFiles == null
+                    ? List.of()
+                    : priorityFiles.stream()
+                    .filter(priorityFile -> priorityFile != null && hasText(priorityFile.filePath()))
+                    .limit(10)
+                    .toList();
+            fileFocuses = fileFocuses == null
+                    ? List.of()
+                    : fileFocuses.stream()
+                    .filter(fileFocus -> fileFocus != null
+                            && hasText(fileFocus.filePath())
+                            && (!fileFocus.focuses().isEmpty()
+                            || !fileFocus.verificationHints().isEmpty()
+                            || !fileFocus.relatedFiles().isEmpty()))
+                    .limit(30)
+                    .toList();
+            crossFileFocuses = crossFileFocuses == null
+                    ? List.of()
+                    : crossFileFocuses.stream()
+                    .filter(crossFileFocus -> crossFileFocus != null
+                            && hasText(crossFileFocus.type())
+                            && !crossFileFocus.files().isEmpty()
+                            && hasText(crossFileFocus.reason()))
+                    .limit(8)
+                    .toList();
+            verificationHints = sanitizeTextList(verificationHints, 10);
+            confidence = round(clamp(confidence));
+            plannerWarnings = sanitizeTextList(plannerWarnings, 8);
+        }
+
+        public static ReviewPlan empty() {
+            return new ReviewPlan(
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    false,
+                    0.0,
+                    List.of()
+            );
+        }
+
+        public boolean isEmpty() {
+            return changeTypes.isEmpty()
+                    && riskAreas.isEmpty()
+                    && priorityFiles.isEmpty()
+                    && fileFocuses.isEmpty()
+                    && crossFileFocuses.isEmpty()
+                    && verificationHints.isEmpty()
+                    && !requiresRepoContext
+                    && plannerWarnings.isEmpty();
+        }
+
+        public record RiskArea(String type, String severity, String reason) {
+            public RiskArea {
+                type = singleLine(type);
+                severity = singleLine(severity);
+                reason = singleLine(reason);
+            }
+        }
+
+        public record PriorityFile(String filePath, int score, List<String> reasons) {
+            public PriorityFile {
+                filePath = singleLine(filePath);
+                reasons = sanitizeTextList(reasons, 3);
+            }
+        }
+
+        public record FileFocus(
+                String filePath,
+                List<String> focuses,
+                List<String> verificationHints,
+                List<String> relatedFiles
+        ) {
+            public FileFocus {
+                filePath = singleLine(filePath);
+                focuses = sanitizeTextList(focuses, 6);
+                verificationHints = sanitizeTextList(verificationHints, 4);
+                relatedFiles = sanitizeTextList(relatedFiles, 8);
+            }
+        }
+
+        public record CrossFileFocus(String type, List<String> files, String reason, String verificationHint) {
+            public CrossFileFocus {
+                type = singleLine(type);
+                files = sanitizeTextList(files, 4);
+                reason = singleLine(reason);
+                verificationHint = singleLine(verificationHint);
+            }
+        }
+    }
+
     public record RelatedPatchExcerpt(
             String sourceFile,
             String relatedFile,
@@ -393,12 +555,38 @@ public record AiReviewContext(
     }
 
     private static List<String> sanitizeTextList(List<String> values) {
+        return sanitizeTextList(values, Integer.MAX_VALUE);
+    }
+
+    private static List<String> sanitizeTextList(List<String> values, int limit) {
         if (values == null || values.isEmpty()) {
             return List.of();
         }
         return values.stream()
                 .filter(AiReviewContext::hasText)
-                .map(String::trim)
+                .map(AiReviewContext::singleLine)
+                .limit(limit)
                 .toList();
+    }
+
+    private static String singleLine(String value) {
+        if (!hasText(value)) {
+            return "";
+        }
+        return value.replace('\r', ' ')
+                .replace('\n', ' ')
+                .replace('\t', ' ')
+                .trim();
+    }
+
+    private static double clamp(double value) {
+        if (Double.isNaN(value) || Double.isInfinite(value)) {
+            return 0.0;
+        }
+        return Math.max(0.0, Math.min(1.0, value));
+    }
+
+    private static double round(double value) {
+        return Math.round(value * 100.0) / 100.0;
     }
 }

@@ -5,19 +5,24 @@ import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.service.AiReviewService;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
+import com.codepilot.module.review.classifier.ReviewFileClassifier;
 import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.context.ReviewContext;
 import com.codepilot.module.review.context.ReviewContextBuilder;
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
+import com.codepilot.module.review.planner.ReviewPlan;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -34,6 +39,8 @@ public class ReviewFileReviewer {
     private final ReviewIssueAssembler reviewIssueAssembler;
 
     private final ReviewIssueLocationGuard reviewIssueLocationGuard;
+
+    private final ReviewIssuePatchVerifier reviewIssuePatchVerifier;
 
     private final ReviewContextBuilder reviewContextBuilder;
 
@@ -52,10 +59,11 @@ public class ReviewFileReviewer {
         List<ReviewFile> reviewableFiles = reviewFiles.stream()
                 .filter(reviewFile -> !Boolean.TRUE.equals(reviewFile.getSkipped()))
                 .toList();
+        List<ReviewFile> plannedReviewFiles = prioritizeReviewFiles(reviewableFiles, reviewContext);
         List<ReviewIssue> reviewIssues = new ArrayList<>();
         int failedFileCount = 0;
         Exception firstFailure = null;
-        for (FileReviewOutcome outcome : reviewFiles(taskId, reviewableFiles, reviewContext)) {
+        for (FileReviewOutcome outcome : reviewFiles(taskId, plannedReviewFiles, reviewContext)) {
             if (outcome.failure() != null) {
                 failedFileCount++;
                 if (firstFailure == null) {
@@ -70,6 +78,69 @@ public class ReviewFileReviewer {
                     firstFailure);
         }
         return reviewIssues;
+    }
+
+    private List<ReviewFile> prioritizeReviewFiles(List<ReviewFile> reviewFiles, ReviewContext reviewContext) {
+        if (reviewFiles == null || reviewFiles.size() <= 1 || reviewContext == null || reviewContext.reviewPlan() == null) {
+            return reviewFiles == null ? List.of() : reviewFiles;
+        }
+        Map<String, Integer> priorityScores = priorityScores(reviewContext.reviewPlan());
+        if (priorityScores.isEmpty()) {
+            return reviewFiles;
+        }
+        Map<ReviewFile, Integer> originalIndex = new HashMap<>();
+        for (int i = 0; i < reviewFiles.size(); i++) {
+            originalIndex.put(reviewFiles.get(i), i);
+        }
+        List<ReviewFile> prioritizedFiles = reviewFiles.stream()
+                .sorted(Comparator
+                        .comparingInt((ReviewFile reviewFile) -> priorityScore(reviewFile, priorityScores))
+                        .reversed()
+                        .thenComparingInt(reviewFile -> originalIndex.getOrDefault(reviewFile, Integer.MAX_VALUE)))
+                .toList();
+        if (!sameOrder(reviewFiles, prioritizedFiles)) {
+            log.info("Review files reordered by semantic review plan, before={}, after={}",
+                    filePaths(reviewFiles), filePaths(prioritizedFiles));
+        }
+        return prioritizedFiles;
+    }
+
+    private Map<String, Integer> priorityScores(ReviewPlan reviewPlan) {
+        Map<String, Integer> scores = new HashMap<>();
+        if (reviewPlan.priorityFiles() == null) {
+            return scores;
+        }
+        for (ReviewPlan.PriorityFile priorityFile : reviewPlan.priorityFiles()) {
+            if (priorityFile != null) {
+                scores.put(ReviewFileClassifier.normalizePath(priorityFile.filePath()), priorityFile.score());
+            }
+        }
+        return scores;
+    }
+
+    private int priorityScore(ReviewFile reviewFile, Map<String, Integer> priorityScores) {
+        if (reviewFile == null) {
+            return Integer.MIN_VALUE;
+        }
+        return priorityScores.getOrDefault(ReviewFileClassifier.normalizePath(reviewFile.getFilePath()), Integer.MIN_VALUE);
+    }
+
+    private boolean sameOrder(List<ReviewFile> left, List<ReviewFile> right) {
+        if (left.size() != right.size()) {
+            return false;
+        }
+        for (int i = 0; i < left.size(); i++) {
+            if (left.get(i) != right.get(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private List<String> filePaths(List<ReviewFile> reviewFiles) {
+        return reviewFiles.stream()
+                .map(ReviewFile::getFilePath)
+                .toList();
     }
 
     private ReviewTask task(Long taskId) {
@@ -146,6 +217,12 @@ public class ReviewFileReviewer {
                     taskId,
                     reviewFile.getFilePath(),
                     aiReviewResult
+            );
+            reviewIssues = reviewIssuePatchVerifier.keepVerified(
+                    reviewFile.getFilePath(),
+                    reviewFile.getPatch(),
+                    reviewContext,
+                    reviewIssues
             );
             return reviewIssueLocationGuard.keepOnlyCommentableChangedLines(
                     reviewFile.getFilePath(),

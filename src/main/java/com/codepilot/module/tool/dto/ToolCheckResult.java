@@ -21,6 +21,8 @@ public class ToolCheckResult {
 
     private Integer lineNumber;
 
+    private String ruleId;
+
     public static ToolCheckResult of(
             String issueType,
             String severity,
@@ -39,6 +41,6 @@ public class ToolCheckResult {
             String description,
             String suggestion
     ) {
-        return new ToolCheckResult(issueType, severity, title, description, suggestion, lineNumber);
+        return new ToolCheckResult(issueType, severity, title, description, suggestion, lineNumber, null);
     }
 }

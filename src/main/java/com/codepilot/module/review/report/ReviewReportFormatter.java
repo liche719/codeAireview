@@ -72,6 +72,10 @@ public class ReviewReportFormatter {
         markdown.append("- **行号**: ").append(issue.getLineNumber() == null ? "无" : issue.getLineNumber()).append("\n");
         markdown.append("- **描述**: ").append(sanitizeIssueText(issue.getDescription())).append("\n");
         markdown.append("- **建议**: ").append(sanitizeIssueText(issue.getSuggestion())).append("\n\n");
+        String evidenceTrace = ReviewIssueEvidenceFormatter.compactTrace(issue);
+        if (StringUtils.hasText(evidenceTrace)) {
+            markdown.append("- **Evidence**: ").append(sanitizeIssueText(evidenceTrace)).append("\n\n");
+        }
         markdown.append("---\n\n");
     }
 

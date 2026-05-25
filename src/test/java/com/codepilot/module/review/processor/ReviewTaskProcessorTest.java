@@ -160,6 +160,7 @@ class ReviewTaskProcessorTest {
                         aiReviewService,
                         new ReviewIssueAssembler(),
                         new ReviewIssueLocationGuard(new DiffLineMapper()),
+                        new ReviewIssuePatchVerifier(new DiffLineMapper()),
                         new ReviewContextBuilder(
                                 new ReviewContextSignalExtractor(),
                                 new ReviewContextRelationshipExtractor(),

@@ -2,6 +2,8 @@ package com.codepilot.module.review.context;
 
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewTask;
+import com.codepilot.module.review.planner.ReviewPlan;
+import com.codepilot.module.review.planner.SemanticReviewPlanner;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -21,13 +23,16 @@ public class ReviewContextBuilder {
 
     private final RepoSourceExcerptExtractor repoSourceExcerptExtractor;
 
+    private final SemanticReviewPlanner semanticReviewPlanner;
+
     ReviewContextBuilder() {
         this(
                 new ReviewContextSignalExtractor(),
                 new ReviewContextRelationshipExtractor(),
                 new ReviewImpactPlanner(),
                 new ReviewRelatedPatchExtractor(),
-                new RepoSourceExcerptExtractor()
+                new RepoSourceExcerptExtractor(),
+                new SemanticReviewPlanner()
         );
     }
 
@@ -37,13 +42,15 @@ public class ReviewContextBuilder {
             ReviewContextRelationshipExtractor reviewContextRelationshipExtractor,
             ReviewImpactPlanner reviewImpactPlanner,
             ReviewRelatedPatchExtractor reviewRelatedPatchExtractor,
-            RepoSourceExcerptExtractor repoSourceExcerptExtractor
+            RepoSourceExcerptExtractor repoSourceExcerptExtractor,
+            SemanticReviewPlanner semanticReviewPlanner
     ) {
         this.reviewContextSignalExtractor = reviewContextSignalExtractor;
         this.reviewContextRelationshipExtractor = reviewContextRelationshipExtractor;
         this.reviewImpactPlanner = reviewImpactPlanner;
         this.reviewRelatedPatchExtractor = reviewRelatedPatchExtractor;
         this.repoSourceExcerptExtractor = repoSourceExcerptExtractor;
+        this.semanticReviewPlanner = semanticReviewPlanner;
     }
 
     public ReviewContextBuilder(
@@ -55,7 +62,8 @@ public class ReviewContextBuilder {
                 reviewContextRelationshipExtractor,
                 new ReviewImpactPlanner(),
                 new ReviewRelatedPatchExtractor(),
-                new RepoSourceExcerptExtractor()
+                new RepoSourceExcerptExtractor(),
+                new SemanticReviewPlanner()
         );
     }
 
@@ -69,7 +77,8 @@ public class ReviewContextBuilder {
                 reviewContextRelationshipExtractor,
                 reviewImpactPlanner,
                 new ReviewRelatedPatchExtractor(),
-                new RepoSourceExcerptExtractor()
+                new RepoSourceExcerptExtractor(),
+                new SemanticReviewPlanner()
         );
     }
 
@@ -84,7 +93,25 @@ public class ReviewContextBuilder {
                 reviewContextRelationshipExtractor,
                 reviewImpactPlanner,
                 reviewRelatedPatchExtractor,
-                new RepoSourceExcerptExtractor()
+                new RepoSourceExcerptExtractor(),
+                new SemanticReviewPlanner()
+        );
+    }
+
+    public ReviewContextBuilder(
+            ReviewContextSignalExtractor reviewContextSignalExtractor,
+            ReviewContextRelationshipExtractor reviewContextRelationshipExtractor,
+            ReviewImpactPlanner reviewImpactPlanner,
+            ReviewRelatedPatchExtractor reviewRelatedPatchExtractor,
+            RepoSourceExcerptExtractor repoSourceExcerptExtractor
+    ) {
+        this(
+                reviewContextSignalExtractor,
+                reviewContextRelationshipExtractor,
+                reviewImpactPlanner,
+                reviewRelatedPatchExtractor,
+                repoSourceExcerptExtractor,
+                new SemanticReviewPlanner()
         );
     }
 
@@ -115,6 +142,22 @@ public class ReviewContextBuilder {
         List<ReviewContext.RepoRelationshipHint> repoRelationshipHints =
                 reviewContextRelationshipExtractor.repoRelationshipHints(reviewFiles, semanticFileContexts);
         List<ReviewContext.ReviewSignal> reviewSignals = reviewContextSignalExtractor.reviewSignals(reviewFiles);
+        ReviewContext.ReviewImpactPlan reviewImpactPlan =
+                reviewImpactPlanner.plan(fileSummaries, semanticFileContexts, repoRelationshipHints, reviewSignals);
+        List<ReviewContext.RelatedPatchExcerpt> relatedPatchExcerpts =
+                reviewRelatedPatchExtractor.relatedPatchExcerpts(reviewFiles, repoRelationshipHints);
+        List<ReviewContext.RepoSourceExcerpt> repoSourceExcerpts =
+                repoSourceExcerptExtractor.repoSourceExcerpts(task, reviewFiles, semanticFileContexts, repoRelationshipHints);
+        ReviewPlan reviewPlan = semanticReviewPlanner.plan(
+                reviewFiles,
+                fileSummaries,
+                semanticFileContexts,
+                repoRelationshipHints,
+                reviewImpactPlan,
+                relatedPatchExcerpts,
+                repoSourceExcerpts,
+                reviewSignals
+        );
 
         return new ReviewContext(
                 allChangedFiles,
@@ -128,9 +171,10 @@ public class ReviewContextBuilder {
                 fileSummaries,
                 semanticFileContexts,
                 repoRelationshipHints,
-                reviewImpactPlanner.plan(fileSummaries, semanticFileContexts, repoRelationshipHints, reviewSignals),
-                reviewRelatedPatchExtractor.relatedPatchExcerpts(reviewFiles, repoRelationshipHints),
-                repoSourceExcerptExtractor.repoSourceExcerpts(task, reviewFiles, semanticFileContexts, repoRelationshipHints),
+                reviewImpactPlan,
+                reviewPlan,
+                relatedPatchExcerpts,
+                repoSourceExcerpts,
                 reviewSignals
         );
     }

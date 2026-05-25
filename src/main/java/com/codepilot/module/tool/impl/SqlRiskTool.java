@@ -2,7 +2,9 @@ package com.codepilot.module.tool.impl;
 
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.tool.context.DiffToolUtils;
+import com.codepilot.module.tool.dto.ToolCheckRequest;
 import com.codepilot.module.tool.dto.ToolCheckResult;
+import com.codepilot.module.tool.rule.DeterministicReviewRule;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
@@ -29,7 +31,7 @@ import java.util.regex.Pattern;
 @Slf4j
 @Component
 @ConditionalOnProperty(prefix = "codepilot.tools", name = {"enabled", "sql-risk-enabled"}, havingValue = "true", matchIfMissing = true)
-public class SqlRiskTool {
+public class SqlRiskTool implements DeterministicReviewRule {
 
     private static final Pattern SQL_KEYWORD = Pattern.compile("(?is)\\b(select|update|delete|insert)\\b");
 
@@ -46,6 +48,24 @@ public class SqlRiskTool {
     private static final Pattern UPDATE_WITHOUT_WHERE = Pattern.compile("(?is)\\bupdate\\b(?![^;\\n]*\\bwhere\\b)[^;\\n]*");
 
     private static final Pattern DELETE_WITHOUT_WHERE = Pattern.compile("(?is)\\bdelete\\s+from\\b(?![^;\\n]*\\bwhere\\b)[^;\\n]*");
+
+    @Override
+    public String id() {
+        return "SQL_RISK_RULE";
+    }
+
+    @Override
+    public int order() {
+        return 100;
+    }
+
+    @Override
+    public List<ToolCheckResult> check(ToolCheckRequest request) {
+        return checkSqlRisk(
+                request == null ? null : request.getFilePath(),
+                request == null ? null : request.getPatch()
+        );
+    }
 
     @Tool("检测代码 Diff 中的 SQL 风险，包括 SELECT *、字符串拼接 SQL、MyBatis ${}、UPDATE/DELETE 无 WHERE 等")
     public List<ToolCheckResult> checkSqlRisk(

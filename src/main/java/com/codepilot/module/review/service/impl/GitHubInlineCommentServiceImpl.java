@@ -12,6 +12,7 @@ import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
+import com.codepilot.module.review.report.ReviewIssueEvidenceFormatter;
 import com.codepilot.module.review.service.GitHubInlineCommentResult;
 import com.codepilot.module.review.service.GitHubInlineCommentService;
 import com.codepilot.module.review.service.ReviewFileService;
@@ -302,6 +303,11 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
         body.append("<!-- codepilot-inline-review:").append(fingerprint).append(" -->").append("\n\n");
         body.append("Description:\n");
         body.append(sanitizeIssueText(issue.getDescription())).append("\n\n");
+        String evidenceTrace = ReviewIssueEvidenceFormatter.compactTrace(issue);
+        if (StringUtils.hasText(evidenceTrace)) {
+            body.append("Evidence:\n");
+            body.append(sanitizeIssueText(evidenceTrace)).append("\n\n");
+        }
         body.append("Suggestion:\n");
         body.append(sanitizeIssueText(issue.getSuggestion())).append("\n");
         return body.toString();

@@ -1,59 +1,87 @@
 package com.codepilot.module.agent.review;
 
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.agent.dto.AiReviewIssue;
 import com.codepilot.module.agent.dto.AiReviewResult;
+import com.codepilot.module.tool.dto.ToolCheckRequest;
 import com.codepilot.module.tool.dto.ToolCheckResult;
-import com.codepilot.module.tool.impl.SecretScanTool;
-import com.codepilot.module.tool.impl.SqlRiskTool;
-import com.codepilot.module.tool.impl.TestSuggestionTool;
+import com.codepilot.module.tool.rule.DeterministicReviewRule;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.ObjectProvider;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class DeterministicReviewToolRunner {
 
-    private final ObjectProvider<SqlRiskTool> sqlRiskToolProvider;
-
-    private final ObjectProvider<SecretScanTool> secretScanToolProvider;
-
-    private final ObjectProvider<TestSuggestionTool> testSuggestionToolProvider;
+    private final List<DeterministicReviewRule> reviewRules;
 
     private final ReviewIssueDeduplicator reviewIssueDeduplicator;
 
-    public AiReviewResult run(String filePath, String patch, String allChangedFilesText) {
+    public AiReviewResult run(
+            String filePath,
+            String patch,
+            List<String> allChangedFiles,
+            String reviewContextText
+    ) {
+        ToolCheckRequest request = ToolCheckRequest.of(filePath, patch, allChangedFiles, reviewContextText);
         List<AiReviewIssue> issues = new ArrayList<>();
-        SqlRiskTool sqlRiskTool = sqlRiskToolProvider == null ? null : sqlRiskToolProvider.getIfAvailable();
-        if (sqlRiskTool != null) {
-            issues.addAll(mapToolResults(filePath, sqlRiskTool.checkSqlRisk(filePath, patch)));
-        }
-
-        SecretScanTool secretScanTool = secretScanToolProvider == null ? null : secretScanToolProvider.getIfAvailable();
-        if (secretScanTool != null) {
-            issues.addAll(mapToolResults(filePath, secretScanTool.scanSecrets(filePath, patch)));
-        }
-
-        TestSuggestionTool testSuggestionTool = testSuggestionToolProvider == null ? null : testSuggestionToolProvider.getIfAvailable();
-        if (testSuggestionTool != null) {
-            issues.addAll(mapToolResults(filePath, testSuggestionTool.suggestTests(filePath, patch, allChangedFilesText)));
+        for (DeterministicReviewRule rule : orderedRules()) {
+            if (rule == null || !rule.supports(request)) {
+                continue;
+            }
+            issues.addAll(mapToolResults(filePath, rule, runRule(rule, request)));
         }
 
         AiReviewResult result = new AiReviewResult();
         result.setIssues(reviewIssueDeduplicator.dedupe(issues));
         if (!result.getIssues().isEmpty()) {
-            result.setSummary("\u786e\u5b9a\u6027\u5de5\u5177\u53d1\u73b0 "
+            result.setSummary("\u786e\u5b9a\u6027\u89c4\u5219\u53d1\u73b0 "
                     + result.getIssues().size()
                     + " \u4e2a\u6f5c\u5728\u95ee\u9898\u3002");
         }
         return result;
     }
 
-    private List<AiReviewIssue> mapToolResults(String filePath, List<ToolCheckResult> toolResults) {
+    public AiReviewResult run(String filePath, String patch, String allChangedFilesText) {
+        return run(filePath, patch, splitLines(allChangedFilesText), allChangedFilesText);
+    }
+
+    private List<DeterministicReviewRule> orderedRules() {
+        if (reviewRules == null || reviewRules.isEmpty()) {
+            return List.of();
+        }
+        return reviewRules.stream()
+                .filter(rule -> rule != null && StringUtils.hasText(rule.id()))
+                .sorted(Comparator.comparingInt(DeterministicReviewRule::order)
+                        .thenComparing(DeterministicReviewRule::id))
+                .toList();
+    }
+
+    private List<ToolCheckResult> runRule(DeterministicReviewRule rule, ToolCheckRequest request) {
+        try {
+            List<ToolCheckResult> results = rule.check(request);
+            log.info("Deterministic review rule executed, ruleId={}, filePath={}, issueCount={}",
+                    rule.id(), request.getFilePath(), results == null ? 0 : results.size());
+            return results == null ? List.of() : results;
+        } catch (Exception exception) {
+            log.warn("Deterministic review rule failed, ruleId={}, filePath={}, message={}",
+                    rule.id(), request.getFilePath(), SensitiveDataSanitizer.redact(exception.getMessage()));
+            return List.of();
+        }
+    }
+
+    private List<AiReviewIssue> mapToolResults(
+            String filePath,
+            DeterministicReviewRule rule,
+            List<ToolCheckResult> toolResults
+    ) {
         if (toolResults == null || toolResults.isEmpty()) {
             return List.of();
         }
@@ -72,10 +100,27 @@ public class DeterministicReviewToolRunner {
             issue.setDescription(toolResult.getDescription());
             issue.setSuggestion(toolResult.getSuggestion());
             issue.setSource("TOOL");
-            issue.setRuleReference(null);
+            issue.setRuleReference(ruleReference(rule, toolResult));
             issues.add(issue);
         }
         return issues;
+    }
+
+    private String ruleReference(DeterministicReviewRule rule, ToolCheckResult toolResult) {
+        if (toolResult != null && StringUtils.hasText(toolResult.getRuleId())) {
+            return toolResult.getRuleId().trim();
+        }
+        return rule == null ? null : rule.id();
+    }
+
+    private List<String> splitLines(String text) {
+        if (!StringUtils.hasText(text)) {
+            return List.of();
+        }
+        return text.lines()
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .toList();
     }
 
     private String displayIssueType(String issueType) {

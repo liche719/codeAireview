@@ -38,6 +38,7 @@ class ReviewFileReviewerTest {
                 aiReviewService,
                 new ReviewIssueAssembler(),
                 new ReviewIssueLocationGuard(new DiffLineMapper()),
+                new ReviewIssuePatchVerifier(new DiffLineMapper()),
                 new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
                 new ReviewProperties()
         );
@@ -77,6 +78,7 @@ class ReviewFileReviewerTest {
                 aiReviewService,
                 new ReviewIssueAssembler(),
                 new ReviewIssueLocationGuard(new DiffLineMapper()),
+                new ReviewIssuePatchVerifier(new DiffLineMapper()),
                 new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
                 new ReviewProperties()
         );
@@ -113,6 +115,7 @@ class ReviewFileReviewerTest {
                 aiReviewService,
                 new ReviewIssueAssembler(),
                 new ReviewIssueLocationGuard(new DiffLineMapper()),
+                new ReviewIssuePatchVerifier(new DiffLineMapper()),
                 new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
                 new ReviewProperties()
         );
@@ -135,6 +138,7 @@ class ReviewFileReviewerTest {
                 aiReviewService,
                 new ReviewIssueAssembler(),
                 new ReviewIssueLocationGuard(new DiffLineMapper()),
+                new ReviewIssuePatchVerifier(new DiffLineMapper()),
                 new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
                 reviewProperties
         );
@@ -164,6 +168,34 @@ class ReviewFileReviewerTest {
         assertThat(issues)
                 .extracting(ReviewIssue::getTitle)
                 .containsExactly("Slow issue", "Fast issue");
+    }
+
+    @Test
+    void shouldUseSemanticPlanPriorityForReviewScheduling() {
+        AiReviewService aiReviewService = mock(AiReviewService.class);
+        ReviewProperties reviewProperties = new ReviewProperties();
+        reviewProperties.setMaxParallelFiles(1);
+        ReviewFileReviewer reviewer = new ReviewFileReviewer(
+                aiReviewService,
+                new ReviewIssueAssembler(),
+                new ReviewIssueLocationGuard(new DiffLineMapper()),
+                new ReviewIssuePatchVerifier(new DiffLineMapper()),
+                new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
+                reviewProperties
+        );
+        when(aiReviewService.reviewFile(any(AiReviewRequest.class)))
+                .thenAnswer(invocation -> aiReviewResult(((AiReviewRequest) invocation.getArgument(0)).filePath()));
+        ArgumentCaptor<AiReviewRequest> requestCaptor = ArgumentCaptor.forClass(AiReviewRequest.class);
+
+        reviewer.review(1L, List.of(
+                reviewFile("README.md", "+docs", false),
+                reviewFile("src/main/resources/mapper/UserMapper.xml", "+select * from user", false)
+        ));
+
+        verify(aiReviewService, org.mockito.Mockito.times(2)).reviewFile(requestCaptor.capture());
+        assertThat(requestCaptor.getAllValues())
+                .extracting(AiReviewRequest::filePath)
+                .containsExactly("src/main/resources/mapper/UserMapper.xml", "README.md");
     }
 
     private static ReviewFile reviewFile(String path, String patch, boolean skipped) {

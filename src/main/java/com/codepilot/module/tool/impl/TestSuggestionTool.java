@@ -1,7 +1,9 @@
 package com.codepilot.module.tool.impl;
 
 import com.codepilot.common.util.SensitiveDataSanitizer;
+import com.codepilot.module.tool.dto.ToolCheckRequest;
 import com.codepilot.module.tool.dto.ToolCheckResult;
+import com.codepilot.module.tool.rule.DeterministicReviewRule;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
@@ -15,7 +17,28 @@ import java.util.Locale;
 @Slf4j
 @Component
 @ConditionalOnProperty(prefix = "codepilot.tools", name = {"enabled", "test-suggestion-enabled"}, havingValue = "true", matchIfMissing = true)
-public class TestSuggestionTool {
+public class TestSuggestionTool implements DeterministicReviewRule {
+
+    @Override
+    public String id() {
+        return "TEST_SUGGESTION_RULE";
+    }
+
+    @Override
+    public int order() {
+        return 300;
+    }
+
+    @Override
+    public List<ToolCheckResult> check(ToolCheckRequest request) {
+        return suggestTests(
+                request == null ? null : request.getFilePath(),
+                request == null ? null : request.getPatch(),
+                request == null || request.getAllChangedFiles() == null
+                        ? ""
+                        : String.join("\n", request.getAllChangedFiles())
+        );
+    }
 
     @Tool("根据本次 PR 变更文件判断是否缺少单元测试或集成测试")
     public List<ToolCheckResult> suggestTests(

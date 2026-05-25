@@ -224,6 +224,108 @@ class AiReviewContextFormatterTest {
     }
 
     @Test
+    void shouldRenderSemanticReviewPlanForCurrentFileOnly() {
+        AiReviewContext context = new AiReviewContext(
+                List.of(
+                        "src/main/java/com/example/AuthController.java",
+                        "src/main/java/com/example/AuthService.java",
+                        "src/main/java/com/example/OtherService.java"
+                ),
+                3,
+                3,
+                0,
+                20,
+                2,
+                300,
+                List.of(),
+                List.of(
+                        fileSummary("src/main/java/com/example/AuthController.java"),
+                        fileSummary("src/main/java/com/example/AuthService.java"),
+                        fileSummary("src/main/java/com/example/OtherService.java")
+                ),
+                List.of(),
+                List.of(),
+                new AiReviewContext.ReviewImpactPlan(
+                        List.of("legacy-change"),
+                        List.of("legacy-impact"),
+                        List.of("legacy-focus"),
+                        List.of("legacy-hint")
+                ),
+                new AiReviewContext.ReviewPlan(
+                        List.of("security-sensitive-change", "public-api-change"),
+                        List.of(new AiReviewContext.ReviewPlan.RiskArea(
+                                "security-boundary",
+                                "HIGH",
+                                "Security-sensitive path changed."
+                        )),
+                        List.of(new AiReviewContext.ReviewPlan.PriorityFile(
+                                "src/main/java/com/example/AuthService.java",
+                                1200,
+                                List.of("security-sensitive path or patch keyword")
+                        )),
+                        List.of(
+                                new AiReviewContext.ReviewPlan.FileFocus(
+                                        "src/main/java/com/example/AuthService.java",
+                                        List.of("Prioritize exploitable auth, permission, secret, or credential regressions."),
+                                        List.of("Tie any auth finding to the changed route."),
+                                        List.of("src/main/java/com/example/AuthController.java")
+                                ),
+                                new AiReviewContext.ReviewPlan.FileFocus(
+                                        "src/main/java/com/example/OtherService.java",
+                                        List.of("Other file focus should not be rendered for current file."),
+                                        List.of(),
+                                        List.of()
+                                )
+                        ),
+                        List.of(
+                                new AiReviewContext.ReviewPlan.CrossFileFocus(
+                                        "IMPORT_TARGET",
+                                        List.of(
+                                                "src/main/java/com/example/AuthController.java",
+                                                "src/main/java/com/example/AuthService.java"
+                                        ),
+                                        "Changed files have an importer/importee relationship; validate API compatibility.",
+                                        "Check caller/callee contracts."
+                                ),
+                                new AiReviewContext.ReviewPlan.CrossFileFocus(
+                                        "SAME_PACKAGE",
+                                        List.of(
+                                                "src/main/java/com/example/OtherService.java",
+                                                "src/main/java/com/example/AuthController.java"
+                                        ),
+                                        "Unrelated current-file focus should not be rendered.",
+                                        "N/A"
+                                )
+                        ),
+                        List.of("Prioritize exploitable auth/secrets/permission regressions."),
+                        true,
+                        0.82,
+                        List.of("Planner warning example.")
+                ),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+
+        String formatted = formatter.formatForFile(context, "src/main/java/com/example/AuthService.java");
+
+        assertThat(formatted)
+                .contains("Semantic review plan (deterministic, patch-derived, not a full repository graph):")
+                .contains("- confidence: 0.82, requires repo context: true")
+                .contains("- change types: security-sensitive-change; public-api-change")
+                .contains("security-boundary [HIGH]: Security-sensitive path changed.")
+                .contains("src/main/java/com/example/AuthService.java (score=1200")
+                .contains("Prioritize exploitable auth, permission, secret, or credential regressions.")
+                .contains("IMPORT_TARGET [src/main/java/com/example/AuthController.java, src/main/java/com/example/AuthService.java]")
+                .contains("Prioritize exploitable auth/secrets/permission regressions.")
+                .contains("Planner warning example.")
+                .doesNotContain("Review impact plan (patch-derived, not a full repository graph):")
+                .doesNotContain("legacy-change")
+                .doesNotContain("Other file focus should not be rendered for current file.")
+                .doesNotContain("Unrelated current-file focus should not be rendered.");
+    }
+
+    @Test
     void shouldPrioritizeCurrentFileRepoRelationshipHints() {
         AiReviewContext context = new AiReviewContext(
                 List.of(

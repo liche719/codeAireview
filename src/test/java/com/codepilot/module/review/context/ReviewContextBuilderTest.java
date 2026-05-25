@@ -63,6 +63,12 @@ class ReviewContextBuilderTest {
                 .contains("SOURCE_TEST_PAIR");
         assertThat(context.reviewImpactPlan().changeTypes())
                 .contains("production-code-change", "test-change", "dependency-or-build-change");
+        assertThat(context.reviewPlan().priorityFiles())
+                .extracting(com.codepilot.module.review.planner.ReviewPlan.PriorityFile::filePath)
+                .contains("src/main/java/Demo.java", "src/test/java/DemoTest.java");
+        assertThat(context.toAiReviewContext().reviewPlan().priorityFiles())
+                .extracting(com.codepilot.module.agent.dto.AiReviewContext.ReviewPlan.PriorityFile::filePath)
+                .contains("src/main/java/Demo.java", "src/test/java/DemoTest.java");
         assertThat(context.toAiReviewContext().reviewImpactPlan().impactAreas())
                 .contains("runtime behavior", "test coverage", "build reproducibility and supply chain");
         assertThat(context.toAiReviewContext().relatedPatchExcerpts())

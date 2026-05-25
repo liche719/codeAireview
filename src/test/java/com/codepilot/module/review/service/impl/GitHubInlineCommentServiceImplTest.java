@@ -182,11 +182,12 @@ class GitHubInlineCommentServiceImplTest {
         org.assertj.core.api.Assertions.assertThat(body).contains("<!-- codepilot-inline-review -->");
         org.assertj.core.api.Assertions.assertThat(body).containsPattern("<!-- codepilot-inline-review:[a-f0-9]{32} -->");
         org.assertj.core.api.Assertions.assertThat(body).contains("Description:");
+        org.assertj.core.api.Assertions.assertThat(body).contains("Evidence:");
         org.assertj.core.api.Assertions.assertThat(body).contains("Suggestion:");
+        org.assertj.core.api.Assertions.assertThat(body).contains("source=TOOL");
+        org.assertj.core.api.Assertions.assertThat(body).contains("rule=SQL\\_RULE");
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("SQL_RISK");
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("HIGH");
-        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("Source:");
-        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("Rule:");
         org.assertj.core.api.Assertions.assertThat(body).doesNotContain("CodePilot AI found a potential issue");
     }
 

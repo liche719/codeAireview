@@ -2,7 +2,9 @@ package com.codepilot.module.tool.impl;
 
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.tool.context.DiffToolUtils;
+import com.codepilot.module.tool.dto.ToolCheckRequest;
 import com.codepilot.module.tool.dto.ToolCheckResult;
+import com.codepilot.module.tool.rule.DeterministicReviewRule;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
@@ -21,7 +23,7 @@ import java.util.regex.Pattern;
 @Slf4j
 @Component
 @ConditionalOnProperty(prefix = "codepilot.tools", name = {"enabled", "secret-scan-enabled"}, havingValue = "true", matchIfMissing = true)
-public class SecretScanTool {
+public class SecretScanTool implements DeterministicReviewRule {
 
     private static final List<String> SENSITIVE_KEYWORDS = List.of(
             "password",
@@ -47,6 +49,24 @@ public class SecretScanTool {
     private static final Pattern JWT_TOKEN = Pattern.compile("\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b");
 
     private static final Pattern PRIVATE_KEY_HEADER = Pattern.compile("-----BEGIN [A-Z ]*PRIVATE KEY-----");
+
+    @Override
+    public String id() {
+        return "SECRET_SCAN_RULE";
+    }
+
+    @Override
+    public int order() {
+        return 10;
+    }
+
+    @Override
+    public List<ToolCheckResult> check(ToolCheckRequest request) {
+        return scanSecrets(
+                request == null ? null : request.getFilePath(),
+                request == null ? null : request.getPatch()
+        );
+    }
 
     @Tool("Detect hardcoded secrets in added diff lines, including tokens, passwords, API keys, private keys, and JDBC URLs.")
     public List<ToolCheckResult> scanSecrets(

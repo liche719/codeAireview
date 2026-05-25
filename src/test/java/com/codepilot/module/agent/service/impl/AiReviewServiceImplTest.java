@@ -23,10 +23,10 @@ import com.codepilot.module.audit.service.LlmCallLogService;
 import com.codepilot.module.tool.impl.SecretScanTool;
 import com.codepilot.module.tool.impl.SqlRiskTool;
 import com.codepilot.module.tool.impl.TestSuggestionTool;
+import com.codepilot.module.tool.rule.DeterministicReviewRule;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.List;
 import java.util.Optional;
@@ -272,14 +272,11 @@ class AiReviewServiceImplTest {
 
         private final ReviewLlmCache reviewLlmCache = mock(ReviewLlmCache.class);
 
-        @SuppressWarnings("unchecked")
-        private final ObjectProvider<SqlRiskTool> sqlRiskToolProvider = mock(ObjectProvider.class);
-
-        @SuppressWarnings("unchecked")
-        private final ObjectProvider<SecretScanTool> secretScanToolProvider = mock(ObjectProvider.class);
-
-        @SuppressWarnings("unchecked")
-        private final ObjectProvider<TestSuggestionTool> testSuggestionToolProvider = mock(ObjectProvider.class);
+        private final List<DeterministicReviewRule> deterministicReviewRules = List.of(
+                new SqlRiskTool(),
+                new SecretScanTool(),
+                new TestSuggestionTool()
+        );
 
         private final ReviewIssueDeduplicator reviewIssueDeduplicator = new ReviewIssueDeduplicator();
 
@@ -289,9 +286,7 @@ class AiReviewServiceImplTest {
         private final ReviewLlmInputLimiter reviewLlmInputLimiter = new ReviewLlmInputLimiter(llmProperties);
 
         private final DeterministicReviewToolRunner deterministicReviewToolRunner = new DeterministicReviewToolRunner(
-                sqlRiskToolProvider,
-                secretScanToolProvider,
-                testSuggestionToolProvider,
+                deterministicReviewRules,
                 reviewIssueDeduplicator
         );
 
@@ -307,10 +302,6 @@ class AiReviewServiceImplTest {
             when(reviewLlmClient.isAvailable()).thenReturn(true);
             when(reviewRagService.retrieveRelevantRules(any(), any())).thenReturn(List.of());
             when(reviewLlmCache.find(any(), any())).thenReturn(Optional.empty());
-            when(sqlRiskToolProvider.getIfAvailable()).thenReturn(new SqlRiskTool());
-            when(secretScanToolProvider.getIfAvailable()).thenReturn(new SecretScanTool());
-            when(testSuggestionToolProvider.getIfAvailable()).thenReturn(new TestSuggestionTool());
-
             reviewLlmReviewer = new ReviewLlmReviewer(
                     reviewLlmClientRegistry,
                     new AiReviewResultParser(new ObjectMapper(), new AiReviewResultSchemaValidator()),
