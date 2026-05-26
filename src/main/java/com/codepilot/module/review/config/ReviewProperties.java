@@ -11,6 +11,8 @@ public class ReviewProperties {
 
     private int maxFilesPerTask = 30;
 
+    private int maxSummaryFindings = 20;
+
     private int maxPatchCharsPerFile = 12000;
 
     private int maxTotalPatchChars = 80000;

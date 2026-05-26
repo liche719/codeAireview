@@ -12,6 +12,8 @@ import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
+import com.codepilot.module.review.processor.ReviewCommentBudgetAllocator;
+import com.codepilot.module.review.processor.ReviewFindingRanker;
 import com.codepilot.module.review.report.ReviewIssueEvidenceFormatter;
 import com.codepilot.module.review.service.GitHubInlineCommentResult;
 import com.codepilot.module.review.service.GitHubInlineCommentService;
@@ -25,11 +27,9 @@ import org.springframework.util.StringUtils;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -56,6 +56,10 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
 
     private final DiffLineMapper diffLineMapper;
 
+    private final ReviewCommentBudgetAllocator reviewCommentBudgetAllocator;
+
+    private final ReviewFindingRanker reviewFindingRanker;
+
     private final boolean inlineCommentEnabled;
 
     private final int inlineCommentMaxPerTask;
@@ -68,6 +72,8 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
             ReviewFileService reviewFileService,
             GithubClient githubClient,
             DiffLineMapper diffLineMapper,
+            ReviewCommentBudgetAllocator reviewCommentBudgetAllocator,
+            ReviewFindingRanker reviewFindingRanker,
             @Value("${codepilot.github.inline-comment-enabled:false}") boolean inlineCommentEnabled,
             @Value("${codepilot.github.inline-comment-max-per-task:10}") int inlineCommentMaxPerTask,
             @Value("${codepilot.github.token:}") String githubToken
@@ -77,6 +83,8 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
         this.reviewFileService = reviewFileService;
         this.githubClient = githubClient;
         this.diffLineMapper = diffLineMapper;
+        this.reviewCommentBudgetAllocator = reviewCommentBudgetAllocator;
+        this.reviewFindingRanker = reviewFindingRanker;
         this.inlineCommentEnabled = inlineCommentEnabled;
         this.inlineCommentMaxPerTask = inlineCommentMaxPerTask;
         this.githubToken = githubToken;
@@ -130,12 +138,10 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
             Set<String> existingFingerprints = existingInlineCommentFingerprints(task);
 
             Set<String> sentIssueKeys = new HashSet<>();
-            for (ReviewIssue issue : prioritizedIssues(issues)) {
-                if (successCount >= inlineCommentMaxPerTask) {
-                    skippedCount++;
-                    continue;
-                }
-
+            List<ReviewIssue> rankedIssues = reviewFindingRanker.rank(issues);
+            List<ReviewIssue> inlineIssues = reviewCommentBudgetAllocator.allocateInlineFindings(rankedIssues, inlineCommentMaxPerTask);
+            skippedCount += Math.max(0, rankedIssues.size() - inlineIssues.size());
+            for (ReviewIssue issue : inlineIssues) {
                 String issueKey = issueKey(issue);
                 if (!sentIssueKeys.add(issueKey)) {
                     skippedCount++;
@@ -191,48 +197,6 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                     taskId, successCount, failedCount, skippedCount, inlineCommentMaxPerTask);
         }
         return new GitHubInlineCommentResult(successCount, failedCount, skippedCount);
-    }
-
-    private List<ReviewIssue> prioritizedIssues(List<ReviewIssue> issues) {
-        return (issues == null ? List.<ReviewIssue>of() : issues).stream()
-                .sorted(Comparator
-                        .comparingInt(this::severityPriority)
-                        .thenComparingInt(this::sourcePriority)
-                        .thenComparingInt(this::issueTypePriority)
-                        .thenComparing(issue -> nullToDash(issue.getFilePath()))
-                        .thenComparing(issue -> issue.getLineNumber() == null ? Integer.MAX_VALUE : issue.getLineNumber())
-                        .thenComparing(issue -> issue.getId() == null ? Long.MAX_VALUE : issue.getId()))
-                .toList();
-    }
-
-    private int severityPriority(ReviewIssue issue) {
-        String severity = issue == null ? "" : nullToDash(issue.getSeverity()).trim().toUpperCase(Locale.ROOT);
-        return switch (severity) {
-            case "HIGH" -> 0;
-            case "MEDIUM" -> 1;
-            case "LOW" -> 2;
-            default -> 3;
-        };
-    }
-
-    private int sourcePriority(ReviewIssue issue) {
-        String source = issue == null ? "" : nullToDash(issue.getSource()).trim().toUpperCase(Locale.ROOT);
-        return "TOOL".equals(source) ? 0 : 1;
-    }
-
-    private int issueTypePriority(ReviewIssue issue) {
-        String issueType = issue == null ? "" : nullToDash(issue.getIssueType()).trim().toUpperCase(Locale.ROOT);
-        return switch (issueType) {
-            case "SECURITY" -> 0;
-            case "SQL_RISK" -> 1;
-            case "BUG_RISK" -> 2;
-            case "EXCEPTION_HANDLING" -> 3;
-            case "PERFORMANCE" -> 4;
-            case "LOGGING" -> 5;
-            case "TEST_MISSING" -> 6;
-            case "STYLE" -> 7;
-            default -> 8;
-        };
     }
 
     private Map<String, ReviewFile> reviewFileByPath(Long taskId) {

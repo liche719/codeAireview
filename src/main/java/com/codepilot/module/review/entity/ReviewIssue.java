@@ -36,5 +36,13 @@ public class ReviewIssue {
 
     private String ruleReference;
 
+    private Integer finalScore;
+
+    private String publishDecision;
+
+    private String suppressionReason;
+
+    private String commentChannel;
+
     private LocalDateTime createdAt;
 }

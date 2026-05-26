@@ -40,6 +40,7 @@ class ReviewFileReviewerTest {
                 new ReviewIssueLocationGuard(new DiffLineMapper()),
                 new ReviewIssuePatchVerifier(new DiffLineMapper()),
                 new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
+                new ReviewFindingRanker(),
                 new ReviewProperties()
         );
         when(aiReviewService.reviewFile(any(AiReviewRequest.class)))
@@ -80,6 +81,7 @@ class ReviewFileReviewerTest {
                 new ReviewIssueLocationGuard(new DiffLineMapper()),
                 new ReviewIssuePatchVerifier(new DiffLineMapper()),
                 new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
+                new ReviewFindingRanker(),
                 new ReviewProperties()
         );
         when(aiReviewService.reviewFile(argThat(request ->
@@ -117,6 +119,7 @@ class ReviewFileReviewerTest {
                 new ReviewIssueLocationGuard(new DiffLineMapper()),
                 new ReviewIssuePatchVerifier(new DiffLineMapper()),
                 new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
+                new ReviewFindingRanker(),
                 new ReviewProperties()
         );
         when(aiReviewService.reviewFile(any(AiReviewRequest.class)))
@@ -140,6 +143,7 @@ class ReviewFileReviewerTest {
                 new ReviewIssueLocationGuard(new DiffLineMapper()),
                 new ReviewIssuePatchVerifier(new DiffLineMapper()),
                 new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
+                new ReviewFindingRanker(),
                 reviewProperties
         );
         CountDownLatch slowFileStarted = new CountDownLatch(1);
@@ -181,6 +185,7 @@ class ReviewFileReviewerTest {
                 new ReviewIssueLocationGuard(new DiffLineMapper()),
                 new ReviewIssuePatchVerifier(new DiffLineMapper()),
                 new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
+                new ReviewFindingRanker(),
                 reviewProperties
         );
         when(aiReviewService.reviewFile(any(AiReviewRequest.class)))

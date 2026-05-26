@@ -44,6 +44,8 @@ public class ReviewFileReviewer {
 
     private final ReviewContextBuilder reviewContextBuilder;
 
+    private final ReviewFindingRanker reviewFindingRanker;
+
     private final ReviewProperties reviewProperties;
 
     public List<ReviewIssue> review(Long taskId, List<ReviewFile> reviewFiles) {
@@ -72,6 +74,7 @@ public class ReviewFileReviewer {
             }
             reviewIssues.addAll(outcome.issues());
         }
+        reviewIssues = reviewFindingRanker.rank(reviewIssues);
         if (!reviewableFiles.isEmpty() && failedFileCount == reviewableFiles.size()) {
             throw new IllegalStateException("AI review failed for all reviewable files, failedCount=" + failedFileCount
                     + ", firstError=" + failureMessage(firstFailure),

@@ -171,6 +171,7 @@ class ReviewTaskProcessorTest {
                                         new ReviewProperties()
                                 )
                         ),
+                        new ReviewFindingRanker(),
                         new ReviewProperties()
                 )
         );

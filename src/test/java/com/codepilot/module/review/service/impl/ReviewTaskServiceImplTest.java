@@ -23,6 +23,7 @@ import com.codepilot.module.review.diff.DiffLineMapper;
 import com.codepilot.module.review.failure.ReviewTaskFailureHandler;
 import com.codepilot.module.review.planner.ReviewFilePlanner;
 import com.codepilot.module.review.processor.ReviewFileReviewer;
+import com.codepilot.module.review.processor.ReviewFindingRanker;
 import com.codepilot.module.review.processor.ReviewIssueLocationGuard;
 import com.codepilot.module.review.processor.ReviewIssuePatchVerifier;
 import com.codepilot.module.review.processor.ReviewTaskProcessor;
@@ -341,6 +342,7 @@ class ReviewTaskServiceImplTest {
                 new ReviewIssueLocationGuard(new DiffLineMapper()),
                 new ReviewIssuePatchVerifier(new DiffLineMapper()),
                 new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
+                new ReviewFindingRanker(),
                 reviewProperties
         );
 
