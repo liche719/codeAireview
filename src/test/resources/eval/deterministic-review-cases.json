@@ -51,5 +51,15 @@
     ],
     "expectedIssueTypes": [],
     "minimumSeverityByIssueType": {}
+  },
+  {
+    "name": "spring-yaml-placeholder-without-sql",
+    "filePath": "src/main/resources/application.yml",
+    "patch": "@@ -98,1 +98,2 @@\n review:\n+  max-summary-findings: ${CODEPILOT_REVIEW_MAX_SUMMARY_FINDINGS:20}\n",
+    "allChangedFiles": [
+      "src/main/resources/application.yml"
+    ],
+    "expectedIssueTypes": [],
+    "minimumSeverityByIssueType": {}
   }
 ]

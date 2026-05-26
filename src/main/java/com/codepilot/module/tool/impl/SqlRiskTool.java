@@ -105,9 +105,9 @@ public class SqlRiskTool implements DeterministicReviewRule {
                         "请使用 MyBatis 参数绑定、预编译语句或安全的查询构造方式。"
                 ));
             }
-            if (normalized.contains("${")) {
+            if (hasMyBatisPlaceholderRisk(content)) {
                 results.add(ToolCheckResult.atLine(
-                        lineNumber(addedLines, line -> line.contains("${")),
+                        lineNumber(addedLines, this::hasMyBatisPlaceholderRisk),
                         "SQL_RISK",
                         "HIGH",
                         "MyBatis ${} 存在直接拼接风险",
@@ -154,6 +154,14 @@ public class SqlRiskTool implements DeterministicReviewRule {
                     filePath, SensitiveDataSanitizer.redact(exception.getMessage()));
             return List.of();
         }
+    }
+
+    private boolean hasMyBatisPlaceholderRisk(String content) {
+        if (!StringUtils.hasText(content) || !content.contains("${")) {
+            return false;
+        }
+        return sqlCandidates(content).stream()
+                .anyMatch(candidate -> candidate.contains("${"));
     }
 
     private boolean hasSqlStringConcatenation(String content) {
