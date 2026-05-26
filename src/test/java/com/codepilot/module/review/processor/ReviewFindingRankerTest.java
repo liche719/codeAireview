@@ -48,6 +48,39 @@ class ReviewFindingRankerTest {
         assertThat(ranked.get(1).getSuppressionReason()).isEqualTo("duplicate finding");
     }
 
+    @Test
+    void shouldKeepHigherScoredDuplicateEvenWhenItAppearsLater() {
+        ReviewIssue llmDuplicate = issue("HIGH", "SECURITY", "LLM", null, "security");
+        ReviewIssue toolDuplicate = issue("HIGH", "SECURITY", "TOOL", "PATCH_VERIFIED:PATCH_LINE", "security");
+        toolDuplicate.setFilePath(llmDuplicate.getFilePath());
+        toolDuplicate.setLineNumber(llmDuplicate.getLineNumber());
+
+        List<ReviewIssue> ranked = ranker.rank(List.of(llmDuplicate, toolDuplicate));
+
+        assertThat(ranked.getFirst().getSource()).isEqualTo("TOOL");
+        assertThat(ranked.getFirst().getPublishDecision()).isEqualTo("PUBLISH");
+        assertThat(ranked.get(1).getSource()).isEqualTo("LLM");
+        assertThat(ranked.get(1).getPublishDecision()).isEqualTo("SUPPRESS");
+        assertThat(ranked.get(1).getSuppressionReason()).isEqualTo("duplicate finding");
+    }
+
+    @Test
+    void shouldReusePersistedRankingWithoutRecomputing() {
+        ReviewIssue persisted = issue("LOW", "STYLE", "LLM", null, "persisted");
+        persisted.setFinalScore(77);
+        persisted.setPublishDecision("SUMMARY");
+        persisted.setCommentChannel("SUMMARY");
+        persisted.setSuppressionReason("persisted decision");
+
+        List<ReviewIssue> ordered = ranker.orderForPublish(List.of(persisted));
+
+        assertThat(ordered).containsExactly(persisted);
+        assertThat(ordered.getFirst().getFinalScore()).isEqualTo(77);
+        assertThat(ordered.getFirst().getPublishDecision()).isEqualTo("SUMMARY");
+        assertThat(ordered.getFirst().getCommentChannel()).isEqualTo("SUMMARY");
+        assertThat(ordered.getFirst().getSuppressionReason()).isEqualTo("persisted decision");
+    }
+
     private ReviewIssue issue(String severity, String issueType, String source, String ruleReference, String title) {
         ReviewIssue issue = new ReviewIssue();
         issue.setFilePath("src/main/java/Demo.java");

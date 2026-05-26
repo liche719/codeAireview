@@ -27,13 +27,14 @@ public class ReviewReportFormatter {
 
     public ReviewReportFormatter(
             @Value("${codepilot.github.comment-marker:}") String commentMarker,
-            ReviewCommentBudgetAllocator reviewCommentBudgetAllocator
+            ReviewCommentBudgetAllocator reviewCommentBudgetAllocator,
+            ReviewFindingRanker reviewFindingRanker
     ) {
         this.commentMarker = StringUtils.hasText(commentMarker)
                 ? commentMarker
                 : DEFAULT_COMMENT_MARKER;
         this.reviewCommentBudgetAllocator = reviewCommentBudgetAllocator;
-        this.reviewFindingRanker = new ReviewFindingRanker();
+        this.reviewFindingRanker = reviewFindingRanker;
     }
 
     public String getCommentMarker() {
@@ -41,7 +42,7 @@ public class ReviewReportFormatter {
     }
 
     public String formatMarkdown(ReviewTask task, List<ReviewIssue> issues) {
-        List<ReviewIssue> rankedIssues = reviewFindingRanker.rank(issues);
+        List<ReviewIssue> rankedIssues = reviewFindingRanker.orderForPublish(issues);
         List<ReviewIssue> visibleIssues = reviewCommentBudgetAllocator.allocateSummaryFindings(rankedIssues);
 
         StringBuilder markdown = new StringBuilder();

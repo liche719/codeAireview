@@ -6,9 +6,11 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 @Component
@@ -22,35 +24,51 @@ public class ReviewFindingRanker {
         if (issues == null || issues.isEmpty()) {
             return List.of();
         }
-        List<ReviewIssue> ranked = new ArrayList<>();
-        Set<String> seenFingerprints = new HashSet<>();
+        List<RankedCandidate> candidates = new ArrayList<>();
+        int originalIndex = 0;
         for (ReviewIssue issue : issues) {
             if (issue == null) {
                 continue;
             }
-            int score = score(issue);
-            String fingerprint = duplicateFingerprint(issue);
-            if (!seenFingerprints.add(fingerprint)) {
-                applyDecision(issue, score - 20, "SUPPRESS", "duplicate finding", "NONE");
-                ranked.add(issue);
-                continue;
-            }
-            applyDecision(issue, score, publishDecision(score), suppressionReason(score), commentChannel(score, issue));
-            ranked.add(issue);
+            candidates.add(new RankedCandidate(issue, score(issue), duplicateFingerprint(issue), originalIndex++));
         }
-        return ranked.stream()
-                .sorted(Comparator
-                        .comparingInt(this::sortDecisionPriority)
-                        .thenComparing((ReviewIssue issue) -> issue.getFinalScore() == null ? Integer.MIN_VALUE : issue.getFinalScore(), Comparator.reverseOrder())
-                        .thenComparingInt(this::severityPriority)
-                        .thenComparingInt(this::sourcePriority))
-                .toList();
+        Map<String, RankedCandidate> duplicateWinners = duplicateWinners(candidates);
+        List<ReviewIssue> ranked = new ArrayList<>();
+        for (RankedCandidate candidate : candidates) {
+            RankedCandidate winner = duplicateWinners.get(candidate.fingerprint());
+            if (winner != null && winner != candidate) {
+                applyDecision(candidate.issue(), candidate.score() - 20, "SUPPRESS", "duplicate finding", "NONE");
+            } else {
+                applyDecision(
+                        candidate.issue(),
+                        candidate.score(),
+                        publishDecision(candidate.score()),
+                        suppressionReason(candidate.score()),
+                        commentChannel(candidate.score(), candidate.issue())
+                );
+            }
+            ranked.add(candidate.issue());
+        }
+        return sortForPublish(ranked);
     }
 
     public List<ReviewIssue> publishable(List<ReviewIssue> issues) {
-        return rank(issues).stream()
+        return orderForPublish(issues).stream()
                 .filter(issue -> !"SUPPRESS".equals(normalize(issue.getPublishDecision())))
                 .toList();
+    }
+
+    public List<ReviewIssue> orderForPublish(List<ReviewIssue> issues) {
+        if (issues == null || issues.isEmpty()) {
+            return List.of();
+        }
+        List<ReviewIssue> presentIssues = issues.stream()
+                .filter(issue -> issue != null)
+                .toList();
+        if (hasPersistedRanking(presentIssues)) {
+            return sortForPublish(presentIssues);
+        }
+        return rank(presentIssues);
     }
 
     private void applyDecision(
@@ -157,6 +175,65 @@ public class ReviewFindingRanker {
         return score >= MIN_INLINE_SCORE ? "INLINE" : "SUMMARY";
     }
 
+    private Map<String, RankedCandidate> duplicateWinners(List<RankedCandidate> candidates) {
+        Map<String, RankedCandidate> winners = new HashMap<>();
+        for (RankedCandidate candidate : candidates) {
+            winners.merge(candidate.fingerprint(), candidate, this::betterDuplicateWinner);
+        }
+        return winners;
+    }
+
+    private RankedCandidate betterDuplicateWinner(RankedCandidate left, RankedCandidate right) {
+        if (left.score() != right.score()) {
+            return left.score() > right.score() ? left : right;
+        }
+        int leftSeverity = severityPriority(left.issue());
+        int rightSeverity = severityPriority(right.issue());
+        if (leftSeverity != rightSeverity) {
+            return leftSeverity < rightSeverity ? left : right;
+        }
+        int leftSource = sourcePriority(left.issue());
+        int rightSource = sourcePriority(right.issue());
+        if (leftSource != rightSource) {
+            return leftSource < rightSource ? left : right;
+        }
+        return left.originalIndex() <= right.originalIndex() ? left : right;
+    }
+
+    private boolean hasPersistedRanking(List<ReviewIssue> issues) {
+        boolean hasRankedSignal = false;
+        for (ReviewIssue issue : issues) {
+            if (issue == null
+                    || issue.getFinalScore() == null
+                    || !StringUtils.hasText(issue.getPublishDecision())
+                    || !StringUtils.hasText(issue.getCommentChannel())) {
+                return false;
+            }
+            if (issue.getFinalScore() != 0
+                    || !"PUBLISH".equals(normalize(issue.getPublishDecision()))
+                    || !"INLINE".equals(normalize(issue.getCommentChannel()))
+                    || StringUtils.hasText(issue.getSuppressionReason())) {
+                hasRankedSignal = true;
+            }
+        }
+        return hasRankedSignal;
+    }
+
+    private List<ReviewIssue> sortForPublish(List<ReviewIssue> issues) {
+        return issues.stream()
+                .sorted(Comparator
+                        .comparingInt(this::sortDecisionPriority)
+                        .thenComparing((ReviewIssue issue) -> issue.getFinalScore() == null ? Integer.MIN_VALUE : issue.getFinalScore(), Comparator.reverseOrder())
+                        .thenComparingInt(this::severityPriority)
+                        .thenComparingInt(this::sourcePriority)
+                        .thenComparing(issue -> nullToEmpty(issue.getFilePath()))
+                        .thenComparing(issue -> issue.getLineNumber() == null ? Integer.MAX_VALUE : issue.getLineNumber())
+                        .thenComparing(issue -> normalize(issue.getIssueType()))
+                        .thenComparing(issue -> normalize(issue.getTitle()))
+                        .thenComparing(issue -> issue.getId() == null ? Long.MAX_VALUE : issue.getId()))
+                .toList();
+    }
+
     private int sortDecisionPriority(ReviewIssue issue) {
         return switch (normalize(issue == null ? null : issue.getPublishDecision())) {
             case "PUBLISH" -> 0;
@@ -200,5 +277,8 @@ public class ReviewFindingRanker {
 
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private record RankedCandidate(ReviewIssue issue, int score, String fingerprint, int originalIndex) {
     }
 }

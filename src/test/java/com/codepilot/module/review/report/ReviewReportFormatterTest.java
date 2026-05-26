@@ -4,6 +4,7 @@ import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.processor.ReviewCommentBudgetAllocator;
+import com.codepilot.module.review.processor.ReviewFindingRanker;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -17,7 +18,8 @@ class ReviewReportFormatterTest {
 
     private final ReviewReportFormatter formatter = new ReviewReportFormatter(
             COMMENT_MARKER,
-            new ReviewCommentBudgetAllocator(new ReviewProperties())
+            new ReviewCommentBudgetAllocator(new ReviewProperties()),
+            new ReviewFindingRanker()
     );
 
     @Test
@@ -51,7 +53,8 @@ class ReviewReportFormatterTest {
         properties.setMaxSummaryFindings(2);
         ReviewReportFormatter limitedFormatter = new ReviewReportFormatter(
                 COMMENT_MARKER,
-                new ReviewCommentBudgetAllocator(properties)
+                new ReviewCommentBudgetAllocator(properties),
+                new ReviewFindingRanker()
         );
 
         List<ReviewIssue> issues = new ArrayList<>();
@@ -65,6 +68,19 @@ class ReviewReportFormatterTest {
         assertThat(markdown).contains("#### 2. [高] 问题2");
         assertThat(markdown).doesNotContain("问题3");
         assertThat(markdown).contains("另外还有 1 条问题未展示");
+    }
+
+    @Test
+    void shouldRespectPersistedRankingWithoutRecomputing() {
+        ReviewIssue freshIssue = issue("HIGH", "SECURITY", "fresh", "fresh issue", 0, "PUBLISH", "INLINE");
+        ReviewIssue persistedSummary = issue("LOW", "STYLE", "已持久化结果", "persisted issue", 77, "SUMMARY", "SUMMARY");
+        persistedSummary.setSuppressionReason("kept from persisted ranking");
+
+        String markdown = formatter.formatMarkdown(reviewTask("HIGH"), List.of(freshIssue, persistedSummary));
+
+        assertThat(markdown).contains("已持久化结果");
+        assertThat(markdown).contains("fresh");
+        assertThat(markdown).contains("Decision");
     }
 
     private ReviewTask reviewTask(String riskLevel) {

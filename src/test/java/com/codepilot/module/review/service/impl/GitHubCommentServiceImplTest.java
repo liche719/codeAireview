@@ -6,9 +6,10 @@ import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
+import com.codepilot.module.review.processor.ReviewCommentBudgetAllocator;
+import com.codepilot.module.review.processor.ReviewFindingRanker;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.report.ReviewReportFormatter;
-import com.codepilot.module.review.processor.ReviewCommentBudgetAllocator;
 import com.codepilot.module.review.service.ReviewIssueService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -152,7 +153,11 @@ class GitHubCommentServiceImplTest {
                     reviewTaskMapper,
                     reviewIssueService,
                     githubClient,
-                    new ReviewReportFormatter(COMMENT_MARKER, new ReviewCommentBudgetAllocator(new ReviewProperties())),
+                    new ReviewReportFormatter(
+                            COMMENT_MARKER,
+                            new ReviewCommentBudgetAllocator(new ReviewProperties()),
+                            new ReviewFindingRanker()
+                    ),
                     commentEnabled,
                     githubToken
             );

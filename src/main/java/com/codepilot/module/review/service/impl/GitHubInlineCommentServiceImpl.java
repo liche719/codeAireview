@@ -138,7 +138,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
             Set<String> existingFingerprints = existingInlineCommentFingerprints(task);
 
             Set<String> sentIssueKeys = new HashSet<>();
-            List<ReviewIssue> rankedIssues = reviewFindingRanker.rank(issues);
+            List<ReviewIssue> rankedIssues = reviewFindingRanker.orderForPublish(issues);
             List<ReviewIssue> inlineIssues = reviewCommentBudgetAllocator.allocateInlineFindings(rankedIssues, inlineCommentMaxPerTask);
             skippedCount += Math.max(0, rankedIssues.size() - inlineIssues.size());
             for (ReviewIssue issue : inlineIssues) {
