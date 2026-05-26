@@ -133,7 +133,7 @@ class ReviewFileReviewerTest {
     }
 
     @Test
-    void shouldReviewFilesInParallelButKeepIssueOrderStable() throws Exception {
+    void shouldReviewFilesInParallelButKeepRankedIssueOrderStable() throws Exception {
         AiReviewService aiReviewService = mock(AiReviewService.class);
         ReviewProperties reviewProperties = new ReviewProperties();
         reviewProperties.setMaxParallelFiles(2);
@@ -171,7 +171,7 @@ class ReviewFileReviewerTest {
         assertThat(fastFileStartedBeforeSlowReleased).isTrue();
         assertThat(issues)
                 .extracting(ReviewIssue::getTitle)
-                .containsExactly("Slow issue", "Fast issue");
+                .containsExactly("Fast issue", "Slow issue");
     }
 
     @Test
