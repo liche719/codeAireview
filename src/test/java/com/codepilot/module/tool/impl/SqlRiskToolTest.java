@@ -88,6 +88,34 @@ class SqlRiskToolTest {
     }
 
     @Test
+    void shouldNotFlagSpringValuePlaceholderAsMyBatisPlaceholderRisk() {
+        var results = sqlRiskTool.checkSqlRisk(
+                "src/main/java/com/codepilot/module/review/report/ReviewReportFormatter.java",
+                """
+                        @@ -25,1 +25,2 @@
+                        +@Value("${codepilot.github.comment-marker:}") String commentMarker,
+                        """
+        );
+
+        assertThat(results)
+                .noneSatisfy(result -> assertThat(result.getTitle()).contains("MyBatis ${}"));
+    }
+
+    @Test
+    void shouldNotFlagApplicationYamlPlaceholderAsMyBatisPlaceholderRisk() {
+        var results = sqlRiskTool.checkSqlRisk(
+                "src/main/resources/application.yml",
+                """
+                        @@ -98,1 +98,2 @@
+                        +  max-summary-findings: ${CODEPILOT_REVIEW_MAX_SUMMARY_FINDINGS:20}
+                        """
+        );
+
+        assertThat(results)
+                .noneSatisfy(result -> assertThat(result.getTitle()).contains("MyBatis ${}"));
+    }
+
+    @Test
     void shouldDetectDeleteWithoutWhere() {
         var results = sqlRiskTool.checkSqlRisk("src/main/java/DemoMapper.java", "+delete from user");
 
