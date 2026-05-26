@@ -1,6 +1,7 @@
 package com.codepilot.module.review.context;
 
 import com.codepilot.module.review.entity.ReviewFile;
+import com.codepilot.module.review.entity.ReviewTask;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -95,6 +96,43 @@ class ReviewContextBuilderTest {
     }
 
     @Test
+    void shouldInjectLinkedIssueContextIntoReviewContextAndPlan() {
+        ReviewContextBuilder builder = new ReviewContextBuilder(
+                new ReviewContextSignalExtractor(),
+                new ReviewContextRelationshipExtractor(),
+                new ReviewImpactPlanner(),
+                new ReviewRelatedPatchExtractor(),
+                new RepoSourceExcerptExtractor(),
+                new com.codepilot.module.review.planner.SemanticReviewPlanner(),
+                new StubLinkedIssueContextProvider()
+        );
+        ReviewTask task = new ReviewTask();
+        task.setId(1L);
+        task.setRepoOwner("liche719");
+        task.setRepoName("codeAireview");
+        task.setPrNumber(22);
+
+        ReviewContext context = builder.build(task, List.of(
+                reviewFile("src/main/java/DemoService.java", "+fix bug", 4, 1, false, null)
+        ));
+
+        assertThat(context.linkedIssueContexts())
+                .singleElement()
+                .satisfies(issue -> {
+                    assertThat(issue.number()).isEqualTo(22);
+                    assertThat(issue.title()).contains("Fix login regression");
+                });
+        assertThat(context.reviewPlan().changeTypes())
+                .contains("issue-driven-change", "bugfix");
+        assertThat(context.reviewPlan().riskAreas())
+                .extracting(com.codepilot.module.review.planner.ReviewPlan.RiskArea::type)
+                .contains("task-requirement-alignment", "bugfix-regression");
+        assertThat(context.toAiReviewContext().linkedIssueContexts())
+                .singleElement()
+                .satisfies(issue -> assertThat(issue.title()).contains("Fix login regression"));
+    }
+
+    @Test
     void shouldReturnEmptyContextWhenFilesAreMissing() {
         assertThat(builder.build(null).allChangedFiles()).isEmpty();
         assertThat(builder.build(List.of()).allChangedFiles()).isEmpty();
@@ -116,5 +154,21 @@ class ReviewContextBuilderTest {
         reviewFile.setSkipped(skipped);
         reviewFile.setSkipReason(skipReason);
         return reviewFile;
+    }
+
+    private static final class StubLinkedIssueContextProvider extends ReviewLinkedIssueContextProvider {
+
+        @Override
+        public List<ReviewContext.LinkedIssueContext> linkedIssues(ReviewTask task) {
+            return List.of(new ReviewContext.LinkedIssueContext(
+                    "liche719",
+                    "codeAireview",
+                    22,
+                    "Fix login regression when token expires",
+                    "OPEN",
+                    "https://github.com/liche719/codeAireview/issues/22",
+                    "BODY"
+            ));
+        }
     }
 }
