@@ -2,6 +2,7 @@ package com.codepilot.module.review.planner;
 
 import com.codepilot.module.review.context.ReviewContext;
 import com.codepilot.module.review.entity.ReviewFile;
+import com.codepilot.module.review.graph.RepositoryGraphSnapshot;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -120,6 +121,7 @@ class SemanticReviewPlannerTest {
                 List.of(),
                 List.of(),
                 ReviewContext.ReviewImpactPlan.empty(),
+                RepositoryGraphSnapshot.empty(),
                 List.of(),
                 List.of(),
                 List.of(),

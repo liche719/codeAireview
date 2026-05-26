@@ -2,6 +2,8 @@ package com.codepilot.module.review.context;
 
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewTask;
+import com.codepilot.module.review.graph.RepositoryGraphSnapshot;
+import com.codepilot.module.review.graph.RepositoryGraphSnapshotBuilder;
 import com.codepilot.module.review.planner.ReviewPlan;
 import com.codepilot.module.review.planner.SemanticReviewPlanner;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -176,6 +178,12 @@ public class ReviewContextBuilder {
                 reviewRelatedPatchExtractor.relatedPatchExcerpts(reviewFiles, repoRelationshipHints);
         List<ReviewContext.RepoSourceExcerpt> repoSourceExcerpts =
                 repoSourceExcerptExtractor.repoSourceExcerpts(task, reviewFiles, semanticFileContexts, repoRelationshipHints);
+        RepositoryGraphSnapshot repositoryGraphSnapshot = RepositoryGraphSnapshotBuilder.buildReviewContextGraph(
+                fileSummaries,
+                semanticFileContexts,
+                repoRelationshipHints,
+                null
+        );
         List<ReviewContext.LinkedIssueContext> linkedIssueContexts =
                 reviewLinkedIssueContextProvider.linkedIssues(task);
         ReviewPlan reviewPlan = semanticReviewPlanner.plan(
@@ -184,6 +192,7 @@ public class ReviewContextBuilder {
                 semanticFileContexts,
                 repoRelationshipHints,
                 reviewImpactPlan,
+                repositoryGraphSnapshot,
                 relatedPatchExcerpts,
                 repoSourceExcerpts,
                 reviewSignals,
