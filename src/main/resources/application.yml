@@ -96,6 +96,7 @@ codepilot:
     fix-validation-timeout-seconds: ${CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS:300}
   review:
     max-files-per-task: ${CODEPILOT_REVIEW_MAX_FILES_PER_TASK:30}
+    max-summary-findings: ${CODEPILOT_REVIEW_MAX_SUMMARY_FINDINGS:20}
     max-patch-chars-per-file: ${CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE:12000}
     max-total-patch-chars: ${CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS:80000}
     max-parallel-files: ${CODEPILOT_REVIEW_MAX_PARALLEL_FILES:2}

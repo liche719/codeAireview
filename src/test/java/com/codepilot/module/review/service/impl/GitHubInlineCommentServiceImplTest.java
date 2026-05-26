@@ -9,6 +9,9 @@ import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
+import com.codepilot.module.review.config.ReviewProperties;
+import com.codepilot.module.review.processor.ReviewCommentBudgetAllocator;
+import com.codepilot.module.review.processor.ReviewFindingRanker;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import org.junit.jupiter.api.Test;
@@ -145,6 +148,37 @@ class GitHubInlineCommentServiceImplTest {
         when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
         when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
                 .thenReturn(List.of(lowValueIssue, highValueIssue));
+        when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
+                .thenReturn(List.of(reviewFile()));
+        when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
+
+        context.service.commentInlineIssues(1L);
+
+        verify(context.githubClient, times(1))
+                .createPullRequestInlineComment(eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                        eq("src/Demo.java"), eq(12), eq("RIGHT"), any());
+        verify(context.githubClient, never())
+                .createPullRequestInlineComment(eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                        eq("src/Demo.java"), eq(11), eq("RIGHT"), any());
+    }
+
+    @Test
+    void shouldUsePersistedRankingWithoutFreshReordering() {
+        TestContext context = new TestContext(true, 1, "token");
+        ReviewIssue persistedInline = issue(12);
+        persistedInline.setId(2L);
+        persistedInline.setFinalScore(95);
+        persistedInline.setPublishDecision("PUBLISH");
+        persistedInline.setCommentChannel("INLINE");
+        ReviewIssue lowerFreshIssue = issue(11);
+        lowerFreshIssue.setId(1L);
+        lowerFreshIssue.setFinalScore(0);
+        lowerFreshIssue.setPublishDecision("PUBLISH");
+        lowerFreshIssue.setCommentChannel("INLINE");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
+                .thenReturn(List.of(lowerFreshIssue, persistedInline));
         when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
                 .thenReturn(List.of(reviewFile()));
         when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
@@ -323,6 +357,8 @@ class GitHubInlineCommentServiceImplTest {
                     reviewFileService,
                     githubClient,
                     new DiffLineMapper(),
+                    new ReviewCommentBudgetAllocator(new ReviewProperties()),
+                    new ReviewFindingRanker(),
                     enabled,
                     maxPerTask,
                     token

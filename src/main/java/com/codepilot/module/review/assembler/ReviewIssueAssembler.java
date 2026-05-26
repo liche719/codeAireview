@@ -73,6 +73,9 @@ public class ReviewIssueAssembler {
             reviewIssue.setSuggestion(cleanText(issue.getSuggestion(), MAX_TEXT_LENGTH));
             reviewIssue.setSource(normalizedSource);
             reviewIssue.setRuleReference(cleanText(issue.getRuleReference(), MAX_RULE_REFERENCE_LENGTH));
+            reviewIssue.setFinalScore(0);
+            reviewIssue.setPublishDecision("PUBLISH");
+            reviewIssue.setCommentChannel("INLINE");
             reviewIssue.setCreatedAt(LocalDateTime.now());
             reviewIssues.add(reviewIssue);
         }
