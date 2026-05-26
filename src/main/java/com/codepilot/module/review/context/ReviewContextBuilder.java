@@ -25,6 +25,8 @@ public class ReviewContextBuilder {
 
     private final SemanticReviewPlanner semanticReviewPlanner;
 
+    private final ReviewLinkedIssueContextProvider reviewLinkedIssueContextProvider;
+
     ReviewContextBuilder() {
         this(
                 new ReviewContextSignalExtractor(),
@@ -32,7 +34,8 @@ public class ReviewContextBuilder {
                 new ReviewImpactPlanner(),
                 new ReviewRelatedPatchExtractor(),
                 new RepoSourceExcerptExtractor(),
-                new SemanticReviewPlanner()
+                new SemanticReviewPlanner(),
+                new ReviewLinkedIssueContextProvider()
         );
     }
 
@@ -43,7 +46,8 @@ public class ReviewContextBuilder {
             ReviewImpactPlanner reviewImpactPlanner,
             ReviewRelatedPatchExtractor reviewRelatedPatchExtractor,
             RepoSourceExcerptExtractor repoSourceExcerptExtractor,
-            SemanticReviewPlanner semanticReviewPlanner
+            SemanticReviewPlanner semanticReviewPlanner,
+            ReviewLinkedIssueContextProvider reviewLinkedIssueContextProvider
     ) {
         this.reviewContextSignalExtractor = reviewContextSignalExtractor;
         this.reviewContextRelationshipExtractor = reviewContextRelationshipExtractor;
@@ -51,6 +55,7 @@ public class ReviewContextBuilder {
         this.reviewRelatedPatchExtractor = reviewRelatedPatchExtractor;
         this.repoSourceExcerptExtractor = repoSourceExcerptExtractor;
         this.semanticReviewPlanner = semanticReviewPlanner;
+        this.reviewLinkedIssueContextProvider = reviewLinkedIssueContextProvider;
     }
 
     public ReviewContextBuilder(
@@ -63,7 +68,8 @@ public class ReviewContextBuilder {
                 new ReviewImpactPlanner(),
                 new ReviewRelatedPatchExtractor(),
                 new RepoSourceExcerptExtractor(),
-                new SemanticReviewPlanner()
+                new SemanticReviewPlanner(),
+                new ReviewLinkedIssueContextProvider()
         );
     }
 
@@ -78,7 +84,8 @@ public class ReviewContextBuilder {
                 reviewImpactPlanner,
                 new ReviewRelatedPatchExtractor(),
                 new RepoSourceExcerptExtractor(),
-                new SemanticReviewPlanner()
+                new SemanticReviewPlanner(),
+                new ReviewLinkedIssueContextProvider()
         );
     }
 
@@ -94,7 +101,8 @@ public class ReviewContextBuilder {
                 reviewImpactPlanner,
                 reviewRelatedPatchExtractor,
                 new RepoSourceExcerptExtractor(),
-                new SemanticReviewPlanner()
+                new SemanticReviewPlanner(),
+                new ReviewLinkedIssueContextProvider()
         );
     }
 
@@ -111,7 +119,27 @@ public class ReviewContextBuilder {
                 reviewImpactPlanner,
                 reviewRelatedPatchExtractor,
                 repoSourceExcerptExtractor,
-                new SemanticReviewPlanner()
+                new SemanticReviewPlanner(),
+                new ReviewLinkedIssueContextProvider()
+        );
+    }
+
+    public ReviewContextBuilder(
+            ReviewContextSignalExtractor reviewContextSignalExtractor,
+            ReviewContextRelationshipExtractor reviewContextRelationshipExtractor,
+            ReviewImpactPlanner reviewImpactPlanner,
+            ReviewRelatedPatchExtractor reviewRelatedPatchExtractor,
+            RepoSourceExcerptExtractor repoSourceExcerptExtractor,
+            SemanticReviewPlanner semanticReviewPlanner
+    ) {
+        this(
+                reviewContextSignalExtractor,
+                reviewContextRelationshipExtractor,
+                reviewImpactPlanner,
+                reviewRelatedPatchExtractor,
+                repoSourceExcerptExtractor,
+                semanticReviewPlanner,
+                new ReviewLinkedIssueContextProvider()
         );
     }
 
@@ -148,6 +176,8 @@ public class ReviewContextBuilder {
                 reviewRelatedPatchExtractor.relatedPatchExcerpts(reviewFiles, repoRelationshipHints);
         List<ReviewContext.RepoSourceExcerpt> repoSourceExcerpts =
                 repoSourceExcerptExtractor.repoSourceExcerpts(task, reviewFiles, semanticFileContexts, repoRelationshipHints);
+        List<ReviewContext.LinkedIssueContext> linkedIssueContexts =
+                reviewLinkedIssueContextProvider.linkedIssues(task);
         ReviewPlan reviewPlan = semanticReviewPlanner.plan(
                 reviewFiles,
                 fileSummaries,
@@ -156,7 +186,8 @@ public class ReviewContextBuilder {
                 reviewImpactPlan,
                 relatedPatchExcerpts,
                 repoSourceExcerpts,
-                reviewSignals
+                reviewSignals,
+                linkedIssueContexts
         );
 
         return new ReviewContext(
@@ -173,6 +204,7 @@ public class ReviewContextBuilder {
                 repoRelationshipHints,
                 reviewImpactPlan,
                 reviewPlan,
+                linkedIssueContexts,
                 relatedPatchExcerpts,
                 repoSourceExcerpts,
                 reviewSignals

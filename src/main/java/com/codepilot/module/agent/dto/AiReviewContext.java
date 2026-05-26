@@ -16,6 +16,7 @@ public record AiReviewContext(
         List<RepoRelationshipHint> repoRelationshipHints,
         ReviewImpactPlan reviewImpactPlan,
         ReviewPlan reviewPlan,
+        List<LinkedIssueContext> linkedIssueContexts,
         List<RelatedPatchExcerpt> relatedPatchExcerpts,
         List<RepoSourceExcerpt> repoSourceExcerpts,
         List<ReviewSignal> reviewSignals
@@ -49,6 +50,12 @@ public record AiReviewContext(
                 .toList();
         reviewImpactPlan = reviewImpactPlan == null ? ReviewImpactPlan.empty() : reviewImpactPlan;
         reviewPlan = reviewPlan == null ? ReviewPlan.empty() : reviewPlan;
+        linkedIssueContexts = linkedIssueContexts == null
+                ? List.of()
+                : linkedIssueContexts.stream()
+                .filter(issue -> issue != null && issue.number() != null && hasText(issue.title()))
+                .limit(10)
+                .toList();
         relatedPatchExcerpts = relatedPatchExcerpts == null
                 ? List.of()
                 : relatedPatchExcerpts.stream()
@@ -100,6 +107,7 @@ public record AiReviewContext(
                 ReviewPlan.empty(),
                 List.of(),
                 List.of(),
+                List.of(),
                 List.of()
         );
     }
@@ -134,6 +142,46 @@ public record AiReviewContext(
                 ReviewPlan.empty(),
                 List.of(),
                 List.of(),
+                List.of(),
+                reviewSignals
+        );
+    }
+
+    public AiReviewContext(
+            List<String> allChangedFiles,
+            int totalFileCount,
+            int reviewableFileCount,
+            int skippedFileCount,
+            int totalAdditions,
+            int totalDeletions,
+            int totalPatchChars,
+            List<SkippedFile> skippedFiles,
+            List<FileSummary> fileSummaries,
+            List<SemanticFileContext> semanticFileContexts,
+            List<RepoRelationshipHint> repoRelationshipHints,
+            ReviewImpactPlan reviewImpactPlan,
+            ReviewPlan reviewPlan,
+            List<RelatedPatchExcerpt> relatedPatchExcerpts,
+            List<RepoSourceExcerpt> repoSourceExcerpts,
+            List<ReviewSignal> reviewSignals
+    ) {
+        this(
+                allChangedFiles,
+                totalFileCount,
+                reviewableFileCount,
+                skippedFileCount,
+                totalAdditions,
+                totalDeletions,
+                totalPatchChars,
+                skippedFiles,
+                fileSummaries,
+                semanticFileContexts,
+                repoRelationshipHints,
+                reviewImpactPlan,
+                reviewPlan,
+                List.of(),
+                relatedPatchExcerpts,
+                repoSourceExcerpts,
                 reviewSignals
         );
     }
@@ -169,6 +217,7 @@ public record AiReviewContext(
                 repoRelationshipHints,
                 reviewImpactPlan,
                 ReviewPlan.empty(),
+                List.of(),
                 relatedPatchExcerpts,
                 repoSourceExcerpts,
                 reviewSignals
@@ -205,6 +254,7 @@ public record AiReviewContext(
                 repoRelationshipHints,
                 reviewImpactPlan,
                 ReviewPlan.empty(),
+                List.of(),
                 relatedPatchExcerpts,
                 List.of(),
                 reviewSignals
@@ -242,6 +292,7 @@ public record AiReviewContext(
                 ReviewPlan.empty(),
                 List.of(),
                 List.of(),
+                List.of(),
                 reviewSignals
         );
     }
@@ -272,6 +323,7 @@ public record AiReviewContext(
                 List.of(),
                 ReviewImpactPlan.empty(),
                 ReviewPlan.empty(),
+                List.of(),
                 List.of(),
                 List.of(),
                 reviewSignals
@@ -307,6 +359,7 @@ public record AiReviewContext(
                 ReviewPlan.empty(),
                 List.of(),
                 List.of(),
+                List.of(),
                 reviewSignals
         );
     }
@@ -331,6 +384,7 @@ public record AiReviewContext(
                 List.of(),
                 ReviewImpactPlan.empty(),
                 ReviewPlan.empty(),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of()
@@ -533,6 +587,25 @@ public record AiReviewContext(
         }
     }
 
+    public record LinkedIssueContext(
+            String repositoryOwner,
+            String repositoryName,
+            Integer number,
+            String title,
+            String state,
+            String htmlUrl,
+            String linkSource
+    ) {
+        public LinkedIssueContext {
+            repositoryOwner = singleLine(repositoryOwner);
+            repositoryName = singleLine(repositoryName);
+            title = truncate(singleLine(title), 180);
+            state = singleLine(state);
+            htmlUrl = singleLine(htmlUrl);
+            linkSource = singleLine(linkSource);
+        }
+    }
+
     public record RelatedPatchExcerpt(
             String sourceFile,
             String relatedFile,
@@ -577,6 +650,13 @@ public record AiReviewContext(
                 .replace('\n', ' ')
                 .replace('\t', ' ')
                 .trim();
+    }
+
+    private static String truncate(String value, int limit) {
+        if (value == null || value.length() <= limit) {
+            return value;
+        }
+        return value.substring(0, Math.max(0, limit - 3)).trim() + "...";
     }
 
     private static double clamp(double value) {

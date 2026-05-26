@@ -19,6 +19,7 @@ public record ReviewContext(
         List<RepoRelationshipHint> repoRelationshipHints,
         ReviewImpactPlan reviewImpactPlan,
         ReviewPlan reviewPlan,
+        List<LinkedIssueContext> linkedIssueContexts,
         List<RelatedPatchExcerpt> relatedPatchExcerpts,
         List<RepoSourceExcerpt> repoSourceExcerpts,
         List<ReviewSignal> reviewSignals
@@ -52,6 +53,12 @@ public record ReviewContext(
                 .toList();
         reviewImpactPlan = reviewImpactPlan == null ? ReviewImpactPlan.empty() : reviewImpactPlan;
         reviewPlan = reviewPlan == null ? ReviewPlan.empty() : reviewPlan;
+        linkedIssueContexts = linkedIssueContexts == null
+                ? List.of()
+                : linkedIssueContexts.stream()
+                .filter(issue -> issue != null && issue.number() != null && hasText(issue.title()))
+                .limit(10)
+                .toList();
         relatedPatchExcerpts = relatedPatchExcerpts == null
                 ? List.of()
                 : relatedPatchExcerpts.stream()
@@ -94,6 +101,7 @@ public record ReviewContext(
                 ReviewPlan.empty(),
                 List.of(),
                 List.of(),
+                List.of(),
                 List.of()
         );
     }
@@ -128,6 +136,46 @@ public record ReviewContext(
                 ReviewPlan.empty(),
                 List.of(),
                 List.of(),
+                List.of(),
+                reviewSignals
+        );
+    }
+
+    public ReviewContext(
+            List<String> allChangedFiles,
+            int totalFileCount,
+            int reviewableFileCount,
+            int skippedFileCount,
+            int totalAdditions,
+            int totalDeletions,
+            int totalPatchChars,
+            List<SkippedFile> skippedFiles,
+            List<FileSummary> fileSummaries,
+            List<SemanticFileContext> semanticFileContexts,
+            List<RepoRelationshipHint> repoRelationshipHints,
+            ReviewImpactPlan reviewImpactPlan,
+            ReviewPlan reviewPlan,
+            List<RelatedPatchExcerpt> relatedPatchExcerpts,
+            List<RepoSourceExcerpt> repoSourceExcerpts,
+            List<ReviewSignal> reviewSignals
+    ) {
+        this(
+                allChangedFiles,
+                totalFileCount,
+                reviewableFileCount,
+                skippedFileCount,
+                totalAdditions,
+                totalDeletions,
+                totalPatchChars,
+                skippedFiles,
+                fileSummaries,
+                semanticFileContexts,
+                repoRelationshipHints,
+                reviewImpactPlan,
+                reviewPlan,
+                List.of(),
+                relatedPatchExcerpts,
+                repoSourceExcerpts,
                 reviewSignals
         );
     }
@@ -182,6 +230,17 @@ public record ReviewContext(
                         reviewImpactPlan.verificationHints()
                 ),
                 toAiReviewPlan(reviewPlan),
+                linkedIssueContexts.stream()
+                        .map(issue -> new AiReviewContext.LinkedIssueContext(
+                                issue.repositoryOwner(),
+                                issue.repositoryName(),
+                                issue.number(),
+                                issue.title(),
+                                issue.state(),
+                                issue.htmlUrl(),
+                                issue.linkSource()
+                        ))
+                        .toList(),
                 relatedPatchExcerpts.stream()
                         .map(excerpt -> new AiReviewContext.RelatedPatchExcerpt(
                                 excerpt.sourceFile(),
@@ -331,6 +390,25 @@ public record ReviewContext(
         }
     }
 
+    public record LinkedIssueContext(
+            String repositoryOwner,
+            String repositoryName,
+            Integer number,
+            String title,
+            String state,
+            String htmlUrl,
+            String linkSource
+    ) {
+        public LinkedIssueContext {
+            repositoryOwner = singleLine(repositoryOwner);
+            repositoryName = singleLine(repositoryName);
+            title = truncate(singleLine(title), 180);
+            state = singleLine(state);
+            htmlUrl = singleLine(htmlUrl);
+            linkSource = singleLine(linkSource);
+        }
+    }
+
     public record RelatedPatchExcerpt(
             String sourceFile,
             String relatedFile,
@@ -358,7 +436,24 @@ public record ReviewContext(
         }
         return values.stream()
                 .filter(ReviewContext::hasText)
-                .map(String::trim)
+                .map(ReviewContext::singleLine)
                 .toList();
+    }
+
+    private static String singleLine(String value) {
+        if (!hasText(value)) {
+            return "";
+        }
+        return value.replace('\r', ' ')
+                .replace('\n', ' ')
+                .replace('\t', ' ')
+                .trim();
+    }
+
+    private static String truncate(String value, int limit) {
+        if (value == null || value.length() <= limit) {
+            return value;
+        }
+        return value.substring(0, Math.max(0, limit - 3)).trim() + "...";
     }
 }
