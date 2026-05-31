@@ -127,4 +127,59 @@ class RepositoryGraphSnapshotTest {
         assertThat(snapshot.focusFiles()).contains("src/main/java/com/example/UserController.java");
         assertThat(snapshot.focusSymbols()).contains("UserController", "create", "POST /users");
     }
+
+    @Test
+    void shouldDeduplicateRelatedFilesByNormalizedPath() {
+        RepositoryGraphSnapshot snapshot = new RepositoryGraphSnapshot(
+                List.of(
+                        new RepositoryGraphSnapshot.GraphNode(
+                                "src/main/java/com/example/AuthController.java",
+                                "security",
+                                "java",
+                                "com.example",
+                                true,
+                                List.of("AuthController"),
+                                List.of("login"),
+                                List.of("PostMapping"),
+                                List.of("com.example.AuthService"),
+                                List.of("POST /login"),
+                                80,
+                                2
+                        ),
+                        new RepositoryGraphSnapshot.GraphNode(
+                                "src/main/java/com/example/AuthService.java",
+                                "service",
+                                "java",
+                                "com.example",
+                                true,
+                                List.of("AuthService"),
+                                List.of("authenticate"),
+                                List.of(),
+                                List.of(),
+                                List.of(),
+                                70,
+                                1
+                        )
+                ),
+                List.of(
+                        new RepositoryGraphSnapshot.GraphEdge(
+                                "src\\main\\java\\com\\example\\AuthController.java",
+                                "SRC/MAIN/JAVA/COM/EXAMPLE/AuthService.java",
+                                "IMPORT_TARGET",
+                                "Source imports target changed file."
+                        ),
+                        new RepositoryGraphSnapshot.GraphEdge(
+                                "src/main/java/com/example/AuthController.java",
+                                "src/main/java/com/example/AuthService.java",
+                                "IMPORT_TARGET",
+                                "Source imports target changed file."
+                        )
+                ),
+                List.of("src/main/java/com/example/AuthController.java"),
+                List.of("AuthController")
+        );
+
+        assertThat(snapshot.relatedFilesFor("src/main/java/com/example/AuthController.java"))
+                .containsExactly("src/main/java/com/example/AuthService.java");
+    }
 }

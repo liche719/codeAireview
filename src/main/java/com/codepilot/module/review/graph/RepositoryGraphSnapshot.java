@@ -2,9 +2,11 @@ package com.codepilot.module.review.graph;
 
 import org.springframework.util.StringUtils;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 public record RepositoryGraphSnapshot(
@@ -75,21 +77,30 @@ public record RepositoryGraphSnapshot(
         if (!StringUtils.hasText(normalized)) {
             return List.of();
         }
-        LinkedHashSet<String> relatedFiles = new LinkedHashSet<>();
+        Map<String, String> relatedFilesByNormalizedPath = new LinkedHashMap<>();
         for (GraphEdge edge : edgesFor(filePath)) {
             if (edge == null) {
                 continue;
             }
-            if (StringUtils.hasText(edge.sourceFile()) && !normalizePath(edge.sourceFile()).equals(normalized)) {
-                relatedFiles.add(edge.sourceFile());
-            }
-            if (StringUtils.hasText(edge.targetFile()) && !normalizePath(edge.targetFile()).equals(normalized)) {
-                relatedFiles.add(edge.targetFile());
-            }
+            addRelatedFile(relatedFilesByNormalizedPath, normalized, edge.sourceFile());
+            addRelatedFile(relatedFilesByNormalizedPath, normalized, edge.targetFile());
         }
-        return relatedFiles.stream()
+        return relatedFilesByNormalizedPath.values().stream()
                 .limit(FOCUS_FILE_LIMIT)
                 .toList();
+    }
+
+    private void addRelatedFile(Map<String, String> relatedFilesByNormalizedPath, String currentFilePath, String relatedFilePath) {
+        String normalizedRelatedFilePath = normalizePath(relatedFilePath);
+        if (!StringUtils.hasText(normalizedRelatedFilePath) || normalizedRelatedFilePath.equals(currentFilePath)) {
+            return;
+        }
+        relatedFilesByNormalizedPath.putIfAbsent(
+                normalizedRelatedFilePath,
+                nodeFor(relatedFilePath)
+                        .map(GraphNode::filePath)
+                        .orElse(relatedFilePath.replace('\\', '/').trim())
+        );
     }
 
     private static List<GraphNode> sanitizeNodes(List<GraphNode> nodes) {
