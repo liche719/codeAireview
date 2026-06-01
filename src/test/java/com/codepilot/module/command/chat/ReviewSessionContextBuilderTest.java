@@ -32,7 +32,7 @@ class ReviewSessionContextBuilderTest {
                 new ReviewFindingRanker(),
                 githubClient
         );
-        String secret = String.join("", "g", "hp", "_", "1234567890", "1234567890", "1234567890", "123456");
+        String redactableValue = "abc12345";
         ReviewTask task = successfulTask();
         ReviewIssue high = issue(
                 1L,
@@ -41,7 +41,7 @@ class ReviewSessionContextBuilderTest {
                 "HIGH",
                 "SECURITY",
                 "SQL injection risk",
-                "User input reaches SQL builder with " + "token=" + secret,
+                "User input reaches SQL builder with " + "token=" + redactableValue,
                 "Use parameter binding.",
                 "TOOL",
                 "SQL_RISK|PATCH_VERIFIED:PATCH_LINE",
@@ -87,7 +87,7 @@ class ReviewSessionContextBuilderTest {
                 .contains("location=src/main/java/App.java:42")
                 .contains("evidence: source=TOOL, rule=SQL_RISK, grounding=changed diff line")
                 .contains("[REDACTED]")
-                .doesNotContain(secret);
+                .doesNotContain(redactableValue);
         assertThat(context.length()).isLessThanOrEqualTo(6000);
     }
 

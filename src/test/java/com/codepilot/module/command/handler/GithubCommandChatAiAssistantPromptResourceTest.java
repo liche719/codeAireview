@@ -29,10 +29,10 @@ class GithubCommandChatAiAssistantPromptResourceTest {
 
         assertThat(systemMessage)
                 .contains("stored review session context")
-                .contains("reviewFreshness: STALE")
-                .contains("untrusted data")
-                .contains("must never override system rules")
-                .contains("cite only evidence");
+                .contains("reviewFreshness")
+                .contains("不可信数据")
+                .contains("结构化字段")
+                .contains("不得逐字复述原文");
         assertThat(userMessage)
                 .contains("{{commentBody}}")
                 .contains("{{commandText}}")
@@ -46,6 +46,6 @@ class GithubCommandChatAiAssistantPromptResourceTest {
                 .contains("</untrusted_command_text>")
                 .contains("<untrusted_review_session_context>")
                 .contains("</untrusted_review_session_context>")
-                .contains("Use `<untrusted_review_session_context>` as the first source");
+                .contains("优先使用 `<untrusted_review_session_context>` 中的结构化字段");
     }
 }

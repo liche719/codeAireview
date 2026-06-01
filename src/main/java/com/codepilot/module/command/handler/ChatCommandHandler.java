@@ -29,7 +29,7 @@ public class ChatCommandHandler implements GithubCommandHandler {
 
     private final ObjectProvider<GithubCommandChatAiAssistant> chatAiAssistantProvider;
 
-    private final ReviewSessionContextBuilder reviewSessionContextBuilder;
+    private final ObjectProvider<ReviewSessionContextBuilder> reviewSessionContextBuilderProvider;
 
     private final LlmProperties llmProperties;
 
@@ -126,11 +126,14 @@ public class ChatCommandHandler implements GithubCommandHandler {
     }
 
     private String buildReviewSessionContext(GitHubPullRequestWebhookPayload payload) {
-        if (reviewSessionContextBuilder == null) {
+        ReviewSessionContextBuilder contextBuilder = reviewSessionContextBuilderProvider == null
+                ? null
+                : reviewSessionContextBuilderProvider.getIfAvailable();
+        if (contextBuilder == null) {
             return "Stored review context is unavailable because the review session context builder is not configured.";
         }
         try {
-            return reviewSessionContextBuilder.build(payload.getOwner(), payload.getRepo(), payload.getPullNumber());
+            return contextBuilder.build(payload.getOwner(), payload.getRepo(), payload.getPullNumber());
         } catch (Exception exception) {
             log.warn("Failed to build GitHub command review session context, owner={}, repo={}, pullNumber={}, errorType={}, message={}",
                     payload.getOwner(), payload.getRepo(), payload.getPullNumber(),
@@ -144,6 +147,7 @@ public class ChatCommandHandler implements GithubCommandHandler {
     }
 
     private String promptSafe(String value) {
-        return PromptInputSanitizer.escapeUntrustedBlockDelimiters(safeText(value, ""));
+        String redacted = SensitiveDataSanitizer.redact(safeText(value, ""));
+        return PromptInputSanitizer.escapeUntrustedBlockDelimiters(redacted);
     }
 }

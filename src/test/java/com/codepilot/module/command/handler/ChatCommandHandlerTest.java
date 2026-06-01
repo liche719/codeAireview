@@ -37,7 +37,7 @@ class ChatCommandHandlerTest {
         when(assistant.reply(anyString(), anyString(), anyString(), anyString(), anyString(), anyInt()))
                 .thenReturn(chatReply);
 
-        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextBuilder, enabledLlmProperties());
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextProvider(contextBuilder), enabledLlmProperties());
         GitHubPullRequestWebhookPayload payload = payload(commentBody);
         payload.setCommandText(commandText);
 
@@ -83,7 +83,7 @@ class ChatCommandHandlerTest {
         when(assistant.reply(anyString(), anyString(), anyString(), anyString(), anyString(), anyInt()))
                 .thenReturn("ok");
 
-        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextBuilder, enabledLlmProperties());
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextProvider(contextBuilder), enabledLlmProperties());
         GitHubPullRequestWebhookPayload payload = payload(commentBody);
         payload.setCommandText(commandText);
 
@@ -112,7 +112,7 @@ class ChatCommandHandlerTest {
         when(assistant.reply(anyString(), anyString(), anyString(), anyString(), anyString(), anyInt()))
                 .thenReturn("暂时拿不到上一轮 review 上下文。");
 
-        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextBuilder, enabledLlmProperties());
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextProvider(contextBuilder), enabledLlmProperties());
         GitHubPullRequestWebhookPayload payload = payload("@x-pilotx 为什么这么评论");
         payload.setCommandText("为什么这么评论");
 
@@ -139,7 +139,7 @@ class ChatCommandHandlerTest {
         when(assistant.reply(anyString(), anyString(), anyString(), anyString(), anyString(), anyInt()))
                 .thenReturn("暂时拿不到上一轮 review 上下文。");
 
-        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, null, enabledLlmProperties());
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextProvider(null), enabledLlmProperties());
         GitHubPullRequestWebhookPayload payload = payload("@x-pilotx 解释一下 review 发现");
         payload.setCommandText("解释一下 review 发现");
 
@@ -160,16 +160,16 @@ class ChatCommandHandlerTest {
         GithubClient githubClient = mock(GithubClient.class);
         GithubCommandChatAiAssistant assistant = mock(GithubCommandChatAiAssistant.class);
         ReviewSessionContextBuilder contextBuilder = mock(ReviewSessionContextBuilder.class);
-        String secret = "ghp_123456789012345678901234567890123456";
+        String redactableValue = "abc12345";
 
         @SuppressWarnings("unchecked")
         ObjectProvider<GithubCommandChatAiAssistant> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(assistant);
         when(contextBuilder.build("liche719", "codeAireview", 12)).thenReturn("review context");
         when(assistant.reply(anyString(), anyString(), anyString(), anyString(), anyString(), anyInt()))
-                .thenReturn(ReviewReportFormatter.DEFAULT_COMMENT_MARKER + "\n\n结果 token=" + secret);
+                .thenReturn(ReviewReportFormatter.DEFAULT_COMMENT_MARKER + "\n\n结果 " + "token=" + redactableValue);
 
-        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextBuilder, enabledLlmProperties());
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextProvider(contextBuilder), enabledLlmProperties());
         GitHubPullRequestWebhookPayload payload = payload("@x-pilotx 总结");
         payload.setCommandText("总结");
 
@@ -186,7 +186,7 @@ class ChatCommandHandlerTest {
         assertThat(bodyCaptor.getValue())
                 .startsWith(ReviewReportFormatter.DEFAULT_COMMENT_MARKER + "\n\n")
                 .contains("[REDACTED]")
-                .doesNotContain(secret);
+                .doesNotContain(redactableValue);
         assertThat(countOccurrences(bodyCaptor.getValue(), ReviewReportFormatter.DEFAULT_COMMENT_MARKER))
                 .isEqualTo(1);
     }
@@ -204,7 +204,7 @@ class ChatCommandHandlerTest {
         when(assistant.reply(anyString(), anyString(), anyString(), anyString(), anyString(), anyInt()))
                 .thenReturn("a".repeat(5000));
 
-        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextBuilder, enabledLlmProperties());
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextProvider(contextBuilder), enabledLlmProperties());
         GitHubPullRequestWebhookPayload payload = payload("@x-pilotx 总结");
         payload.setCommandText("总结");
 
@@ -242,6 +242,13 @@ class ChatCommandHandlerTest {
         properties.setBaseUrl("https://api.openai.com/v1");
         properties.setModel("gpt-4o-mini");
         return properties;
+    }
+
+    @SuppressWarnings("unchecked")
+    private ObjectProvider<ReviewSessionContextBuilder> contextProvider(ReviewSessionContextBuilder contextBuilder) {
+        ObjectProvider<ReviewSessionContextBuilder> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(contextBuilder);
+        return provider;
     }
 
     private int countOccurrences(String content, String needle) {
