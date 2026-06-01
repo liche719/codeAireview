@@ -3,6 +3,8 @@ package com.codepilot.module.command.chat;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.codepilot.common.enums.ReviewTaskStatus;
 import com.codepilot.common.util.SensitiveDataSanitizer;
+import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
@@ -41,6 +43,8 @@ public class ReviewSessionContextBuilder {
 
     private final ReviewFindingRanker reviewFindingRanker;
 
+    private final GithubClient githubClient;
+
     public String build(String owner, String repo, Integer pullNumber) {
         if (!StringUtils.hasText(owner) || !StringUtils.hasText(repo) || pullNumber == null) {
             return "No stored review context is available because the PR identity is incomplete.";
@@ -51,24 +55,47 @@ public class ReviewSessionContextBuilder {
             return noSuccessfulReviewContext(owner, repo, pullNumber);
         }
 
+        String currentHeadSha = currentHeadSha(owner, repo, pullNumber);
+        String freshness = freshness(successfulTask.getHeadSha(), currentHeadSha);
         List<ReviewIssue> rankedIssues = reviewFindingRanker.orderForPublish(loadIssues(successfulTask.getId()));
         StringBuilder context = new StringBuilder();
         appendLine(context, "Latest stored PR review session:");
         appendLine(context, "- taskId: " + successfulTask.getId());
         appendLine(context, "- pr: " + owner + "/" + repo + "#" + pullNumber);
         appendLine(context, "- title: " + safe(successfulTask.getTitle(), MAX_TITLE_CHARS, "N/A"));
-        appendLine(context, "- headSha: " + safe(shortSha(successfulTask.getHeadSha()), 64, "N/A"));
+        appendLine(context, "- reviewedHeadSha: " + safe(shortSha(successfulTask.getHeadSha()), 64, "N/A"));
+        appendLine(context, "- currentHeadSha: " + safe(shortSha(currentHeadSha), 64, "N/A"));
+        appendLine(context, "- reviewFreshness: " + freshness);
         appendLine(context, "- status: " + safe(successfulTask.getStatus(), 40, "N/A"));
         appendLine(context, "- finishedAt: " + safeTime(successfulTask.getFinishedAt()));
         appendLine(context, "- totals: files=" + defaultNumber(successfulTask.getTotalFiles())
                 + ", issues=" + defaultNumber(successfulTask.getTotalIssues())
                 + ", risk=" + safe(successfulTask.getRiskLevel(), 40, "N/A"));
-        appendLine(context, "- note: This is stored review evidence. If the PR changed after this headSha, ask the user to run @x-pilotx review again.");
+        appendLine(context, "- note: This is stored review evidence. If reviewFreshness=STALE, do not present findings as current; ask the user to run @x-pilotx review again.");
         appendLine(context, "");
 
         appendFindingSummary(context, rankedIssues);
         appendFindings(context, rankedIssues);
         return truncate(context.toString());
+    }
+
+    private String currentHeadSha(String owner, String repo, Integer pullNumber) {
+        if (githubClient == null) {
+            return null;
+        }
+        try {
+            GithubPullRequestDetail detail = githubClient.getPullRequestDetail(owner, repo, pullNumber);
+            return detail == null ? null : detail.getHeadSha();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String freshness(String reviewedHeadSha, String currentHeadSha) {
+        if (!StringUtils.hasText(reviewedHeadSha) || !StringUtils.hasText(currentHeadSha)) {
+            return "UNKNOWN";
+        }
+        return reviewedHeadSha.trim().equalsIgnoreCase(currentHeadSha.trim()) ? "FRESH" : "STALE";
     }
 
     private String noSuccessfulReviewContext(String owner, String repo, Integer pullNumber) {

@@ -1,6 +1,8 @@
 package com.codepilot.module.command.chat;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
@@ -23,10 +25,12 @@ class ReviewSessionContextBuilderTest {
     void shouldBuildBoundedContextFromLatestSuccessfulReviewTask() {
         ReviewTaskMapper reviewTaskMapper = mock(ReviewTaskMapper.class);
         ReviewIssueService reviewIssueService = mock(ReviewIssueService.class);
+        GithubClient githubClient = mock(GithubClient.class);
         ReviewSessionContextBuilder builder = new ReviewSessionContextBuilder(
                 reviewTaskMapper,
                 reviewIssueService,
-                new ReviewFindingRanker()
+                new ReviewFindingRanker(),
+                githubClient
         );
         String secret = "ghp_123456789012345678901234567890123456";
         ReviewTask task = successfulTask();
@@ -65,6 +69,8 @@ class ReviewSessionContextBuilderTest {
 
         when(reviewTaskMapper.selectList(any())).thenReturn(List.of(task));
         when(reviewIssueService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of(suppressed, high));
+        when(githubClient.getPullRequestDetail("liche719", "codeAireview", 7))
+                .thenReturn(prDetail("abcdef1234567890abcdef"));
 
         String context = builder.build("liche719", "codeAireview", 7);
 
@@ -72,7 +78,9 @@ class ReviewSessionContextBuilderTest {
                 .contains("Latest stored PR review session:")
                 .contains("- taskId: 99")
                 .contains("- pr: liche719/codeAireview#7")
-                .contains("- headSha: abcdef123456")
+                .contains("- reviewedHeadSha: abcdef123456")
+                .contains("- currentHeadSha: abcdef123456")
+                .contains("- reviewFreshness: FRESH")
                 .contains("publishableFindings: 1")
                 .contains("suppressedFindings: 1")
                 .contains("decision=PUBLISH")
@@ -87,10 +95,12 @@ class ReviewSessionContextBuilderTest {
     void shouldExplainWhenNoSuccessfulReviewExists() {
         ReviewTaskMapper reviewTaskMapper = mock(ReviewTaskMapper.class);
         ReviewIssueService reviewIssueService = mock(ReviewIssueService.class);
+        GithubClient githubClient = mock(GithubClient.class);
         ReviewSessionContextBuilder builder = new ReviewSessionContextBuilder(
                 reviewTaskMapper,
                 reviewIssueService,
-                new ReviewFindingRanker()
+                new ReviewFindingRanker(),
+                githubClient
         );
         ReviewTask runningTask = successfulTask();
         runningTask.setId(100L);
@@ -111,19 +121,78 @@ class ReviewSessionContextBuilderTest {
     }
 
     @Test
-    void shouldReturnSafeMessageForIncompletePrIdentity() {
+    void shouldMarkReviewContextStaleWhenCurrentPrHeadDiffers() {
         ReviewTaskMapper reviewTaskMapper = mock(ReviewTaskMapper.class);
         ReviewIssueService reviewIssueService = mock(ReviewIssueService.class);
+        GithubClient githubClient = mock(GithubClient.class);
         ReviewSessionContextBuilder builder = new ReviewSessionContextBuilder(
                 reviewTaskMapper,
                 reviewIssueService,
-                new ReviewFindingRanker()
+                new ReviewFindingRanker(),
+                githubClient
+        );
+
+        when(reviewTaskMapper.selectList(any())).thenReturn(List.of(successfulTask()));
+        when(reviewIssueService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(githubClient.getPullRequestDetail("liche719", "codeAireview", 7))
+                .thenReturn(prDetail("999999999999999999999999"));
+
+        String context = builder.build("liche719", "codeAireview", 7);
+
+        assertThat(context)
+                .contains("- reviewedHeadSha: abcdef123456")
+                .contains("- currentHeadSha: 999999999999")
+                .contains("- reviewFreshness: STALE")
+                .contains("do not present findings as current");
+    }
+
+    @Test
+    void shouldKeepReviewContextUsableWhenCurrentPrHeadCannotBeFetched() {
+        ReviewTaskMapper reviewTaskMapper = mock(ReviewTaskMapper.class);
+        ReviewIssueService reviewIssueService = mock(ReviewIssueService.class);
+        GithubClient githubClient = mock(GithubClient.class);
+        ReviewSessionContextBuilder builder = new ReviewSessionContextBuilder(
+                reviewTaskMapper,
+                reviewIssueService,
+                new ReviewFindingRanker(),
+                githubClient
+        );
+
+        when(reviewTaskMapper.selectList(any())).thenReturn(List.of(successfulTask()));
+        when(reviewIssueService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(githubClient.getPullRequestDetail("liche719", "codeAireview", 7))
+                .thenThrow(new IllegalStateException("github unavailable"));
+
+        String context = builder.build("liche719", "codeAireview", 7);
+
+        assertThat(context)
+                .contains("- currentHeadSha: N/A")
+                .contains("- reviewFreshness: UNKNOWN")
+                .contains("Latest stored PR review session:");
+    }
+
+    @Test
+    void shouldReturnSafeMessageForIncompletePrIdentity() {
+        ReviewTaskMapper reviewTaskMapper = mock(ReviewTaskMapper.class);
+        ReviewIssueService reviewIssueService = mock(ReviewIssueService.class);
+        GithubClient githubClient = mock(GithubClient.class);
+        ReviewSessionContextBuilder builder = new ReviewSessionContextBuilder(
+                reviewTaskMapper,
+                reviewIssueService,
+                new ReviewFindingRanker(),
+                githubClient
         );
 
         String context = builder.build("", "codeAireview", 7);
 
         assertThat(context).contains("PR identity is incomplete");
         verifyNoInteractions(reviewTaskMapper, reviewIssueService);
+    }
+
+    private GithubPullRequestDetail prDetail(String headSha) {
+        GithubPullRequestDetail detail = new GithubPullRequestDetail();
+        detail.setHeadSha(headSha);
+        return detail;
     }
 
     private ReviewTask successfulTask() {
