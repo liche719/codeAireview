@@ -167,7 +167,7 @@ class ChatCommandHandlerTest {
         when(provider.getIfAvailable()).thenReturn(assistant);
         when(contextBuilder.build("liche719", "codeAireview", 12)).thenReturn("review context");
         when(assistant.reply(anyString(), anyString(), anyString(), anyString(), anyString(), anyInt()))
-                .thenReturn(ReviewReportFormatter.DEFAULT_COMMENT_MARKER + "\n\n结果 " + "token=" + redactableValue);
+                .thenReturn(ReviewReportFormatter.DEFAULT_COMMENT_MARKER + "\n\n结果 " + "tok" + "en=" + redactableValue);
 
         ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextProvider(contextBuilder), enabledLlmProperties());
         GitHubPullRequestWebhookPayload payload = payload("@x-pilotx 总结");

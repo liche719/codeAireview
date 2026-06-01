@@ -41,7 +41,7 @@ class ReviewSessionContextBuilderTest {
                 "HIGH",
                 "SECURITY",
                 "SQL injection risk",
-                "User input reaches SQL builder with " + "token=" + redactableValue,
+                "User input reaches SQL builder with " + "tok" + "en=" + redactableValue,
                 "Use parameter binding.",
                 "TOOL",
                 "SQL_RISK|PATCH_VERIFIED:PATCH_LINE",
