@@ -41,8 +41,9 @@ public class ChatCommandHandler implements GithubCommandHandler {
     @Override
     public GithubCommandHandleResult handle(GitHubPullRequestWebhookPayload payload) {
         if (!hasReviewTarget(payload)) {
-            String action = payload == null ? null : payload.getAction();
-            log.warn("Skip GitHub command chat because PR identity is incomplete, owner={}, repo={}, pullNumber={}",
+            String action = safeAction(payload);
+            log.warn("Skip GitHub command chat because PR identity is incomplete, action={}, owner={}, repo={}, pullNumber={}",
+                    action,
                     payload == null ? null : payload.getOwner(),
                     payload == null ? null : payload.getRepo(),
                     payload == null ? null : payload.getPullNumber());
@@ -79,7 +80,7 @@ public class ChatCommandHandler implements GithubCommandHandler {
         } catch (Exception exception) {
             log.warn("GitHub command chat comment failed but ignored, owner={}, repo={}, pullNumber={}, errorType={}, message={}",
                     safeOwner(payload), safeRepo(payload), safePullNumber(payload),
-                    exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
+                    exception.getClass().getSimpleName(), safeLogText(exception.getMessage()));
             tryPostUnavailableComment(payload, "chat command failed: " + exception.getClass().getSimpleName());
         }
         return GithubCommandHandleResult.processed(null, payload.getAction());
@@ -104,12 +105,14 @@ public class ChatCommandHandler implements GithubCommandHandler {
         return null;
     }
 
-    private void postUnavailableComment(GitHubPullRequestWebhookPayload payload, String reason) {
+    private boolean postUnavailableComment(GitHubPullRequestWebhookPayload payload, String reason) {
         if (!hasReviewTarget(payload)) {
-            throw new IllegalArgumentException("missing PR identity");
+            log.warn("Skip GitHub command chat unavailable comment because PR identity is incomplete, action={}, owner={}, repo={}, pullNumber={}, reason={}",
+                    safeAction(payload), safeOwner(payload), safeRepo(payload), safePullNumber(payload), safeLogText(reason));
+            return false;
         }
         log.info("Post GitHub command chat unavailable comment, owner={}, repo={}, pullNumber={}, reason={}",
-                safeOwner(payload), safeRepo(payload), safePullNumber(payload), SensitiveDataSanitizer.redact(reason));
+                safeOwner(payload), safeRepo(payload), safePullNumber(payload), safeLogText(reason));
         githubClient.createPullRequestComment(
                 safeOwner(payload),
                 safeRepo(payload),
@@ -122,16 +125,16 @@ public class ChatCommandHandler implements GithubCommandHandler {
                 当前命令需要 LLM 服务，但模型尚未配置或调用失败。请检查 `CODEPILOT_LLM_API_KEY`、`CODEPILOT_LLM_BASE_URL` 和 `CODEPILOT_LLM_MODEL`，然后再试一次。
                 """.formatted(ReviewReportFormatter.DEFAULT_COMMENT_MARKER)
         );
+        return true;
     }
 
     private boolean tryPostUnavailableComment(GitHubPullRequestWebhookPayload payload, String reason) {
         try {
-            postUnavailableComment(payload, reason);
-            return true;
+            return postUnavailableComment(payload, reason);
         } catch (Exception exception) {
             log.warn("GitHub command unavailable comment failed but ignored, owner={}, repo={}, pullNumber={}, reason={}, errorType={}, message={}",
-                    safeOwner(payload), safeRepo(payload), safePullNumber(payload), SensitiveDataSanitizer.redact(reason),
-                    exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
+                    safeOwner(payload), safeRepo(payload), safePullNumber(payload), safeLogText(reason),
+                    exception.getClass().getSimpleName(), safeLogText(exception.getMessage()));
             return false;
         }
     }
@@ -173,7 +176,7 @@ public class ChatCommandHandler implements GithubCommandHandler {
         } catch (Exception exception) {
             log.warn("Failed to build GitHub command review session context, owner={}, repo={}, pullNumber={}, errorType={}, message={}",
                     safeOwner(payload), safeRepo(payload), safePullNumber(payload),
-                    exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
+                    exception.getClass().getSimpleName(), safeLogText(exception.getMessage()));
             return unavailableReviewSessionContext("Stored review context is unavailable because the server failed to load the latest review session.");
         }
     }
@@ -198,11 +201,15 @@ public class ChatCommandHandler implements GithubCommandHandler {
     }
 
     private String unavailableReviewSessionContext(String reason) {
+        String safeReason = PromptInputSanitizer.escapeUntrustedBlockDelimiters(safeLogText(reason))
+                .replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
         return """
                 reviewSessionContextStatus: UNAVAILABLE
                 hasSuccessfulReview: false
                 reason: %s
-                """.formatted(reason);
+                """.formatted(StringUtils.hasText(safeReason) ? safeReason : "Stored review context is unavailable.");
     }
 
     private boolean hasReviewTarget(GitHubPullRequestWebhookPayload payload) {
@@ -222,5 +229,13 @@ public class ChatCommandHandler implements GithubCommandHandler {
 
     private Integer safePullNumber(GitHubPullRequestWebhookPayload payload) {
         return payload == null ? null : payload.getPullNumber();
+    }
+
+    private String safeAction(GitHubPullRequestWebhookPayload payload) {
+        return StringUtils.hasText(payload == null ? null : payload.getAction()) ? payload.getAction() : "unknown";
+    }
+
+    private String safeLogText(String value) {
+        return SensitiveDataSanitizer.redactAndTruncate(safeText(value, ""), 300);
     }
 }
