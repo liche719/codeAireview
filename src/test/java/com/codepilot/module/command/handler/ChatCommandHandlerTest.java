@@ -2,6 +2,7 @@ package com.codepilot.module.command.handler;
 
 import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.module.command.chat.ReviewSessionContextBuilder;
+import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
 import com.codepilot.module.review.report.ReviewReportFormatter;
@@ -16,9 +17,52 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class ChatCommandHandlerTest {
+
+    @Test
+    void shouldIgnoreChatCommandWhenPrIdentityIsIncomplete() {
+        GithubClient githubClient = mock(GithubClient.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<GithubCommandChatAiAssistant> provider = mock(ObjectProvider.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ReviewSessionContextBuilder> contextProvider = mock(ObjectProvider.class);
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextProvider, enabledLlmProperties());
+        GitHubPullRequestWebhookPayload payload = payload("@x-pilotx 总结");
+        payload.setOwner("");
+
+        GithubCommandHandleResult result = handler.handle(payload);
+
+        assertThat(result.getReason()).isEqualTo("missing PR identity");
+        verifyNoInteractions(githubClient, provider, contextProvider);
+    }
+
+    @Test
+    void shouldPostUnavailableCommentWhenLlmConfigIsMissing() {
+        GithubClient githubClient = mock(GithubClient.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<GithubCommandChatAiAssistant> provider = mock(ObjectProvider.class);
+        LlmProperties properties = enabledLlmProperties();
+        properties.setApiKey("");
+
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextProvider(null), properties);
+
+        handler.handle(payload("@x-pilotx 总结"));
+
+        verifyNoInteractions(provider);
+        var bodyCaptor = forClass(String.class);
+        verify(githubClient).createPullRequestComment(
+                eq("liche719"),
+                eq("codeAireview"),
+                eq(12),
+                bodyCaptor.capture()
+        );
+        assertThat(bodyCaptor.getValue())
+                .contains(ReviewReportFormatter.DEFAULT_COMMENT_MARKER)
+                .contains("CodePilot AI");
+    }
 
     @Test
     void shouldPassStoredReviewSessionContextToChatAssistantWithoutPrefetchingPrData() {

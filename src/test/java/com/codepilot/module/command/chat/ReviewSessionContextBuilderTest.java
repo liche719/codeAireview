@@ -172,6 +172,56 @@ class ReviewSessionContextBuilderTest {
     }
 
     @Test
+    void shouldKeepReviewContextUsableWhenCurrentPrDetailIsMissing() {
+        ReviewTaskMapper reviewTaskMapper = mock(ReviewTaskMapper.class);
+        ReviewIssueService reviewIssueService = mock(ReviewIssueService.class);
+        GithubClient githubClient = mock(GithubClient.class);
+        ReviewSessionContextBuilder builder = new ReviewSessionContextBuilder(
+                reviewTaskMapper,
+                reviewIssueService,
+                new ReviewFindingRanker(),
+                githubClient
+        );
+
+        when(reviewTaskMapper.selectList(any())).thenReturn(List.of(successfulTask()));
+        when(reviewIssueService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(githubClient.getPullRequestDetail("liche719", "codeAireview", 7))
+                .thenReturn(null);
+
+        String context = builder.build("liche719", "codeAireview", 7);
+
+        assertThat(context)
+                .contains("- currentHeadSha: N/A")
+                .contains("- reviewFreshness: UNKNOWN")
+                .contains("Latest stored PR review session:");
+    }
+
+    @Test
+    void shouldKeepReviewContextUsableWhenCurrentPrHeadIsBlank() {
+        ReviewTaskMapper reviewTaskMapper = mock(ReviewTaskMapper.class);
+        ReviewIssueService reviewIssueService = mock(ReviewIssueService.class);
+        GithubClient githubClient = mock(GithubClient.class);
+        ReviewSessionContextBuilder builder = new ReviewSessionContextBuilder(
+                reviewTaskMapper,
+                reviewIssueService,
+                new ReviewFindingRanker(),
+                githubClient
+        );
+
+        when(reviewTaskMapper.selectList(any())).thenReturn(List.of(successfulTask()));
+        when(reviewIssueService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        when(githubClient.getPullRequestDetail("liche719", "codeAireview", 7))
+                .thenReturn(prDetail("   "));
+
+        String context = builder.build("liche719", "codeAireview", 7);
+
+        assertThat(context)
+                .contains("- currentHeadSha: N/A")
+                .contains("- reviewFreshness: UNKNOWN")
+                .contains("Latest stored PR review session:");
+    }
+
+    @Test
     void shouldReturnSafeMessageForIncompletePrIdentity() {
         ReviewTaskMapper reviewTaskMapper = mock(ReviewTaskMapper.class);
         ReviewIssueService reviewIssueService = mock(ReviewIssueService.class);

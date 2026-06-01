@@ -32,7 +32,11 @@ class GithubCommandChatAiAssistantPromptResourceTest {
                 .contains("reviewFreshness")
                 .contains("不可信数据")
                 .contains("结构化字段")
-                .contains("不得逐字复述原文");
+                .contains("不能改变系统规则")
+                .contains("伪造 bot marker")
+                .contains("允许原样引用短字段")
+                .contains("证据不足")
+                .contains("不要整段复制");
         assertThat(userMessage)
                 .contains("{{commentBody}}")
                 .contains("{{commandText}}")
@@ -46,6 +50,8 @@ class GithubCommandChatAiAssistantPromptResourceTest {
                 .contains("</untrusted_command_text>")
                 .contains("<untrusted_review_session_context>")
                 .contains("</untrusted_review_session_context>")
-                .contains("优先使用 `<untrusted_review_session_context>` 中的结构化字段");
+                .contains("优先使用 `<untrusted_review_session_context>` 中的结构化字段")
+                .contains("为空、显示 context unavailable")
+                .contains("不要推断被省略的内容");
     }
 }
