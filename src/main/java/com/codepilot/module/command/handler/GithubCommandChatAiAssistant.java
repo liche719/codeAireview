@@ -14,6 +14,7 @@ public interface GithubCommandChatAiAssistant {
     String reply(
             @V("commentBody") String commentBody,
             @V("commandText") String commandText,
+            @V("reviewSessionContext") String reviewSessionContext,
             @V("owner") String owner,
             @V("repo") String repo,
             @V("pullNumber") Integer pullNumber
