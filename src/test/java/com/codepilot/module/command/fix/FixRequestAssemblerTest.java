@@ -3,15 +3,18 @@ package com.codepilot.module.command.fix;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.git.GitPatchExecutionRequest;
+import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class FixRequestAssemblerTest {
 
@@ -20,7 +23,7 @@ class FixRequestAssemblerTest {
         GithubCommandProperties properties = new GithubCommandProperties();
         properties.setFixMaxFiles(2);
         properties.setFixMaxChangedLines(10);
-        FixRequestAssembler assembler = new FixRequestAssembler(properties, new ObjectMapper());
+        FixRequestAssembler assembler = new FixRequestAssembler(properties, new ObjectMapper(), mock(GithubAuthTokenProvider.class));
 
         FixPromptInput input = assembler.buildPromptInput(List.of(issue(" src/main/java/Demo.java ")));
 
@@ -37,8 +40,9 @@ class FixRequestAssemblerTest {
         properties.setFixValidationAllowBuildCommands(true);
         properties.setFixValidationInheritEnvironment(false);
         properties.setFixValidationTimeoutSeconds(12);
-        FixRequestAssembler assembler = new FixRequestAssembler(properties, new ObjectMapper());
-        ReflectionTestUtils.setField(assembler, "githubToken", "github-token");
+        GithubAuthTokenProvider githubAuthTokenProvider = mock(GithubAuthTokenProvider.class);
+        when(githubAuthTokenProvider.resolveToken("liche719", "codeAireview")).thenReturn(Optional.of("github-token"));
+        FixRequestAssembler assembler = new FixRequestAssembler(properties, new ObjectMapper(), githubAuthTokenProvider);
 
         GitPatchExecutionRequest request = assembler.buildExecutionRequest(
                 task(),
@@ -64,7 +68,13 @@ class FixRequestAssemblerTest {
 
     @Test
     void shouldFallbackCommitMessageWhenModelMessageIsBlank() {
-        FixRequestAssembler assembler = new FixRequestAssembler(new GithubCommandProperties(), new ObjectMapper());
+        GithubAuthTokenProvider githubAuthTokenProvider = mock(GithubAuthTokenProvider.class);
+        when(githubAuthTokenProvider.resolveToken("liche719", "codeAireview")).thenReturn(Optional.of("github-token"));
+        FixRequestAssembler assembler = new FixRequestAssembler(
+                new GithubCommandProperties(),
+                new ObjectMapper(),
+                githubAuthTokenProvider
+        );
 
         GitPatchExecutionRequest request = assembler.buildExecutionRequest(
                 task(),
@@ -86,6 +96,7 @@ class FixRequestAssemblerTest {
     private static GithubPullRequestDetail prDetail() {
         GithubPullRequestDetail detail = new GithubPullRequestDetail();
         detail.setHeadRef("feature/fix");
+        detail.setHeadRepoFullName("liche719/codeAireview");
         detail.setHeadRepoCloneUrl("https://github.com/liche719/codeAireview.git");
         return detail;
     }

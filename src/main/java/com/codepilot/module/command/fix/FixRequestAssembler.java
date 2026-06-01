@@ -3,11 +3,11 @@ package com.codepilot.module.command.fix;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.git.GitPatchExecutionRequest;
+import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -26,8 +26,7 @@ public class FixRequestAssembler {
 
     private final ObjectMapper objectMapper;
 
-    @Value("${codepilot.github.token:}")
-    private String githubToken;
+    private final GithubAuthTokenProvider githubAuthTokenProvider;
 
     public FixPromptInput buildPromptInput(List<ReviewIssue> issues) throws Exception {
         return new FixPromptInput(
@@ -51,7 +50,7 @@ public class FixRequestAssembler {
         request.setBranch(detail.getHeadRef());
         request.setPatch(patch);
         request.setAllowedPaths(allowedPaths == null ? Set.of() : new LinkedHashSet<>(allowedPaths));
-        request.setToken(githubToken);
+        request.setToken(resolveCloneToken(task, detail));
         request.setCommitMessage(resolveCommitMessage(commitMessage));
         request.setValidationCommand(properties.getFixValidationCommand());
         request.setAllowedValidationCommands(properties.getFixAllowedValidationCommands());
@@ -60,6 +59,28 @@ public class FixRequestAssembler {
         request.setValidationTimeoutSeconds(properties.getFixValidationTimeoutSeconds());
         request.setDryRun(Boolean.TRUE.equals(task.getDryRun()));
         return request;
+    }
+
+    private String resolveCloneToken(PrCommandTask task, GithubPullRequestDetail detail) {
+        String taskRepo = task != null && StringUtils.hasText(task.getRepoOwner()) && StringUtils.hasText(task.getRepoName())
+                ? task.getRepoOwner().trim() + "/" + task.getRepoName().trim()
+                : null;
+        String repoFullName = firstText(detail.getHeadRepoFullName(), taskRepo);
+        if (!StringUtils.hasText(repoFullName)) {
+            return "";
+        }
+        String[] parts = repoFullName.trim().split("/", 2);
+        if (parts.length != 2 || !StringUtils.hasText(parts[0]) || !StringUtils.hasText(parts[1])) {
+            return "";
+        }
+        return githubAuthTokenProvider.resolveToken(parts[0].trim(), parts[1].trim()).orElse("");
+    }
+
+    private String firstText(String primary, String fallback) {
+        if (StringUtils.hasText(primary)) {
+            return primary;
+        }
+        return fallback;
     }
 
     private String buildIssuesJson(List<ReviewIssue> issues) throws Exception {

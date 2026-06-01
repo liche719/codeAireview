@@ -255,6 +255,7 @@ curl -X POST http://localhost:8080/api/github/webhook ^
 ## 文档
 
 - 架构说明: [docs/architecture.md](docs/architecture.md)
+- GitHub Auth Modes: [docs/github-auth.md](docs/github-auth.md)
 - 环境变量: [docs/env.md](docs/env.md)
 - 深度调研报告: [docs/archive/codeAireview-深度调研报告.md](docs/archive/codeAireview-深度调研报告.md)
 

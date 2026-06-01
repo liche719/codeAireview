@@ -9,9 +9,21 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "codepilot.github")
 public class GithubProperties {
 
+    private AuthMode authMode = AuthMode.AUTO;
+
     private String apiBaseUrl = "https://api.github.com";
 
     private String token = "";
+
+    private String appId = "";
+
+    private String appPrivateKey = "";
+
+    private String appPrivateKeyBase64 = "";
+
+    private Long appInstallationId;
+
+    private long appTokenCacheSkewSeconds = 60L;
 
     private int rateLimitMaxAttempts = 3;
 
@@ -20,4 +32,10 @@ public class GithubProperties {
     private double rateLimitBackoffMultiplier = 2.0D;
 
     private long rateLimitMaxDelayMillis = 10000L;
+
+    public enum AuthMode {
+        AUTO,
+        PAT,
+        APP
+    }
 }

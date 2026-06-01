@@ -1,6 +1,7 @@
 package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.review.config.ReviewProperties;
@@ -46,13 +47,13 @@ class GitHubCommentServiceImplTest {
     @Test
     void shouldNotCallGithubClientWhenTokenMissing() {
         TestContext context = new TestContext(true, "");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
 
         context.service.commentReviewResult(1L);
 
         verify(context.githubClient, never()).createPullRequestComment(any(), any(), any(), any());
         verify(context.githubClient, never()).listPullRequestComments(any(), any(), any());
         verify(context.githubClient, never()).updateIssueComment(any(), any(), any(), any());
-        verify(context.reviewTaskMapper, never()).selectById(any());
         verify(context.reviewIssueService, never()).list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any());
     }
 
@@ -146,9 +147,13 @@ class GitHubCommentServiceImplTest {
 
         private final GithubClient githubClient = mock(GithubClient.class);
 
+        private final GithubAuthTokenProvider githubAuthTokenProvider = mock(GithubAuthTokenProvider.class);
+
         private final GitHubCommentServiceImpl service;
 
         private TestContext(boolean commentEnabled, String githubToken) {
+            when(githubAuthTokenProvider.canAuthenticate("liche719", "codeAireview"))
+                    .thenReturn(org.springframework.util.StringUtils.hasText(githubToken));
             this.service = new GitHubCommentServiceImpl(
                     reviewTaskMapper,
                     reviewIssueService,
@@ -158,8 +163,8 @@ class GitHubCommentServiceImplTest {
                             new ReviewCommentBudgetAllocator(new ReviewProperties()),
                             new ReviewFindingRanker()
                     ),
-                    commentEnabled,
-                    githubToken
+                    githubAuthTokenProvider,
+                    commentEnabled
             );
         }
     }

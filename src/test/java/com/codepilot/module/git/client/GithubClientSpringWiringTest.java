@@ -1,5 +1,6 @@
 package com.codepilot.module.git.client;
 
+import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.config.GithubProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
@@ -19,7 +20,7 @@ class GithubClientSpringWiringTest {
     }
 
     @Configuration
-    @ComponentScan(basePackageClasses = GithubClient.class)
+    @ComponentScan(basePackageClasses = {GithubClient.class, GithubAuthTokenProvider.class})
     static class TestConfig {
 
         @Bean

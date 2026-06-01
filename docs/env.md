@@ -30,8 +30,20 @@
 
 ## GitHub
 
+- `CODEPILOT_GITHUB_AUTH_MODE`
+  - GitHub 鉴权模式，取值 `auto`、`pat`、`app`。`auto` 会在存在 GitHub App 配置时优先使用 App installation token，否则回退 PAT。
 - `CODEPILOT_GITHUB_TOKEN`
   - GitHub Token，用于拉取 PR 文件、查询/创建/更新 PR 评论。
+- `CODEPILOT_GITHUB_APP_ID`
+  - GitHub App ID。启用 `app` 或 `auto` 模式时使用。
+- `CODEPILOT_GITHUB_APP_PRIVATE_KEY`
+  - GitHub App 私钥原文，支持 PEM 或转义换行。
+- `CODEPILOT_GITHUB_APP_PRIVATE_KEY_BASE64`
+  - GitHub App 私钥的 base64 形式，适合 Docker、CI 和 `.env`。
+- `CODEPILOT_GITHUB_APP_INSTALLATION_ID`
+  - 可选的固定 installation id。留空时按仓库动态查询 installation。
+- `CODEPILOT_GITHUB_APP_TOKEN_CACHE_SKEW_SECONDS`
+  - installation token 失效前的提前刷新偏移，默认 `60` 秒。
 - `CODEPILOT_GITHUB_COMMENT_ENABLED`
   - 是否开启 GitHub PR 评论回写，默认 `false`。
 - `CODEPILOT_GITHUB_COMMENT_MARKER`
@@ -111,8 +123,10 @@
 
 ## 说明
 
-- 没有配置 `CODEPILOT_GITHUB_TOKEN` 时，GitHub 评论回写会跳过。
-- Fine-grained GitHub Token 建议权限：`Contents: Read`、`Pull requests: Read and write`、`Issues: Read and write`、`Metadata: Read`。
+- 没有配置任何可用 GitHub 凭证时，GitHub 评论回写会跳过。
+- PAT 模式的建议权限：`Contents: Read`、`Pull requests: Read and write`、`Issues: Read and write`、`Metadata: Read`；如果启用 `@x-pilotx fix`，还需要 `Contents: Read and write`。
+- GitHub App 模式建议授予 `Contents: Read`、`Pull requests: Read and write`、`Issues: Read and write`、`Metadata: Read`。
+- 生产环境建议优先使用 GitHub App 模式，PAT 仅作为本地或兼容回退。
 - 只使用顶部 Summary Comment 时主要依赖 Issues 评论权限；开启 inline comment 后需要 `Pull requests: Read and write`。
 - Webhook 默认关闭，开启时建议同时配置 `CODEPILOT_GITHUB_WEBHOOK_SECRET`。
 - 没有配置 `CODEPILOT_GITHUB_WEBHOOK_SECRET` 且未显式开启跳过验签时，Webhook 验签会失败。
@@ -153,4 +167,4 @@
 - `@x-pilotx fix dry-run`
 - `@x-pilotx fix`
 
-修复模式只会推送到同仓库的当前 PR head 分支，且只会复用与当前 head sha 匹配的成功审查结果。Fork PR 不支持自动修复。Fine-grained GitHub Token 在修复模式下需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`。
+修复模式只会推送到同仓库的当前 PR head 分支，且只会复用与当前 head sha 匹配的成功审查结果。Fork PR 不支持自动修复。PAT 模式下修复需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`；GitHub App 模式下需要给 App 同等权限。

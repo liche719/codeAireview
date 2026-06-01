@@ -3,6 +3,7 @@ package com.codepilot.module.review.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.common.util.MarkdownSanitizer;
+import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
@@ -60,11 +61,11 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
 
     private final ReviewFindingRanker reviewFindingRanker;
 
+    private final GithubAuthTokenProvider githubAuthTokenProvider;
+
     private final boolean inlineCommentEnabled;
 
     private final int inlineCommentMaxPerTask;
-
-    private final String githubToken;
 
     public GitHubInlineCommentServiceImpl(
             ReviewTaskMapper reviewTaskMapper,
@@ -74,9 +75,9 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
             DiffLineMapper diffLineMapper,
             ReviewCommentBudgetAllocator reviewCommentBudgetAllocator,
             ReviewFindingRanker reviewFindingRanker,
+            GithubAuthTokenProvider githubAuthTokenProvider,
             @Value("${codepilot.github.inline-comment-enabled:false}") boolean inlineCommentEnabled,
-            @Value("${codepilot.github.inline-comment-max-per-task:10}") int inlineCommentMaxPerTask,
-            @Value("${codepilot.github.token:}") String githubToken
+            @Value("${codepilot.github.inline-comment-max-per-task:10}") int inlineCommentMaxPerTask
     ) {
         this.reviewTaskMapper = reviewTaskMapper;
         this.reviewIssueService = reviewIssueService;
@@ -85,9 +86,9 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
         this.diffLineMapper = diffLineMapper;
         this.reviewCommentBudgetAllocator = reviewCommentBudgetAllocator;
         this.reviewFindingRanker = reviewFindingRanker;
+        this.githubAuthTokenProvider = githubAuthTokenProvider;
         this.inlineCommentEnabled = inlineCommentEnabled;
         this.inlineCommentMaxPerTask = inlineCommentMaxPerTask;
-        this.githubToken = githubToken;
     }
 
     @Override
@@ -101,10 +102,6 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                 log.info("Skip GitHub PR inline comments because inline comment is disabled, taskId={}", taskId);
                 return new GitHubInlineCommentResult(0, 0, 0);
             }
-            if (!StringUtils.hasText(githubToken)) {
-                log.warn("Skip GitHub PR inline comments because GitHub token is missing, taskId={}", taskId);
-                return new GitHubInlineCommentResult(0, 0, 0);
-            }
             if (inlineCommentMaxPerTask <= 0) {
                 log.info("Skip GitHub PR inline comments because max per task is not positive, taskId={}, maxPerTask={}",
                         taskId, inlineCommentMaxPerTask);
@@ -114,6 +111,10 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
             ReviewTask task = reviewTaskMapper.selectById(taskId);
             if (task == null) {
                 log.warn("Skip GitHub PR inline comments because review task was not found, taskId={}", taskId);
+                return new GitHubInlineCommentResult(0, 0, 0);
+            }
+            if (!githubAuthTokenProvider.canAuthenticate(task.getRepoOwner(), task.getRepoName())) {
+                log.warn("Skip GitHub PR inline comments because GitHub auth is missing, taskId={}", taskId);
                 return new GitHubInlineCommentResult(0, 0, 0);
             }
 

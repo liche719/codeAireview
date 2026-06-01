@@ -40,6 +40,8 @@ CODEPILOT_GITHUB_TOKEN=<token with repo pull request comment permissions>
 CODEPILOT_API_AUTH_API_KEY=<internal api key>
 ```
 
+Use least-privilege tokens, app private keys, webhook secrets, and API keys. Keep them in `.env`, server secret stores, or GitHub Actions secrets; do not paste real values into PR comments, shell history, CI logs, or committed files.
+
 If repository allow-listing is enabled, include the sandbox repository.
 
 ## Test Environment

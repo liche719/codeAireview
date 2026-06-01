@@ -19,6 +19,7 @@ import com.codepilot.module.command.service.PrCommandTaskLogService;
 import com.codepilot.module.command.state.PrCommandTaskStateManager;
 import com.codepilot.module.agent.dto.CodeFixResult;
 import com.codepilot.module.agent.service.CodeFixService;
+import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
@@ -32,6 +33,7 @@ import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -281,7 +283,13 @@ class PrCommandTaskServiceImplTest {
 
         private final FixSnippetBuilder fixSnippetBuilder = mock(FixSnippetBuilder.class);
 
-        private final FixRequestAssembler fixRequestAssembler = new FixRequestAssembler(properties, new ObjectMapper());
+        private final GithubAuthTokenProvider githubAuthTokenProvider = mock(GithubAuthTokenProvider.class);
+
+        private final FixRequestAssembler fixRequestAssembler = new FixRequestAssembler(
+                properties,
+                new ObjectMapper(),
+                githubAuthTokenProvider
+        );
 
         private final FixResultCommenter fixResultCommenter = new FixResultCommenter(githubClient);
 
@@ -324,7 +332,8 @@ class PrCommandTaskServiceImplTest {
                     commandTaskRunner
             );
             ReflectionTestUtils.setField(service, "baseMapper", mapper);
-            ReflectionTestUtils.setField(fixRequestAssembler, "githubToken", "github-token");
+            when(githubAuthTokenProvider.resolveToken("liche719", "codeAireview"))
+                    .thenReturn(Optional.of("github-token"));
         }
 
         private void stubRunnableFixTask() {

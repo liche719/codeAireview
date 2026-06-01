@@ -1,6 +1,7 @@
 package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
@@ -348,9 +349,13 @@ class GitHubInlineCommentServiceImplTest {
 
         private final GithubClient githubClient = mock(GithubClient.class);
 
+        private final GithubAuthTokenProvider githubAuthTokenProvider = mock(GithubAuthTokenProvider.class);
+
         private final GitHubInlineCommentServiceImpl service;
 
         private TestContext(boolean enabled, int maxPerTask, String token) {
+            when(githubAuthTokenProvider.canAuthenticate("liche719", "codeAireview"))
+                    .thenReturn(org.springframework.util.StringUtils.hasText(token));
             service = new GitHubInlineCommentServiceImpl(
                     reviewTaskMapper,
                     reviewIssueService,
@@ -359,9 +364,9 @@ class GitHubInlineCommentServiceImplTest {
                     new DiffLineMapper(),
                     new ReviewCommentBudgetAllocator(new ReviewProperties()),
                     new ReviewFindingRanker(),
+                    githubAuthTokenProvider,
                     enabled,
-                    maxPerTask,
-                    token
+                    maxPerTask
             );
         }
     }
