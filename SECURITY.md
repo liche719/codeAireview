@@ -25,7 +25,8 @@ Useful report details:
 - Set `CODEPILOT_GITHUB_WEBHOOK_SECRET` when webhooks are enabled.
 - Configure `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES` in production so arbitrary repositories cannot spend your LLM/GitHub quota.
 - Keep `CODEPILOT_GITHUB_FIX_ENABLED=false` unless the deployment has an isolated execution environment and a least-privilege GitHub token.
-- Do not allow Maven, Gradle, npm or other build/test commands as fix validation commands in the production app container unless they run in a separate sandbox.
+- Keep fix validation in `local` mode for `git diff --check` style checks only. Maven, Gradle, npm and other build/test commands are rejected unless `CODEPILOT_GITHUB_FIX_VALIDATION_EXECUTION_MODE=docker`, an explicit sandbox image is configured, and build validation is explicitly enabled.
+- Do not mount Docker socket access into the production app container unless the host is dedicated to this workload and you accept that Docker socket access is host-level privilege.
 - Never paste real secrets into issues, PRs, prompt fixtures, test cases or logs.
 
 ## Disclosure Expectations

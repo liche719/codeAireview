@@ -155,11 +155,19 @@
 - `CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND`
   - 提交和推送前执行的校验命令，默认 `git diff --check`。默认值只做 diff 空白检查，不执行 PR 内构建脚本。命令会被解析为固定 argv，不通过 shell 执行。
 - `CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS`
-  - 允许执行的校验命令白名单，默认只有 `git diff --check`。白名单精确匹配规范化后的 argv，不允许 shell、仓库内 wrapper（如 `./gradlew`）、任意路径可执行文件、管道、重定向或控制字符。如果要使用 `mvn -q -DskipTests compile` 等命令，必须显式加入白名单，并意识到这会执行 PR 代码/构建插件。
+  - 允许执行的校验命令白名单，默认只有 `git diff --check`。白名单精确匹配规范化后的 argv，不允许 shell、仓库内 wrapper（如 `./gradlew`）、任意路径可执行文件、管道、重定向或控制字符。
+- `CODEPILOT_GITHUB_FIX_VALIDATION_ALLOW_BUILD_COMMANDS`
+  - 是否允许 Maven、Gradle、npm、pytest、go、cargo 等可能执行 PR 代码的构建/测试命令，默认 `false`。即使设为 `true`，构建类命令仍必须运行在 Docker sandbox 模式下。
+- `CODEPILOT_GITHUB_FIX_VALIDATION_EXECUTION_MODE`
+  - 校验命令执行模式，默认 `local`。可选值：`local`、`docker`。`local` 只适合 `git diff --check` 这类不执行 PR 代码的命令；构建/测试类命令会被硬拒绝。
+- `CODEPILOT_GITHUB_FIX_VALIDATION_DOCKER_IMAGE`
+  - Docker sandbox 使用的镜像，仅在 `CODEPILOT_GITHUB_FIX_VALIDATION_EXECUTION_MODE=docker` 时必填，例如 `maven:3.9-eclipse-temurin-21`。镜像内需要预置校验命令所需工具和依赖。
+- `CODEPILOT_GITHUB_FIX_VALIDATION_DOCKER_NETWORK`
+  - Docker sandbox 网络模式，默认 `none`。生产环境建议保持 `none`，避免恶意 PR 代码出网。
 - `CODEPILOT_GITHUB_FIX_VALIDATION_INHERIT_ENVIRONMENT`
-  - 校验进程是否继承服务进程环境变量，默认 `false`，避免 LLM/GitHub Token 等敏感变量暴露给 PR 代码。
+  - local 校验进程是否继承服务进程环境变量，默认 `false`，避免 LLM/GitHub Token 等敏感变量暴露给 PR 代码。Docker sandbox 模式不会把服务环境变量注入校验容器。
 - `CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS`
-  - 修复补丁校验命令的最大等待时间，默认 `300` 秒。服务器首次运行 Maven 时可能需要下载依赖，超时过短会导致补丁已生成但不会提交。
+  - 修复补丁校验命令的最大等待时间，默认 `300` 秒。Docker sandbox 默认无网络，构建镜像应提前准备依赖，否则 Maven/npm 等命令可能因为无法下载依赖而失败。
 
 命令示例：
 - `/review`

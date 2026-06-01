@@ -145,6 +145,8 @@ PR 评论支持以下命令：
 
 Fix 模式默认关闭。若要开启，请设置 `CODEPILOT_GITHUB_FIX_ENABLED=true`。它只会写回同仓库的 PR 分支，token 仍需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`。
 
+Fix validation 默认只允许运行 `git diff --check`。如果要执行 `mvn`、`gradle`、`npm` 等会运行 PR 代码的构建/测试命令，必须显式开启 build validation，并切到 Docker sandbox execution mode；否则本地模式会直接拒绝这类命令。
+
 PR 评论命令默认只允许 GitHub `author_association` 为 `OWNER`、`MEMBER` 或 `COLLABORATOR` 的评论者触发。若确需调整，请设置 `CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS`。
 
 如果服务面向多个仓库或暴露到公网，建议设置 `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES=owner/repo`。该 allowlist 会同时限制手动 `/api/reviews`、PR Webhook 自动审查和 PR 评论命令，未在列表内的仓库不会创建审查任务，也不会执行 `review/fix/chat` 命令。

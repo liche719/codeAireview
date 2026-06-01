@@ -128,6 +128,89 @@ class JGitPatchExecutorTest {
     }
 
     @Test
+    void shouldRejectBuildValidationCommandsInLocalModeEvenWhenExplicitlyAllowed() {
+        GitPatchExecutionRequest request = validRequest();
+        request.setValidationCommand("mvn -q -DskipTests compile");
+        request.setAllowedValidationCommands(List.of("mvn -q -DskipTests compile"));
+        request.setAllowBuildValidationCommands(true);
+        request.setValidationExecutionMode(ValidationExecutionMode.LOCAL);
+
+        GitPatchExecutionResult result = executor.execute(request);
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.isRetryable()).isFalse();
+        assertThat(result.getMessage()).contains("Docker sandbox execution mode");
+        assertThat(result.getDetail()).contains("stage=validate-request");
+    }
+
+    @Test
+    void shouldRejectDockerValidationModeWithoutSafeImageBeforeClone() {
+        GitPatchExecutionRequest request = validRequest();
+        request.setValidationExecutionMode(ValidationExecutionMode.DOCKER);
+        request.setValidationDockerImage("");
+
+        GitPatchExecutionResult result = executor.execute(request);
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.isRetryable()).isFalse();
+        assertThat(result.getMessage()).contains("Docker validation mode requires");
+        assertThat(result.getDetail()).contains("stage=validate-request");
+    }
+
+    @Test
+    void shouldBuildDockerSandboxLifecycleCommandsWithoutHostBindMount() {
+        Path workDir = Path.of("C:/tmp/codepilot-fix-123");
+
+        List<String> createCommand = executor.buildDockerCreateCommand(
+                "codepilot-validation-test",
+                "maven:3.9-eclipse-temurin-21",
+                "none",
+                List.of("mvn", "-q", "-DskipTests", "compile")
+        );
+
+        assertThat(createCommand).containsExactly(
+                "docker",
+                "create",
+                "--name",
+                "codepilot-validation-test",
+                "--label",
+                "codepilot.validation=true",
+                "--network",
+                "none",
+                "--workdir",
+                "/workspace",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
+                "--pids-limit",
+                "256",
+                "--memory",
+                "1g",
+                "--cpus",
+                "1.0",
+                "maven:3.9-eclipse-temurin-21",
+                "mvn",
+                "-q",
+                "-DskipTests",
+                "compile"
+        );
+        assertThat(createCommand).doesNotContain("-v", "--volume", "--privileged");
+
+        assertThat(executor.buildDockerCopyCommand(workDir, "codepilot-validation-test"))
+                .containsExactly(
+                        "docker",
+                        "cp",
+                        workDir.toAbsolutePath().normalize().toString().replace('\\', '/') + "/.",
+                        "codepilot-validation-test:/workspace"
+                );
+        assertThat(executor.buildDockerStartCommand("codepilot-validation-test"))
+                .containsExactly("docker", "start", "--attach", "codepilot-validation-test");
+        assertThat(executor.buildDockerRemoveCommand("codepilot-validation-test"))
+                .containsExactly("docker", "rm", "--force", "codepilot-validation-test");
+    }
+
+    @Test
     void shouldOnlyRetryTransientGitStages() {
         assertThat(executor.isRetryableExecutionStage("clone")).isTrue();
         assertThat(executor.isRetryableExecutionStage("push")).isTrue();
@@ -246,6 +329,24 @@ class JGitPatchExecutorTest {
                         });
             }
         }
+    }
+
+    @Test
+    void shouldStripSecretsFromDockerClientEnvironment() {
+        Map<String, String> environment = new HashMap<>();
+        environment.put("PATH", "/usr/bin");
+        environment.put("HOME", "/app");
+        environment.put("DOCKER_HOST", "unix:///var/run/docker.sock");
+        environment.put("CODEPILOT_GITHUB_TOKEN", "ghp_123456789012345678901234567890123456");
+        environment.put("OPENAI_API_KEY", "sk-proj-12345678901234567890");
+
+        executor.sanitizeDockerClientEnvironment(environment);
+
+        assertThat(environment)
+                .containsEntry("PATH", "/usr/bin")
+                .containsEntry("HOME", "/app")
+                .containsEntry("DOCKER_HOST", "unix:///var/run/docker.sock")
+                .doesNotContainKeys("CODEPILOT_GITHUB_TOKEN", "OPENAI_API_KEY");
     }
 
     private GitPatchExecutionRequest validRequest() {

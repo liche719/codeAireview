@@ -1,5 +1,6 @@
 package com.codepilot.module.command.config;
 
+import com.codepilot.module.command.git.ValidationExecutionMode;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -35,4 +36,10 @@ public class GithubCommandProperties {
     private boolean fixValidationInheritEnvironment = false;
 
     private int fixValidationTimeoutSeconds = 300;
+
+    private ValidationExecutionMode fixValidationExecutionMode = ValidationExecutionMode.LOCAL;
+
+    private String fixValidationDockerImage = "";
+
+    private String fixValidationDockerNetwork = "none";
 }
