@@ -3,6 +3,7 @@ package com.codepilot.module.review.planner;
 import com.codepilot.module.review.classifier.ReviewFileClassifier;
 import com.codepilot.module.review.context.ReviewContext;
 import com.codepilot.module.review.entity.ReviewFile;
+import com.codepilot.module.review.graph.RepositoryGraphSnapshot;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -36,6 +37,7 @@ public class SemanticReviewPlanner {
                 semanticFileContexts,
                 repoRelationshipHints,
                 reviewImpactPlan,
+                RepositoryGraphSnapshot.empty(),
                 relatedPatchExcerpts,
                 repoSourceExcerpts,
                 reviewSignals,
@@ -49,6 +51,32 @@ public class SemanticReviewPlanner {
             List<ReviewContext.SemanticFileContext> semanticFileContexts,
             List<ReviewContext.RepoRelationshipHint> repoRelationshipHints,
             ReviewContext.ReviewImpactPlan reviewImpactPlan,
+            RepositoryGraphSnapshot repositoryGraphSnapshot,
+            List<ReviewContext.RelatedPatchExcerpt> relatedPatchExcerpts,
+            List<ReviewContext.RepoSourceExcerpt> repoSourceExcerpts,
+            List<ReviewContext.ReviewSignal> reviewSignals
+    ) {
+        return plan(
+                reviewFiles,
+                fileSummaries,
+                semanticFileContexts,
+                repoRelationshipHints,
+                reviewImpactPlan,
+                repositoryGraphSnapshot,
+                relatedPatchExcerpts,
+                repoSourceExcerpts,
+                reviewSignals,
+                List.of()
+        );
+    }
+
+    public ReviewPlan plan(
+            List<ReviewFile> reviewFiles,
+            List<ReviewContext.FileSummary> fileSummaries,
+            List<ReviewContext.SemanticFileContext> semanticFileContexts,
+            List<ReviewContext.RepoRelationshipHint> repoRelationshipHints,
+            ReviewContext.ReviewImpactPlan reviewImpactPlan,
+            RepositoryGraphSnapshot repositoryGraphSnapshot,
             List<ReviewContext.RelatedPatchExcerpt> relatedPatchExcerpts,
             List<ReviewContext.RepoSourceExcerpt> repoSourceExcerpts,
             List<ReviewContext.ReviewSignal> reviewSignals,
@@ -59,6 +87,9 @@ public class SemanticReviewPlanner {
         List<ReviewContext.RepoRelationshipHint> safeRelationshipHints = safeList(repoRelationshipHints);
         List<ReviewContext.ReviewSignal> safeReviewSignals = safeList(reviewSignals);
         List<ReviewContext.LinkedIssueContext> safeLinkedIssueContexts = safeList(linkedIssueContexts);
+        RepositoryGraphSnapshot safeGraphSnapshot = repositoryGraphSnapshot == null
+                ? RepositoryGraphSnapshot.empty()
+                : repositoryGraphSnapshot;
         ReviewContext.ReviewImpactPlan safeImpactPlan =
                 reviewImpactPlan == null ? ReviewContext.ReviewImpactPlan.empty() : reviewImpactPlan;
 
@@ -67,6 +98,7 @@ public class SemanticReviewPlanner {
                 && safeRelationshipHints.isEmpty()
                 && safeReviewSignals.isEmpty()
                 && safeLinkedIssueContexts.isEmpty()
+                && safeGraphSnapshot.isEmpty()
                 && safeImpactPlan.isEmpty()) {
             return ReviewPlan.empty();
         }
@@ -92,26 +124,29 @@ public class SemanticReviewPlanner {
                 safeFileSummaries,
                 reviewFileByPath,
                 semanticByPath,
-                relationshipsByPath
+                relationshipsByPath,
+                safeGraphSnapshot
         );
         List<ReviewPlan.FileFocus> fileFocuses = fileFocuses(
                 safeFileSummaries,
                 reviewFileByPath,
                 semanticByPath,
                 relationshipsByPath,
-                relatedFilesByPath
+                relatedFilesByPath,
+                safeGraphSnapshot
         );
         List<ReviewPlan.CrossFileFocus> crossFileFocuses = crossFileFocuses(safeRelationshipHints);
 
         LinkedHashSet<String> verificationHints = new LinkedHashSet<>(safeImpactPlan.verificationHints());
-        verificationHints.addAll(verificationHints(riskAreas.values(), safeReviewSignals, safeRelationshipHints));
+        verificationHints.addAll(verificationHints(riskAreas.values(), safeReviewSignals, safeRelationshipHints, safeGraphSnapshot));
         verificationHints.addAll(linkedIssueVerificationHints(safeLinkedIssueContexts));
 
         boolean requiresRepoContext = requiresRepoContext(
                 changeTypes,
                 safeSemanticContexts,
                 safeRelationshipHints,
-                riskAreas.values()
+                riskAreas.values(),
+                safeGraphSnapshot
         );
         List<String> plannerWarnings = plannerWarnings(
                 safeFileSummaries,
@@ -119,7 +154,8 @@ public class SemanticReviewPlanner {
                 safeReviewSignals,
                 requiresRepoContext,
                 safeList(relatedPatchExcerpts),
-                safeList(repoSourceExcerpts)
+                safeList(repoSourceExcerpts),
+                safeGraphSnapshot
         );
 
         return new ReviewPlan(
@@ -138,7 +174,8 @@ public class SemanticReviewPlanner {
                         requiresRepoContext,
                         safeList(repoSourceExcerpts),
                         safeImpactPlan,
-                        safeLinkedIssueContexts
+                        safeLinkedIssueContexts,
+                        safeGraphSnapshot
                 ),
                 plannerWarnings
         );
@@ -322,7 +359,8 @@ public class SemanticReviewPlanner {
             List<ReviewContext.FileSummary> fileSummaries,
             Map<String, ReviewFile> reviewFileByPath,
             Map<String, ReviewContext.SemanticFileContext> semanticByPath,
-            Map<String, List<ReviewContext.RepoRelationshipHint>> relationshipsByPath
+            Map<String, List<ReviewContext.RepoRelationshipHint>> relationshipsByPath,
+            RepositoryGraphSnapshot graphSnapshot
     ) {
         return fileSummaries.stream()
                 .filter(ReviewContext.FileSummary::reviewable)
@@ -330,7 +368,8 @@ public class SemanticReviewPlanner {
                         fileSummary,
                         reviewFileByPath.get(normalizePath(fileSummary.filePath())),
                         semanticByPath.get(normalizePath(fileSummary.filePath())),
-                        relationshipsByPath.getOrDefault(normalizePath(fileSummary.filePath()), List.of())
+                        relationshipsByPath.getOrDefault(normalizePath(fileSummary.filePath()), List.of()),
+                        graphSnapshot
                 ))
                 .filter(scoredFile -> scoredFile.score() > 0)
                 .sorted(Comparator.comparingInt(ScoredFile::score)
@@ -348,7 +387,8 @@ public class SemanticReviewPlanner {
             ReviewContext.FileSummary fileSummary,
             ReviewFile reviewFile,
             ReviewContext.SemanticFileContext semanticContext,
-            List<ReviewContext.RepoRelationshipHint> relationshipHints
+            List<ReviewContext.RepoRelationshipHint> relationshipHints,
+            RepositoryGraphSnapshot graphSnapshot
     ) {
         String path = fileSummary.filePath();
         String patch = reviewFile == null || reviewFile.getPatch() == null
@@ -356,6 +396,7 @@ public class SemanticReviewPlanner {
                 : reviewFile.getPatch().toLowerCase(Locale.ROOT);
         int score = 0;
         LinkedHashSet<String> reasons = new LinkedHashSet<>();
+        RepositoryGraphSnapshot.GraphNode graphNode = graphSnapshot == null ? null : graphSnapshot.nodeFor(path).orElse(null);
 
         if (ReviewFileClassifier.isSecuritySensitivePath(path)
                 || containsAny(patch, "password", "secret", "token", "auth", "permission", "credential")) {
@@ -400,6 +441,20 @@ public class SemanticReviewPlanner {
             score += 60;
             reasons.add("changed method-level semantics");
         }
+        if (graphNode != null) {
+            if (graphNode.score() > 0) {
+                score += Math.min(160, graphNode.score() / 10);
+                reasons.add("repository graph score");
+            }
+            if (graphNode.degree() > 1) {
+                score += Math.min(80, graphNode.degree() * 12);
+                reasons.add("repository graph degree");
+            }
+        }
+        if (graphSnapshot != null && graphSnapshot.focusFiles().stream().anyMatch(file -> normalizePath(file).equals(normalizePath(path)))) {
+            score += 60;
+            reasons.add("graph focus file");
+        }
         if (ReviewFileClassifier.isDocumentationPath(path)) {
             score -= 250;
             reasons.add("documentation-only path");
@@ -413,7 +468,8 @@ public class SemanticReviewPlanner {
             Map<String, ReviewFile> reviewFileByPath,
             Map<String, ReviewContext.SemanticFileContext> semanticByPath,
             Map<String, List<ReviewContext.RepoRelationshipHint>> relationshipsByPath,
-            Map<String, List<String>> relatedFilesByPath
+            Map<String, List<String>> relatedFilesByPath,
+            RepositoryGraphSnapshot graphSnapshot
     ) {
         List<ReviewPlan.FileFocus> focuses = new ArrayList<>();
         for (ReviewContext.FileSummary fileSummary : fileSummaries) {
@@ -427,6 +483,7 @@ public class SemanticReviewPlanner {
             String patch = reviewFile == null || reviewFile.getPatch() == null
                     ? ""
                     : reviewFile.getPatch().toLowerCase(Locale.ROOT);
+            RepositoryGraphSnapshot.GraphNode graphNode = graphSnapshot == null ? null : graphSnapshot.nodeFor(path).orElse(null);
             LinkedHashSet<String> focusItems = new LinkedHashSet<>();
             LinkedHashSet<String> hints = new LinkedHashSet<>();
 
@@ -444,6 +501,22 @@ public class SemanticReviewPlanner {
             }
             if (semanticContext != null && !semanticContext.imports().isEmpty()) {
                 focusItems.add("Use changed imports to reason about dependency and cross-file contract impact.");
+            }
+            if (graphNode != null) {
+                if (!graphNode.symbols().isEmpty()) {
+                    focusItems.add("Trace repository graph symbols: " + joinLimited(graphNode.symbols(), 4));
+                }
+                if (!graphNode.methods().isEmpty()) {
+                    focusItems.add("Trace repository graph methods: " + joinLimited(graphNode.methods(), 4));
+                }
+                if (!graphNode.routes().isEmpty()) {
+                    focusItems.add("Trace repository graph routes: " + joinLimited(graphNode.routes(), 4));
+                }
+                List<String> graphRelatedFiles = graphSnapshot.relatedFilesFor(path);
+                if (!graphRelatedFiles.isEmpty()) {
+                    focusItems.add("Review repository graph neighbors: " + joinLimited(graphRelatedFiles, 4));
+                    hints.add("Use graph neighbors to validate cross-file impact and symbol propagation.");
+                }
             }
             addPathFocus(path, focusItems, hints);
             addPatchFocus(patch, focusItems, hints);
@@ -541,7 +614,8 @@ public class SemanticReviewPlanner {
     private List<String> verificationHints(
             Iterable<ReviewPlan.RiskArea> riskAreas,
             List<ReviewContext.ReviewSignal> reviewSignals,
-            List<ReviewContext.RepoRelationshipHint> repoRelationshipHints
+            List<ReviewContext.RepoRelationshipHint> repoRelationshipHints,
+            RepositoryGraphSnapshot graphSnapshot
     ) {
         LinkedHashSet<String> hints = new LinkedHashSet<>();
         for (ReviewPlan.RiskArea riskArea : riskAreas) {
@@ -557,6 +631,9 @@ public class SemanticReviewPlanner {
         }
         if (!repoRelationshipHints.isEmpty()) {
             hints.add("Review related changed files as an impact set, not only as isolated file edits.");
+        }
+        if (graphSnapshot != null && !graphSnapshot.isEmpty()) {
+            hints.add("Use repository graph symbols and neighboring files to validate cross-file impact.");
         }
         if (reviewSignals.stream().anyMatch(signal -> "SKIPPED_FILES".equalsIgnoreCase(signal.type()))) {
             hints.add("Mention uncertainty when skipped files could affect the reviewed behavior.");
@@ -589,7 +666,8 @@ public class SemanticReviewPlanner {
             Set<String> changeTypes,
             List<ReviewContext.SemanticFileContext> semanticFileContexts,
             List<ReviewContext.RepoRelationshipHint> relationshipHints,
-            Iterable<ReviewPlan.RiskArea> riskAreas
+            Iterable<ReviewPlan.RiskArea> riskAreas,
+            RepositoryGraphSnapshot graphSnapshot
     ) {
         if (changeTypes.contains("public-api-change") || changeTypes.contains("security-boundary-change")) {
             return true;
@@ -601,6 +679,9 @@ public class SemanticReviewPlanner {
             return true;
         }
         if (semanticFileContexts.stream().anyMatch(context -> !context.imports().isEmpty())) {
+            return true;
+        }
+        if (graphSnapshot != null && !graphSnapshot.isEmpty()) {
             return true;
         }
         for (ReviewPlan.RiskArea riskArea : riskAreas) {
@@ -617,7 +698,8 @@ public class SemanticReviewPlanner {
             List<ReviewContext.ReviewSignal> reviewSignals,
             boolean requiresRepoContext,
             List<ReviewContext.RelatedPatchExcerpt> relatedPatchExcerpts,
-            List<ReviewContext.RepoSourceExcerpt> repoSourceExcerpts
+            List<ReviewContext.RepoSourceExcerpt> repoSourceExcerpts,
+            RepositoryGraphSnapshot graphSnapshot
     ) {
         LinkedHashSet<String> warnings = new LinkedHashSet<>();
         long skippedCount = fileSummaries.stream()
@@ -650,6 +732,9 @@ public class SemanticReviewPlanner {
         if (requiresRepoContext && repoSourceExcerpts.isEmpty()) {
             warnings.add("Planner detected cross-file risk but no repository source excerpts were available.");
         }
+        if (graphSnapshot == null || graphSnapshot.isEmpty()) {
+            warnings.add("Repository graph snapshot was empty; symbol-aware retrieval is limited.");
+        }
         return List.copyOf(warnings);
     }
 
@@ -661,7 +746,8 @@ public class SemanticReviewPlanner {
             boolean requiresRepoContext,
             List<ReviewContext.RepoSourceExcerpt> repoSourceExcerpts,
             ReviewContext.ReviewImpactPlan impactPlan,
-            List<ReviewContext.LinkedIssueContext> linkedIssueContexts
+            List<ReviewContext.LinkedIssueContext> linkedIssueContexts,
+            RepositoryGraphSnapshot graphSnapshot
     ) {
         long reviewableCount = fileSummaries.stream().filter(ReviewContext.FileSummary::reviewable).count();
         long skippedCount = fileSummaries.size() - reviewableCount;
@@ -693,6 +779,15 @@ public class SemanticReviewPlanner {
         }
         if (!linkedIssueContexts.isEmpty()) {
             score += 0.05;
+        }
+        if (graphSnapshot != null && !graphSnapshot.isEmpty()) {
+            score += 0.10;
+            if (!graphSnapshot.focusSymbols().isEmpty()) {
+                score += 0.05;
+            }
+            if (!graphSnapshot.edges().isEmpty()) {
+                score += 0.05;
+            }
         }
         if (requiresRepoContext && !repoSourceExcerpts.isEmpty()) {
             score += 0.10;
@@ -842,6 +937,18 @@ public class SemanticReviewPlanner {
 
     private <T> List<T> safeList(List<T> values) {
         return values == null ? List.of() : values;
+    }
+
+    private String joinLimited(List<String> values, int limit) {
+        if (values == null || values.isEmpty()) {
+            return "";
+        }
+        return values.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .limit(limit)
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("");
     }
 
     private record ScoredFile(String filePath, int score, List<String> reasons) {

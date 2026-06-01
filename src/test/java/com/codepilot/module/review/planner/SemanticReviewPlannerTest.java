@@ -2,6 +2,7 @@ package com.codepilot.module.review.planner;
 
 import com.codepilot.module.review.context.ReviewContext;
 import com.codepilot.module.review.entity.ReviewFile;
+import com.codepilot.module.review.graph.RepositoryGraphSnapshot;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -120,6 +121,7 @@ class SemanticReviewPlannerTest {
                 List.of(),
                 List.of(),
                 ReviewContext.ReviewImpactPlan.empty(),
+                RepositoryGraphSnapshot.empty(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -146,6 +148,102 @@ class SemanticReviewPlannerTest {
                 );
     }
 
+    @Test
+    void shouldUseRepositoryGraphSnapshotToGuidePlannerFocus() {
+        RepositoryGraphSnapshot graphSnapshot = new RepositoryGraphSnapshot(
+                List.of(
+                        new RepositoryGraphSnapshot.GraphNode(
+                                "src/main/java/com/example/OrderService.java",
+                                "service",
+                                "java",
+                                "com.example",
+                                true,
+                                List.of("OrderService"),
+                                List.of("reserve"),
+                                List.of(),
+                                List.of("com.example.InventoryService"),
+                                List.of("POST /orders"),
+                                900,
+                                2
+                        ),
+                        new RepositoryGraphSnapshot.GraphNode(
+                                "src/main/java/com/example/OrderController.java",
+                                "controller",
+                                "java",
+                                "com.example",
+                                true,
+                                List.of("OrderController"),
+                                List.of("create"),
+                                List.of("PostMapping"),
+                                List.of("com.example.OrderService"),
+                                List.of("POST /orders"),
+                                400,
+                                1
+                        )
+                ),
+                List.of(
+                        new RepositoryGraphSnapshot.GraphEdge(
+                                "src/main/java/com/example/OrderController.java",
+                                "src/main/java/com/example/OrderService.java",
+                                "IMPORT_TARGET",
+                                "Controller imports changed service."
+                        ),
+                        new RepositoryGraphSnapshot.GraphEdge(
+                                "src/main/java/com/example/OrderService.java",
+                                "src/main/java/com/example/InventoryService.java",
+                                "IMPORT_TARGET",
+                                "Service imports inventory dependency."
+                        )
+                ),
+                List.of("src/main/java/com/example/OrderService.java"),
+                List.of("OrderService", "reserve", "POST /orders")
+        );
+
+        ReviewPlan plan = planner.plan(
+                List.of(reviewFile("src/main/java/com/example/OrderService.java", "+return inventoryService.reserve(order);")),
+                List.of(
+                        fileSummary("src/main/java/com/example/OrderService.java"),
+                        fileSummary("src/main/java/com/example/OrderController.java")
+                ),
+                List.of(
+                        semanticContext("src/main/java/com/example/OrderService.java", "OrderService"),
+                        semanticContext("src/main/java/com/example/OrderController.java", "OrderController")
+                ),
+                List.of(),
+                ReviewContext.ReviewImpactPlan.empty(),
+                graphSnapshot,
+                List.of(),
+                List.of(),
+                List.of()
+        );
+
+        assertThat(plan.priorityFiles())
+                .first()
+                .satisfies(priorityFile -> {
+                    assertThat(priorityFile.filePath()).isEqualTo("src/main/java/com/example/OrderService.java");
+                    assertThat(priorityFile.reasons())
+                            .contains("repository graph score", "repository graph degree");
+                });
+        assertThat(plan.fileFocuses())
+                .filteredOn(fileFocus -> fileFocus.filePath().equals("src/main/java/com/example/OrderService.java"))
+                .singleElement()
+                .satisfies(fileFocus -> {
+                    assertThat(fileFocus.focuses())
+                            .anyMatch(focus -> focus.contains("Trace repository graph symbols: OrderService"))
+                            .anyMatch(focus -> focus.contains("Trace repository graph methods: reserve"))
+                            .anyMatch(focus -> focus.contains("Trace repository graph routes: POST /orders"))
+                            .anyMatch(focus -> focus.contains("Review repository graph neighbors:"));
+                    assertThat(fileFocus.verificationHints())
+                            .contains("Use graph neighbors to validate cross-file impact and symbol propagation.");
+                });
+        assertThat(plan.verificationHints())
+                .contains("Use repository graph symbols and neighboring files to validate cross-file impact.");
+        assertThat(plan.requiresRepoContext()).isTrue();
+        assertThat(plan.confidence()).isGreaterThan(0.9);
+        assertThat(plan.plannerWarnings())
+                .doesNotContain("Repository graph snapshot was empty; symbol-aware retrieval is limited.");
+    }
+
     private ReviewFile reviewFile(String filePath, String patch) {
         ReviewFile reviewFile = new ReviewFile();
         reviewFile.setFilePath(filePath);
@@ -163,6 +261,19 @@ class SemanticReviewPlannerTest {
                 300,
                 true,
                 null
+        );
+    }
+
+    private ReviewContext.SemanticFileContext semanticContext(String filePath, String symbol) {
+        return new ReviewContext.SemanticFileContext(
+                filePath,
+                "java",
+                "com.example",
+                List.of(symbol),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of()
         );
     }
 }
