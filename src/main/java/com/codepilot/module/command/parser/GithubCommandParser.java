@@ -68,6 +68,13 @@ public class GithubCommandParser {
         }
 
         String commandText = removeMention(trimmed, mention).trim();
+        GithubCommand highConfidenceCommand = parseHighConfidenceMentionCommand(commandText);
+        if (highConfidenceCommand != null) {
+            if (!isLlmAvailable()) {
+                return unavailable(commandText, true);
+            }
+            return highConfidenceCommand;
+        }
         if (!isLlmAvailable()) {
             return unavailable(commandText, true);
         }
@@ -134,6 +141,84 @@ public class GithubCommandParser {
         } catch (IllegalArgumentException exception) {
             return GithubCommandType.UNKNOWN;
         }
+    }
+
+    private GithubCommand parseHighConfidenceMentionCommand(String commandText) {
+        String normalized = normalizeCommandText(commandText);
+        if (!StringUtils.hasText(normalized)) {
+            return null;
+        }
+        if (isReviewSummaryChat(normalized)) {
+            return new GithubCommand(GithubCommandType.CHAT, commandText, true, false);
+        }
+        if (isExplicitReviewCommand(normalized)) {
+            return new GithubCommand(GithubCommandType.REVIEW, commandText, true, false);
+        }
+        return null;
+    }
+
+    private boolean isReviewSummaryChat(String normalizedCommandText) {
+        return containsAny(normalizedCommandText,
+                "summarize",
+                "summary",
+                "explain",
+                "list",
+                "tell me",
+                "confirm",
+                "\u603b\u7ed3",
+                "\u89e3\u91ca",
+                "\u8bf4\u660e",
+                "\u5217\u51fa",
+                "\u8bc1\u636e")
+                && containsAny(normalizedCommandText,
+                "review",
+                "finding",
+                "findings",
+                "result",
+                "evidence",
+                "comment",
+                "issue",
+                "pr",
+                "pull request",
+                "\u95ee\u9898",
+                "\u5ba1\u67e5",
+                "\u8bc4\u8bba",
+                "\u8bc1\u636e");
+    }
+
+    private boolean isExplicitReviewCommand(String normalizedCommandText) {
+        return normalizedCommandText.equals("review")
+                || normalizedCommandText.equals("please review")
+                || normalizedCommandText.equals("review this pr")
+                || normalizedCommandText.equals("review this pull request")
+                || normalizedCommandText.equals("please review this pr")
+                || normalizedCommandText.equals("please review this pull request")
+                || normalizedCommandText.equals("run review")
+                || normalizedCommandText.equals("run a review")
+                || normalizedCommandText.equals("rerun review")
+                || normalizedCommandText.equals("re-run review");
+    }
+
+    private boolean containsAny(String text, String... needles) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        for (String needle : needles) {
+            if (StringUtils.hasText(needle) && text.contains(needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizeCommandText(String commandText) {
+        if (!StringUtils.hasText(commandText)) {
+            return "";
+        }
+        return commandText.trim()
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[`*_]", " ")
+                .replaceAll("\\s+", " ");
     }
 
     private String findMention(String body) {

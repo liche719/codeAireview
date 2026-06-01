@@ -13,6 +13,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class GithubCommandParserTest {
@@ -129,6 +130,25 @@ class GithubCommandParserTest {
 
         assertThat(command.getType()).isEqualTo(GithubCommandType.CHAT);
         assertThat(command.isMentionedBot()).isTrue();
+    }
+
+    @Test
+    void shouldPreferChatForReviewFindingSummaryEvenWhenClassifierWouldReturnReview() {
+        GithubCommandIntentAiAssistant assistant = mockAssistantReturning("""
+                {
+                  "type": "REVIEW",
+                  "dryRun": false,
+                  "reason": "contains the word review"
+                }
+                """);
+
+        GithubCommand command = parserWithAssistant(assistant).parse(
+                "@x-pilotx Please summarize the current review findings and list high risk findings with evidence."
+        );
+
+        assertThat(command.getType()).isEqualTo(GithubCommandType.CHAT);
+        assertThat(command.isMentionedBot()).isTrue();
+        verifyNoInteractions(assistant);
     }
 
     @Test

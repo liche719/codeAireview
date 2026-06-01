@@ -50,6 +50,45 @@ class ReviewResultMergerTest {
                 .satisfies(issue -> assertThat(issue.getIssueType()).isEqualTo("SQL_RISK"));
     }
 
+    @Test
+    void shouldKeepToolFindingForSameLineSqlConcatenationDuplicate() {
+        AiReviewIssue llmIssue = issue("SQL_RISK", "HIGH", "SQL risk");
+        llmIssue.setLineNumber(6);
+        llmIssue.setSource("LLM");
+        llmIssue.setDescription("The query is built with string concatenation and can lead to SQL injection.");
+        AiReviewIssue toolIssue = issue("SQL_RISK", "HIGH", "SQL string concatenation");
+        toolIssue.setLineNumber(6);
+        toolIssue.setSource("TOOL");
+        toolIssue.setRuleReference("SQL_RISK_RULE");
+        toolIssue.setDescription("Diff appears to construct SQL through string concatenation.");
+
+        AiReviewResult merged = merger.merge(result("model summary", llmIssue), result("tool summary", toolIssue));
+
+        assertThat(merged.getIssues()).singleElement()
+                .satisfies(issue -> {
+                    assertThat(issue.getSource()).isEqualTo("TOOL");
+                    assertThat(issue.getTitle()).isEqualTo("SQL string concatenation");
+                });
+    }
+
+    @Test
+    void shouldKeepDifferentSqlSubtypesOnSameLine() {
+        AiReviewIssue concatIssue = issue("SQL_RISK", "HIGH", "SQL string concatenation");
+        concatIssue.setLineNumber(6);
+        concatIssue.setSource("TOOL");
+        concatIssue.setDescription("Diff appears to construct SQL through string concatenation.");
+        AiReviewIssue selectAllIssue = issue("SQL_RISK", "LOW", "SQL query uses SELECT *");
+        selectAllIssue.setLineNumber(6);
+        selectAllIssue.setSource("TOOL");
+        selectAllIssue.setDescription("Diff contains SELECT *.");
+
+        AiReviewResult merged = merger.merge(null, result("tool summary", concatIssue, selectAllIssue));
+
+        assertThat(merged.getIssues())
+                .extracting(AiReviewIssue::getTitle)
+                .containsExactly("SQL string concatenation", "SQL query uses SELECT *");
+    }
+
     private static AiReviewResult result(String summary, AiReviewIssue... issues) {
         AiReviewResult result = new AiReviewResult();
         result.setSummary(summary);

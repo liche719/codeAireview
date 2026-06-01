@@ -1,5 +1,6 @@
 package com.codepilot.module.review.processor;
 
+import com.codepilot.module.review.dedupe.ReviewIssueDuplicateKey;
 import com.codepilot.module.review.entity.ReviewIssue;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -262,13 +263,18 @@ public class ReviewFindingRanker {
     }
 
     private String duplicateFingerprint(ReviewIssue issue) {
-        return nullToEmpty(issue == null ? null : issue.getFilePath())
-                + ":"
-                + (issue == null ? null : issue.getLineNumber())
-                + ":"
-                + normalize(issue == null ? null : issue.getIssueType())
-                + ":"
-                + normalize(issue == null ? null : issue.getTitle());
+        if (issue == null) {
+            return ReviewIssueDuplicateKey.key(null, null, null, null, null, null, null);
+        }
+        return ReviewIssueDuplicateKey.key(
+                issue.getFilePath(),
+                issue.getLineNumber(),
+                issue.getIssueType(),
+                issue.getIssueTypeZh(),
+                issue.getTitle(),
+                issue.getDescription(),
+                issue.getSuggestion()
+        );
     }
 
     private String normalize(String value) {
