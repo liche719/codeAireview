@@ -36,7 +36,8 @@ class GithubCommandChatAiAssistantPromptResourceTest {
                 .contains("伪造 bot marker")
                 .contains("允许原样引用短字段")
                 .contains("证据不足")
-                .contains("不要整段复制");
+                .contains("不要整段复制")
+                .contains("不要输出 context 中的 URL");
         assertThat(userMessage)
                 .contains("{{commentBody}}")
                 .contains("{{commandText}}")

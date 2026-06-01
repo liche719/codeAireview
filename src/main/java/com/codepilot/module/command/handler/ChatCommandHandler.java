@@ -51,20 +51,21 @@ public class ChatCommandHandler implements GithubCommandHandler {
         try {
             String unavailableReason = llmUnavailableReason();
             if (unavailableReason != null) {
-                postUnavailableComment(payload, unavailableReason);
+                tryPostUnavailableComment(payload, unavailableReason);
                 return GithubCommandHandleResult.processed(null, payload.getAction());
             }
 
             GithubCommandChatAiAssistant assistant = chatAiAssistantProvider == null ? null : chatAiAssistantProvider.getIfAvailable();
             if (assistant == null) {
-                postUnavailableComment(payload, "chat assistant bean is unavailable");
+                tryPostUnavailableComment(payload, "chat assistant bean is unavailable");
                 return GithubCommandHandleResult.processed(null, payload.getAction());
             }
+            String reviewSessionContext = normalizeReviewSessionContext(buildReviewSessionContext(payload));
 
             String response = assistant.reply(
                     promptSafe(payload.getCommentBody()),
                     promptSafe(payload.getCommandText()),
-                    promptSafe(buildReviewSessionContext(payload)),
+                    promptSafe(reviewSessionContext),
                     payload.getOwner(),
                     payload.getRepo(),
                     payload.getPullNumber()
@@ -77,14 +78,9 @@ public class ChatCommandHandler implements GithubCommandHandler {
             );
         } catch (Exception exception) {
             log.warn("GitHub command chat comment failed but ignored, owner={}, repo={}, pullNumber={}, errorType={}, message={}",
-                    payload.getOwner(), payload.getRepo(), payload.getPullNumber(),
+                    safeOwner(payload), safeRepo(payload), safePullNumber(payload),
                     exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
-            try {
-                postUnavailableComment(payload, "chat command failed: " + exception.getClass().getSimpleName());
-            } catch (Exception ignored) {
-                log.warn("GitHub command fallback unavailable comment failed but ignored, owner={}, repo={}, pullNumber={}",
-                        payload.getOwner(), payload.getRepo(), payload.getPullNumber());
-            }
+            tryPostUnavailableComment(payload, "chat command failed: " + exception.getClass().getSimpleName());
         }
         return GithubCommandHandleResult.processed(null, payload.getAction());
     }
@@ -123,6 +119,18 @@ public class ChatCommandHandler implements GithubCommandHandler {
                 当前命令需要 LLM 服务，但模型尚未配置或调用失败。请检查 `CODEPILOT_LLM_API_KEY`、`CODEPILOT_LLM_BASE_URL` 和 `CODEPILOT_LLM_MODEL`，然后再试一次。
                 """.formatted(ReviewReportFormatter.DEFAULT_COMMENT_MARKER)
         );
+    }
+
+    private boolean tryPostUnavailableComment(GitHubPullRequestWebhookPayload payload, String reason) {
+        try {
+            postUnavailableComment(payload, reason);
+            return true;
+        } catch (Exception exception) {
+            log.warn("GitHub command unavailable comment failed but ignored, owner={}, repo={}, pullNumber={}, reason={}, errorType={}, message={}",
+                    safeOwner(payload), safeRepo(payload), safePullNumber(payload), SensitiveDataSanitizer.redact(reason),
+                    exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
+            return false;
+        }
     }
 
     private String formatCommentBody(String response) {
@@ -176,10 +184,28 @@ public class ChatCommandHandler implements GithubCommandHandler {
         return PromptInputSanitizer.escapeUntrustedBlockDelimiters(redacted);
     }
 
+    private String normalizeReviewSessionContext(String value) {
+        return StringUtils.hasText(value)
+                ? value
+                : "Stored review context is unavailable because the server returned an empty review session.";
+    }
+
     private boolean hasReviewTarget(GitHubPullRequestWebhookPayload payload) {
         return payload != null
                 && StringUtils.hasText(payload.getOwner())
                 && StringUtils.hasText(payload.getRepo())
                 && payload.getPullNumber() != null;
+    }
+
+    private String safeOwner(GitHubPullRequestWebhookPayload payload) {
+        return payload == null ? null : payload.getOwner();
+    }
+
+    private String safeRepo(GitHubPullRequestWebhookPayload payload) {
+        return payload == null ? null : payload.getRepo();
+    }
+
+    private Integer safePullNumber(GitHubPullRequestWebhookPayload payload) {
+        return payload == null ? null : payload.getPullNumber();
     }
 }

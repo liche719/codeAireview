@@ -16,9 +16,11 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 class ChatCommandHandlerTest {
 
@@ -62,6 +64,25 @@ class ChatCommandHandlerTest {
         assertThat(bodyCaptor.getValue())
                 .contains(ReviewReportFormatter.DEFAULT_COMMENT_MARKER)
                 .contains("CodePilot AI");
+    }
+
+    @Test
+    void shouldNotRetryUnavailableCommentWhenPostingUnavailableCommentFails() {
+        GithubClient githubClient = mock(GithubClient.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<GithubCommandChatAiAssistant> provider = mock(ObjectProvider.class);
+        LlmProperties properties = enabledLlmProperties();
+        properties.setApiKey("");
+        doThrow(new IllegalStateException("github unavailable"))
+                .when(githubClient)
+                .createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(12), anyString());
+
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextProvider(null), properties);
+
+        handler.handle(payload("@x-pilotx 总结"));
+
+        verify(githubClient, times(1))
+                .createPullRequestComment(eq("liche719"), eq("codeAireview"), eq(12), anyString());
     }
 
     @Test
@@ -109,6 +130,33 @@ class ChatCommandHandlerTest {
 
         assertThat(bodyCaptor.getValue()).contains(ReviewReportFormatter.DEFAULT_COMMENT_MARKER);
         assertThat(bodyCaptor.getValue()).contains(chatReply);
+    }
+
+    @Test
+    void shouldNormalizeBlankReviewSessionContextBeforeCallingChatAssistant() {
+        GithubClient githubClient = mock(GithubClient.class);
+        GithubCommandChatAiAssistant assistant = mock(GithubCommandChatAiAssistant.class);
+        ReviewSessionContextBuilder contextBuilder = mock(ReviewSessionContextBuilder.class);
+
+        @SuppressWarnings("unchecked")
+        ObjectProvider<GithubCommandChatAiAssistant> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(assistant);
+        when(contextBuilder.build("liche719", "codeAireview", 12)).thenReturn("  ");
+        when(assistant.reply(anyString(), anyString(), anyString(), anyString(), anyString(), anyInt()))
+                .thenReturn("缺少可用的 stored review context。");
+
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, contextProvider(contextBuilder), enabledLlmProperties());
+
+        handler.handle(payload("@x-pilotx 总结"));
+
+        verify(assistant).reply(
+                eq("@x-pilotx 总结"),
+                eq(""),
+                eq("Stored review context is unavailable because the server returned an empty review session."),
+                eq("liche719"),
+                eq("codeAireview"),
+                eq(12)
+        );
     }
 
     @Test

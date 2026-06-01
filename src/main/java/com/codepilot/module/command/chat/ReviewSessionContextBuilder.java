@@ -234,6 +234,10 @@ public class ReviewSessionContextBuilder {
             return fallback;
         }
         String compact = SensitiveDataSanitizer.redactAndTruncate(value, Math.max(0, maxLength))
+                .replaceAll("(?i)https?://\\S+", "[URL_REDACTED]")
+                .replace("`", "'")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
                 .replaceAll("[\\p{Cntrl}&&[^\\r\\n\\t]]", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
