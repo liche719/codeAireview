@@ -47,7 +47,11 @@ public class ReviewSessionContextBuilder {
 
     public String build(String owner, String repo, Integer pullNumber) {
         if (!StringUtils.hasText(owner) || !StringUtils.hasText(repo) || pullNumber == null) {
-            return "No stored review context is available because the PR identity is incomplete.";
+            return """
+                    reviewSessionContextStatus: UNAVAILABLE
+                    hasSuccessfulReview: false
+                    reason: No stored review context is available because the PR identity is incomplete.
+                    """;
         }
 
         ReviewTask successfulTask = findLatestTask(owner, repo, pullNumber, ReviewTaskStatus.SUCCESS.name());
@@ -59,6 +63,8 @@ public class ReviewSessionContextBuilder {
         String freshness = freshness(successfulTask.getHeadSha(), currentHeadSha);
         List<ReviewIssue> rankedIssues = reviewFindingRanker.orderForPublish(loadIssues(successfulTask.getId()));
         StringBuilder context = new StringBuilder();
+        appendLine(context, "reviewSessionContextStatus: AVAILABLE");
+        appendLine(context, "hasSuccessfulReview: true");
         appendLine(context, "Latest stored PR review session:");
         appendLine(context, "- taskId: " + successfulTask.getId());
         appendLine(context, "- pr: " + owner + "/" + repo + "#" + pullNumber);
@@ -101,6 +107,8 @@ public class ReviewSessionContextBuilder {
     private String noSuccessfulReviewContext(String owner, String repo, Integer pullNumber) {
         ReviewTask latestTask = findLatestTask(owner, repo, pullNumber, null);
         StringBuilder context = new StringBuilder();
+        appendLine(context, "reviewSessionContextStatus: UNAVAILABLE");
+        appendLine(context, "hasSuccessfulReview: false");
         appendLine(context, "No successful stored review result is available for this PR yet.");
         appendLine(context, "- pr: " + owner + "/" + repo + "#" + pullNumber);
         if (latestTask != null) {

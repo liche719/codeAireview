@@ -63,9 +63,9 @@ public class ChatCommandHandler implements GithubCommandHandler {
             String reviewSessionContext = normalizeReviewSessionContext(buildReviewSessionContext(payload));
 
             String response = assistant.reply(
-                    promptSafe(payload.getCommentBody()),
-                    promptSafe(payload.getCommandText()),
-                    promptSafe(reviewSessionContext),
+                    promptSafeUserInput(payload.getCommentBody()),
+                    promptSafeUserInput(payload.getCommandText()),
+                    promptSafeServerContext(reviewSessionContext),
                     payload.getOwner(),
                     payload.getRepo(),
                     payload.getPullNumber()
@@ -105,12 +105,15 @@ public class ChatCommandHandler implements GithubCommandHandler {
     }
 
     private void postUnavailableComment(GitHubPullRequestWebhookPayload payload, String reason) {
+        if (!hasReviewTarget(payload)) {
+            throw new IllegalArgumentException("missing PR identity");
+        }
         log.info("Post GitHub command chat unavailable comment, owner={}, repo={}, pullNumber={}, reason={}",
-                payload.getOwner(), payload.getRepo(), payload.getPullNumber(), SensitiveDataSanitizer.redact(reason));
+                safeOwner(payload), safeRepo(payload), safePullNumber(payload), SensitiveDataSanitizer.redact(reason));
         githubClient.createPullRequestComment(
-                payload.getOwner(),
-                payload.getRepo(),
-                payload.getPullNumber(),
+                safeOwner(payload),
+                safeRepo(payload),
+                safePullNumber(payload),
                 """
                 %s
 
@@ -157,21 +160,21 @@ public class ChatCommandHandler implements GithubCommandHandler {
 
     private String buildReviewSessionContext(GitHubPullRequestWebhookPayload payload) {
         if (!hasReviewTarget(payload)) {
-            return "Stored review context is unavailable because the PR identity is incomplete.";
+            return unavailableReviewSessionContext("Stored review context is unavailable because the PR identity is incomplete.");
         }
         ReviewSessionContextBuilder contextBuilder = reviewSessionContextBuilderProvider == null
                 ? null
                 : reviewSessionContextBuilderProvider.getIfAvailable();
         if (contextBuilder == null) {
-            return "Stored review context is unavailable because the review session context builder is not configured.";
+            return unavailableReviewSessionContext("Stored review context is unavailable because the review session context builder is not configured.");
         }
         try {
             return contextBuilder.build(payload.getOwner(), payload.getRepo(), payload.getPullNumber());
         } catch (Exception exception) {
             log.warn("Failed to build GitHub command review session context, owner={}, repo={}, pullNumber={}, errorType={}, message={}",
-                    payload.getOwner(), payload.getRepo(), payload.getPullNumber(),
+                    safeOwner(payload), safeRepo(payload), safePullNumber(payload),
                     exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
-            return "Stored review context is unavailable because the server failed to load the latest review session.";
+            return unavailableReviewSessionContext("Stored review context is unavailable because the server failed to load the latest review session.");
         }
     }
 
@@ -179,15 +182,27 @@ public class ChatCommandHandler implements GithubCommandHandler {
         return StringUtils.hasText(value) ? value : fallback;
     }
 
-    private String promptSafe(String value) {
+    private String promptSafeUserInput(String value) {
         String redacted = SensitiveDataSanitizer.redact(safeText(value, ""));
         return PromptInputSanitizer.escapeUntrustedBlockDelimiters(redacted);
+    }
+
+    private String promptSafeServerContext(String value) {
+        return PromptInputSanitizer.escapeUntrustedBlockDelimiters(safeText(value, ""));
     }
 
     private String normalizeReviewSessionContext(String value) {
         return StringUtils.hasText(value)
                 ? value
-                : "Stored review context is unavailable because the server returned an empty review session.";
+                : unavailableReviewSessionContext("Stored review context is unavailable because the server returned an empty review session.");
+    }
+
+    private String unavailableReviewSessionContext(String reason) {
+        return """
+                reviewSessionContextStatus: UNAVAILABLE
+                hasSuccessfulReview: false
+                reason: %s
+                """.formatted(reason);
     }
 
     private boolean hasReviewTarget(GitHubPullRequestWebhookPayload payload) {

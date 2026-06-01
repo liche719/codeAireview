@@ -76,6 +76,8 @@ class ReviewSessionContextBuilderTest {
         String context = builder.build("liche719", "codeAireview", 7);
 
         assertThat(context)
+                .contains("reviewSessionContextStatus: AVAILABLE")
+                .contains("hasSuccessfulReview: true")
                 .contains("Latest stored PR review session:")
                 .contains("- taskId: 99")
                 .contains("- pr: liche719/codeAireview#7")
@@ -119,6 +121,8 @@ class ReviewSessionContextBuilderTest {
         String context = builder.build("liche719", "codeAireview", 7);
 
         assertThat(context)
+                .contains("reviewSessionContextStatus: UNAVAILABLE")
+                .contains("hasSuccessfulReview: false")
                 .contains("No successful stored review result is available")
                 .contains("latestTaskId: 100")
                 .contains("latestStatus: RUNNING")
@@ -242,6 +246,9 @@ class ReviewSessionContextBuilderTest {
         String context = builder.build("", "codeAireview", 7);
 
         assertThat(context).contains("PR identity is incomplete");
+        assertThat(context)
+                .contains("reviewSessionContextStatus: UNAVAILABLE")
+                .contains("hasSuccessfulReview: false");
         verifyNoInteractions(reviewTaskMapper, reviewIssueService);
     }
 

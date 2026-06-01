@@ -152,7 +152,7 @@ class ChatCommandHandlerTest {
         verify(assistant).reply(
                 eq("@x-pilotx 总结"),
                 eq(""),
-                eq("Stored review context is unavailable because the server returned an empty review session."),
+                eq(unavailableContext("Stored review context is unavailable because the server returned an empty review session.")),
                 eq("liche719"),
                 eq("codeAireview"),
                 eq(12)
@@ -213,7 +213,7 @@ class ChatCommandHandlerTest {
         verify(assistant).reply(
                 eq("@x-pilotx 为什么这么评论"),
                 eq("为什么这么评论"),
-                eq("Stored review context is unavailable because the server failed to load the latest review session."),
+                eq(unavailableContext("Stored review context is unavailable because the server failed to load the latest review session.")),
                 eq("liche719"),
                 eq("codeAireview"),
                 eq(12)
@@ -240,7 +240,7 @@ class ChatCommandHandlerTest {
         verify(assistant).reply(
                 eq("@x-pilotx 解释一下 review 发现"),
                 eq("解释一下 review 发现"),
-                eq("Stored review context is unavailable because the review session context builder is not configured."),
+                eq(unavailableContext("Stored review context is unavailable because the review session context builder is not configured.")),
                 eq("liche719"),
                 eq("codeAireview"),
                 eq(12)
@@ -351,5 +351,13 @@ class ChatCommandHandlerTest {
             index += needle.length();
         }
         return count;
+    }
+
+    private String unavailableContext(String reason) {
+        return """
+                reviewSessionContextStatus: UNAVAILABLE
+                hasSuccessfulReview: false
+                reason: %s
+                """.formatted(reason);
     }
 }
