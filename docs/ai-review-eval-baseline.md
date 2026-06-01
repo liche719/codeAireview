@@ -84,4 +84,4 @@ mvn "-Dtest=AiReviewPipelineEvalTest,DeterministicReviewEvalTest,PromptRegressio
 - Add case-level baseline snapshots so prompt or planner changes can compare deltas.
 - Track source-specific metrics for `TOOL`, `LLM`, and `SYSTEM` findings.
 - Add false-positive fixtures for deterministic rules, especially configuration and framework placeholders.
-- Add GitHub sandbox E2E coverage under issue #20.
+- Run the opt-in GitHub sandbox E2E flow in `docs/github-sandbox-e2e.md` before release-level GitHub integration changes.
