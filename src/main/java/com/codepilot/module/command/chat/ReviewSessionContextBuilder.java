@@ -126,7 +126,7 @@ public class ReviewSessionContextBuilder {
                 .orderByDesc(ReviewTask::getId)
                 .last("LIMIT 1");
         List<ReviewTask> tasks = reviewTaskMapper.selectList(query);
-        return tasks == null || tasks.isEmpty() ? null : tasks.getFirst();
+        return tasks == null || tasks.isEmpty() ? null : tasks.get(0);
     }
 
     private List<ReviewIssue> loadIssues(Long taskId) {

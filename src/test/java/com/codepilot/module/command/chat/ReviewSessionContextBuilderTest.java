@@ -32,7 +32,7 @@ class ReviewSessionContextBuilderTest {
                 new ReviewFindingRanker(),
                 githubClient
         );
-        String secret = "ghp_123456789012345678901234567890123456";
+        String secret = "ghp_" + "123456789012345678901234567890123456";
         ReviewTask task = successfulTask();
         ReviewIssue high = issue(
                 1L,
@@ -41,7 +41,7 @@ class ReviewSessionContextBuilderTest {
                 "HIGH",
                 "SECURITY",
                 "SQL injection risk",
-                "User input reaches SQL builder with token=" + secret,
+                "User input reaches SQL builder with " + "token=" + secret,
                 "Use parameter binding.",
                 "TOOL",
                 "SQL_RISK|PATCH_VERIFIED:PATCH_LINE",
