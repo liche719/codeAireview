@@ -65,6 +65,40 @@ class ReviewFindingRankerTest {
     }
 
     @Test
+    void shouldSuppressSameLineSqlConcatenationDuplicateEvenWhenTitleDiffers() {
+        ReviewIssue llmDuplicate = issue("HIGH", "SQL_RISK", "LLM", "PATCH_VERIFIED:PATCH_LINE", "SQL risk");
+        llmDuplicate.setDescription("The query is built with string concatenation and can lead to SQL injection.");
+        ReviewIssue toolDuplicate = issue("HIGH", "SQL_RISK", "TOOL", "SQL_RISK_RULE", "SQL string concatenation");
+        toolDuplicate.setDescription("Diff appears to construct SQL through string concatenation.");
+        toolDuplicate.setFilePath(llmDuplicate.getFilePath());
+        toolDuplicate.setLineNumber(llmDuplicate.getLineNumber());
+
+        List<ReviewIssue> ranked = ranker.rank(List.of(llmDuplicate, toolDuplicate));
+
+        assertThat(ranked.getFirst().getSource()).isEqualTo("TOOL");
+        assertThat(ranked.getFirst().getPublishDecision()).isEqualTo("PUBLISH");
+        assertThat(ranked.get(1).getSource()).isEqualTo("LLM");
+        assertThat(ranked.get(1).getPublishDecision()).isEqualTo("SUPPRESS");
+        assertThat(ranked.get(1).getSuppressionReason()).isEqualTo("duplicate finding");
+    }
+
+    @Test
+    void shouldKeepDifferentSqlSubtypesOnSameLine() {
+        ReviewIssue concatIssue = issue("HIGH", "SQL_RISK", "TOOL", "SQL_RISK_RULE", "SQL string concatenation");
+        concatIssue.setDescription("Diff appears to construct SQL through string concatenation.");
+        ReviewIssue selectAllIssue = issue("LOW", "SQL_RISK", "TOOL", "SQL_RISK_RULE", "SQL query uses SELECT *");
+        selectAllIssue.setDescription("Diff contains SELECT *.");
+        selectAllIssue.setFilePath(concatIssue.getFilePath());
+        selectAllIssue.setLineNumber(concatIssue.getLineNumber());
+
+        List<ReviewIssue> ranked = ranker.rank(List.of(concatIssue, selectAllIssue));
+
+        assertThat(ranked)
+                .extracting(ReviewIssue::getPublishDecision)
+                .containsExactly("PUBLISH", "PUBLISH");
+    }
+
+    @Test
     void shouldReusePersistedRankingWithoutRecomputing() {
         ReviewIssue persisted = issue("LOW", "STYLE", "LLM", null, "persisted");
         persisted.setFinalScore(77);
