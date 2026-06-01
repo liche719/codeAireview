@@ -2,6 +2,7 @@ package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.codepilot.common.util.SensitiveDataSanitizer;
+import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
@@ -30,24 +31,24 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
 
     private final ReviewReportFormatter reviewReportFormatter;
 
-    private final boolean commentEnabled;
+    private final GithubAuthTokenProvider githubAuthTokenProvider;
 
-    private final String githubToken;
+    private final boolean commentEnabled;
 
     public GitHubCommentServiceImpl(
             ReviewTaskMapper reviewTaskMapper,
             ReviewIssueService reviewIssueService,
             GithubClient githubClient,
             ReviewReportFormatter reviewReportFormatter,
-            @Value("${codepilot.github.comment-enabled:false}") boolean commentEnabled,
-            @Value("${codepilot.github.token:}") String githubToken
+            GithubAuthTokenProvider githubAuthTokenProvider,
+            @Value("${codepilot.github.comment-enabled:false}") boolean commentEnabled
     ) {
         this.reviewTaskMapper = reviewTaskMapper;
         this.reviewIssueService = reviewIssueService;
         this.githubClient = githubClient;
         this.reviewReportFormatter = reviewReportFormatter;
+        this.githubAuthTokenProvider = githubAuthTokenProvider;
         this.commentEnabled = commentEnabled;
-        this.githubToken = githubToken;
     }
 
     @Override
@@ -57,14 +58,14 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
                 log.info("Skip GitHub PR comment because comment is disabled, taskId={}", taskId);
                 return;
             }
-            if (!StringUtils.hasText(githubToken)) {
-                log.warn("Skip GitHub PR comment because GitHub token is missing, taskId={}", taskId);
-                return;
-            }
 
             ReviewTask task = reviewTaskMapper.selectById(taskId);
             if (task == null) {
                 log.warn("Skip GitHub PR comment because review task was not found, taskId={}", taskId);
+                return;
+            }
+            if (!githubAuthTokenProvider.canAuthenticate(task.getRepoOwner(), task.getRepoName())) {
+                log.warn("Skip GitHub PR comment because GitHub auth is missing, taskId={}", taskId);
                 return;
             }
 

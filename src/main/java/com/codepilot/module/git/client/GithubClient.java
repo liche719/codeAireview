@@ -2,6 +2,7 @@ package com.codepilot.module.git.client;
 
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.common.util.SensitiveDataSanitizer;
+import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.config.GithubProperties;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubIssueComment;
@@ -55,7 +56,7 @@ public class GithubClient {
 
     private final RestClient restClient;
 
-    private final String token;
+    private final GithubAuthTokenProvider githubAuthTokenProvider;
 
     private final GithubProperties githubProperties;
 
@@ -64,23 +65,27 @@ public class GithubClient {
     private volatile String authenticatedUserLogin;
 
     @Autowired
-    public GithubClient(GithubProperties githubProperties) {
-        this(
-                githubProperties == null ? new GithubProperties() : githubProperties,
-                RestClient.builder()
-                        .baseUrl(githubProperties == null ? "https://api.github.com" : githubProperties.getApiBaseUrl())
-                        .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
-                        .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
-                        .build(),
-                GithubClient::sleep
-        );
+    public GithubClient(GithubProperties githubProperties, GithubAuthTokenProvider githubAuthTokenProvider) {
+        GithubProperties safeProperties = githubProperties == null ? new GithubProperties() : githubProperties;
+        RestClient restClient = RestClient.builder()
+                .baseUrl(safeProperties.getApiBaseUrl())
+                .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
+                .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
+                .build();
+        this.githubProperties = safeProperties;
+        this.githubAuthTokenProvider = githubAuthTokenProvider == null
+                ? new GithubAuthTokenProvider(safeProperties, restClient)
+                : githubAuthTokenProvider;
+        this.restClient = restClient;
+        this.rateLimitSleeper = GithubClient::sleep;
     }
 
     GithubClient(String token, RestClient restClient, LongConsumer rateLimitSleeper) {
         GithubProperties properties = new GithubProperties();
         properties.setToken(token);
+        properties.setAuthMode(GithubProperties.AuthMode.PAT);
         this.githubProperties = properties;
-        this.token = token;
+        this.githubAuthTokenProvider = new GithubAuthTokenProvider(properties, restClient);
         this.restClient = restClient;
         this.rateLimitSleeper = rateLimitSleeper;
     }
@@ -88,7 +93,7 @@ public class GithubClient {
     GithubClient(GithubProperties githubProperties, RestClient restClient, LongConsumer rateLimitSleeper) {
         GithubProperties safeProperties = githubProperties == null ? new GithubProperties() : githubProperties;
         this.githubProperties = safeProperties;
-        this.token = safeProperties.getToken();
+        this.githubAuthTokenProvider = new GithubAuthTokenProvider(safeProperties, restClient);
         this.restClient = restClient;
         this.rateLimitSleeper = rateLimitSleeper;
     }
@@ -122,7 +127,7 @@ public class GithubClient {
         executeGithubRequest("failed to create GitHub PR comment", () -> {
             restClient.post()
                     .uri("/repos/{owner}/{repo}/issues/{issueNumber}/comments", owner, repo, pullNumber)
-                    .headers(this::setAuthorization)
+                    .headers(headers -> setAuthorization(headers, owner, repo))
                     .body(Map.of("body", body))
                     .retrieve()
                     .toBodilessEntity();
@@ -162,7 +167,7 @@ public class GithubClient {
         executeGithubRequest("failed to update GitHub PR comment", () -> {
             restClient.patch()
                     .uri("/repos/{owner}/{repo}/issues/comments/{commentId}", owner, repo, commentId)
-                    .headers(this::setAuthorization)
+                    .headers(headers -> setAuthorization(headers, owner, repo))
                     .body(Map.of("body", body))
                     .retrieve()
                     .toBodilessEntity();
@@ -196,7 +201,7 @@ public class GithubClient {
         GithubPullRequestDetail detail = executeGithubRequest("failed to get GitHub PR detail", () ->
                 restClient.get()
                     .uri("/repos/{owner}/{repo}/pulls/{pullNumber}", owner, repo, pullNumber)
-                    .headers(this::setAuthorization)
+                    .headers(headers -> setAuthorization(headers, owner, repo))
                     .retrieve()
                     .body(GithubPullRequestDetail.class)
         );
@@ -247,18 +252,11 @@ public class GithubClient {
                 return authenticatedUserLogin;
             }
             try {
-                Map<String, Object> response = executeGithubRequest("failed to resolve GitHub authenticated user login", () ->
-                        restClient.get()
-                        .uri("/user")
-                        .headers(this::setAuthorization)
-                        .retrieve()
-                        .body(new ParameterizedTypeReference<Map<String, Object>>() {
-                        })
-                );
-                if (response == null || response.get("login") == null) {
+                String login = githubAuthTokenProvider.resolveAuthenticatedLogin().orElse(null);
+                if (!StringUtils.hasText(login)) {
                     return null;
                 }
-                authenticatedUserLogin = response.get("login").toString();
+                authenticatedUserLogin = login;
                 log.info("GitHub authenticated user resolved, login={}", authenticatedUserLogin);
                 return authenticatedUserLogin;
             } catch (BusinessException exception) {
@@ -279,7 +277,7 @@ public class GithubClient {
                             .path("/repos/{owner}/{repo}/contents/{path}")
                             .queryParam("ref", ref)
                             .build(owner, repo, path))
-                    .headers(this::setAuthorization)
+                    .headers(headers -> setAuthorization(headers, owner, repo))
                     .retrieve()
                     .body(new ParameterizedTypeReference<Map<String, Object>>() {
                     })
@@ -317,7 +315,7 @@ public class GithubClient {
         executeGithubRequest("failed to create GitHub PR inline comment", () -> {
             restClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/{pullNumber}/comments", owner, repo, pullNumber)
-                    .headers(this::setAuthorization)
+                    .headers(headers -> setAuthorization(headers, owner, repo))
                     .body(Map.of(
                             "body", body,
                             "commit_id", commitId,
@@ -347,7 +345,7 @@ public class GithubClient {
                         .queryParam("per_page", PER_PAGE)
                         .queryParam("page", page)
                         .build(owner, repo, pullNumber))
-                .headers(this::setAuthorization)
+                .headers(headers -> setAuthorization(headers, owner, repo))
                 .retrieve()
                 .body(new ParameterizedTypeReference<List<GithubChangedFile>>() {
                 })
@@ -368,7 +366,7 @@ public class GithubClient {
                         .queryParam("per_page", PER_PAGE)
                         .queryParam("page", page)
                         .build(owner, repo, pullNumber))
-                .headers(this::setAuthorization)
+                .headers(headers -> setAuthorization(headers, owner, repo))
                 .retrieve()
                 .body(new ParameterizedTypeReference<List<GithubIssueComment>>() {
                 })
@@ -389,7 +387,7 @@ public class GithubClient {
                         .queryParam("per_page", PER_PAGE)
                         .queryParam("page", page)
                         .build(owner, repo, pullNumber))
-                .headers(this::setAuthorization)
+                .headers(headers -> setAuthorization(headers, owner, repo))
                 .retrieve()
                 .body(new ParameterizedTypeReference<List<GithubIssueComment>>() {
                 })
@@ -401,7 +399,7 @@ public class GithubClient {
         Map<String, Object> response = executeGithubRequest("failed to list GitHub PR linked issues", () ->
                 restClient.post()
                         .uri("/graphql")
-                        .headers(this::setAuthorization)
+                        .headers(headers -> setAuthorization(headers, owner, repo))
                         .body(Map.of(
                                 "query",
                                 """
@@ -548,7 +546,7 @@ public class GithubClient {
         Map<String, Object> issue = executeGithubRequest("failed to get GitHub linked issue detail", () ->
                 restClient.get()
                         .uri("/repos/{owner}/{repo}/issues/{issueNumber}", owner, repo, issueNumber)
-                        .headers(this::setAuthorization)
+                        .headers(headers -> setAuthorization(headers, owner, repo))
                         .retrieve()
                         .body(new ParameterizedTypeReference<Map<String, Object>>() {
                         })
@@ -809,10 +807,8 @@ public class GithubClient {
         }
     }
 
-    private void setAuthorization(HttpHeaders headers) {
-        if (StringUtils.hasText(token)) {
-            headers.setBearerAuth(token);
-        }
+    private void setAuthorization(HttpHeaders headers, String owner, String repo) {
+        githubAuthTokenProvider.setAuthorization(headers, owner, repo);
     }
 
     private static void sleep(long delayMillis) {

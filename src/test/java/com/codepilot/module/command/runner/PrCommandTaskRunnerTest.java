@@ -17,15 +17,16 @@ import com.codepilot.module.command.mapper.PrCommandTaskMapper;
 import com.codepilot.module.command.policy.FixPullRequestWritePolicy;
 import com.codepilot.module.command.service.PrCommandTaskLogService;
 import com.codepilot.module.command.state.PrCommandTaskStateManager;
+import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -82,7 +83,13 @@ class PrCommandTaskRunnerTest {
 
         private final FixSnippetBuilder fixSnippetBuilder = mock(FixSnippetBuilder.class);
 
-        private final FixRequestAssembler fixRequestAssembler = new FixRequestAssembler(properties, new ObjectMapper());
+        private final GithubAuthTokenProvider githubAuthTokenProvider = mock(GithubAuthTokenProvider.class);
+
+        private final FixRequestAssembler fixRequestAssembler = new FixRequestAssembler(
+                properties,
+                new ObjectMapper(),
+                githubAuthTokenProvider
+        );
 
         private final FixResultCommenter fixResultCommenter = new FixResultCommenter(githubClient);
 
@@ -116,7 +123,8 @@ class PrCommandTaskRunnerTest {
         );
 
         private TestContext() {
-            ReflectionTestUtils.setField(fixRequestAssembler, "githubToken", "github-token");
+            when(githubAuthTokenProvider.resolveToken("liche719", "codeAireview"))
+                    .thenReturn(Optional.of("github-token"));
         }
 
         private void stubRunnableFixTask() {

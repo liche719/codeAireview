@@ -71,7 +71,13 @@ codepilot:
     exclude-path-patterns: ${CODEPILOT_API_RATE_LIMIT_EXCLUDE_PATH_PATTERNS:}
   github:
     api-base-url: https://api.github.com
+    auth-mode: ${CODEPILOT_GITHUB_AUTH_MODE:auto}
     token: ${CODEPILOT_GITHUB_TOKEN:}
+    app-id: ${CODEPILOT_GITHUB_APP_ID:}
+    app-private-key: ${CODEPILOT_GITHUB_APP_PRIVATE_KEY:}
+    app-private-key-base64: ${CODEPILOT_GITHUB_APP_PRIVATE_KEY_BASE64:}
+    app-installation-id: ${CODEPILOT_GITHUB_APP_INSTALLATION_ID:}
+    app-token-cache-skew-seconds: ${CODEPILOT_GITHUB_APP_TOKEN_CACHE_SKEW_SECONDS:60}
     comment-enabled: ${CODEPILOT_GITHUB_COMMENT_ENABLED:false}
     comment-marker: "${CODEPILOT_GITHUB_COMMENT_MARKER:<!-- codepilot-ai-review:liche719/codeAireview -->}"
     inline-comment-enabled: ${CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED:false}
