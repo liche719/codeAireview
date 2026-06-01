@@ -32,5 +32,11 @@ public class GitPatchExecutionRequest {
 
     private int validationTimeoutSeconds;
 
+    private ValidationExecutionMode validationExecutionMode = ValidationExecutionMode.LOCAL;
+
+    private String validationDockerImage;
+
+    private String validationDockerNetwork = "none";
+
     private boolean dryRun;
 }

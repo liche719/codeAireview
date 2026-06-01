@@ -100,6 +100,9 @@ codepilot:
     fix-validation-allow-build-commands: ${CODEPILOT_GITHUB_FIX_VALIDATION_ALLOW_BUILD_COMMANDS:false}
     fix-validation-inherit-environment: ${CODEPILOT_GITHUB_FIX_VALIDATION_INHERIT_ENVIRONMENT:false}
     fix-validation-timeout-seconds: ${CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS:300}
+    fix-validation-execution-mode: ${CODEPILOT_GITHUB_FIX_VALIDATION_EXECUTION_MODE:local}
+    fix-validation-docker-image: ${CODEPILOT_GITHUB_FIX_VALIDATION_DOCKER_IMAGE:}
+    fix-validation-docker-network: ${CODEPILOT_GITHUB_FIX_VALIDATION_DOCKER_NETWORK:none}
   review:
     max-files-per-task: ${CODEPILOT_REVIEW_MAX_FILES_PER_TASK:30}
     max-summary-findings: ${CODEPILOT_REVIEW_MAX_SUMMARY_FINDINGS:20}

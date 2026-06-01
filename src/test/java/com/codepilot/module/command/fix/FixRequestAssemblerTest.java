@@ -3,6 +3,7 @@ package com.codepilot.module.command.fix;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.git.GitPatchExecutionRequest;
+import com.codepilot.module.command.git.ValidationExecutionMode;
 import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.review.entity.ReviewIssue;
@@ -40,6 +41,9 @@ class FixRequestAssemblerTest {
         properties.setFixValidationAllowBuildCommands(true);
         properties.setFixValidationInheritEnvironment(false);
         properties.setFixValidationTimeoutSeconds(12);
+        properties.setFixValidationExecutionMode(ValidationExecutionMode.DOCKER);
+        properties.setFixValidationDockerImage("maven:3.9-eclipse-temurin-21");
+        properties.setFixValidationDockerNetwork("none");
         GithubAuthTokenProvider githubAuthTokenProvider = mock(GithubAuthTokenProvider.class);
         when(githubAuthTokenProvider.resolveToken("liche719", "codeAireview")).thenReturn(Optional.of("github-token"));
         FixRequestAssembler assembler = new FixRequestAssembler(properties, new ObjectMapper(), githubAuthTokenProvider);
@@ -63,6 +67,9 @@ class FixRequestAssemblerTest {
         assertThat(request.isAllowBuildValidationCommands()).isTrue();
         assertThat(request.isInheritValidationEnvironment()).isFalse();
         assertThat(request.getValidationTimeoutSeconds()).isEqualTo(12);
+        assertThat(request.getValidationExecutionMode()).isEqualTo(ValidationExecutionMode.DOCKER);
+        assertThat(request.getValidationDockerImage()).isEqualTo("maven:3.9-eclipse-temurin-21");
+        assertThat(request.getValidationDockerNetwork()).isEqualTo("none");
         assertThat(request.isDryRun()).isTrue();
     }
 

@@ -14,11 +14,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
@@ -30,7 +32,19 @@ public class JGitPatchExecutor implements GitPatchExecutor {
 
     private static final int MAX_VALIDATION_OUTPUT_CHARS = 12000;
 
+    private static final String DOCKER_EXECUTABLE = "docker";
+
+    private static final String DOCKER_CONTAINER_WORKDIR = "/workspace";
+
+    private static final String DEFAULT_DOCKER_NETWORK = "none";
+
+    private static final int DOCKER_CLEANUP_TIMEOUT_SECONDS = 10;
+
     private static final Pattern SAFE_VALIDATION_TOKEN_PATTERN = Pattern.compile("[A-Za-z0-9._:/=+%,~-]+");
+
+    private static final Pattern SAFE_DOCKER_IMAGE_PATTERN = Pattern.compile("[A-Za-z0-9._:/@-]+");
+
+    private static final Pattern SAFE_DOCKER_NETWORK_PATTERN = Pattern.compile("[A-Za-z0-9._-]+");
 
     private static final Set<String> BLOCKED_VALIDATION_EXECUTABLES = Set.of(
             "sh",
@@ -126,13 +140,21 @@ public class JGitPatchExecutor implements GitPatchExecutor {
 
                 stage = "validate";
                 int validationTimeoutSeconds = resolveValidationTimeoutSeconds(request);
-                log.info("Git patch execution stage start, stage={}, branch={}, validationCommand={}, timeoutSeconds={}",
-                        stage, branch, SensitiveDataSanitizer.redact(request.getValidationCommand()), validationTimeoutSeconds);
+                ValidationExecutionMode validationExecutionMode = resolveValidationExecutionMode(request.getValidationExecutionMode());
+                log.info("Git patch execution stage start, stage={}, branch={}, validationCommand={}, executionMode={}, timeoutSeconds={}",
+                        stage,
+                        branch,
+                        SensitiveDataSanitizer.redact(request.getValidationCommand()),
+                        validationExecutionMode,
+                        validationTimeoutSeconds);
                 GitPatchExecutionResult validationResult = validate(
                         workDir,
                         request.getValidationCommand(),
                         request.getAllowedValidationCommands(),
                         request.isAllowBuildValidationCommands(),
+                        validationExecutionMode,
+                        request.getValidationDockerImage(),
+                        request.getValidationDockerNetwork(),
                         request.isInheritValidationEnvironment(),
                         validationTimeoutSeconds
                 );
@@ -225,17 +247,27 @@ public class JGitPatchExecutor implements GitPatchExecutor {
     }
 
     private void validateValidationCommandPolicy(GitPatchExecutionRequest request) {
-        if (request == null
-                || request.isAllowBuildValidationCommands()
-                || !StringUtils.hasText(request.getValidationCommand())) {
+        if (request == null || !StringUtils.hasText(request.getValidationCommand())) {
             return;
         }
         ValidationCommand validationCommand = parseValidationCommand(request.getValidationCommand());
-        if (isBuildValidationCommand(validationCommand)) {
+        boolean buildValidationCommand = isBuildValidationCommand(validationCommand);
+        ValidationExecutionMode executionMode = resolveValidationExecutionMode(request.getValidationExecutionMode());
+        if (buildValidationCommand && !request.isAllowBuildValidationCommands()) {
             throw new IllegalArgumentException(
                     "Validation command may execute PR code and is disabled by default. "
                             + "Set codepilot.github.fix-validation-allow-build-commands=true only inside an isolated sandbox."
             );
+        }
+        if (buildValidationCommand && executionMode != ValidationExecutionMode.DOCKER) {
+            throw new IllegalArgumentException(
+                    "Build validation commands require Docker sandbox execution mode. "
+                            + "Set codepilot.github.fix-validation-execution-mode=docker and configure "
+                            + "codepilot.github.fix-validation-docker-image."
+            );
+        }
+        if (executionMode == ValidationExecutionMode.DOCKER) {
+            validateDockerSandboxConfig(request.getValidationDockerImage(), request.getValidationDockerNetwork());
         }
     }
 
@@ -250,6 +282,9 @@ public class JGitPatchExecutor implements GitPatchExecutor {
             String validationCommand,
             List<String> allowedValidationCommands,
             boolean allowBuildValidationCommands,
+            ValidationExecutionMode validationExecutionMode,
+            String validationDockerImage,
+            String validationDockerNetwork,
             boolean inheritValidationEnvironment,
             int timeoutSeconds
     )
@@ -274,13 +309,41 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                     )
             );
         }
-        if (!allowBuildValidationCommands && isBuildValidationCommand(parsedCommand)) {
+        boolean buildValidationCommand = isBuildValidationCommand(parsedCommand);
+        ValidationExecutionMode executionMode = resolveValidationExecutionMode(validationExecutionMode);
+        if (!allowBuildValidationCommands && buildValidationCommand) {
             return GitPatchExecutionResult.failure(
                     "Validation command may execute PR code and is disabled by default.",
                     "command=" + parsedCommand.normalized()
                             + ", set codepilot.github.fix-validation-allow-build-commands=true only inside an isolated sandbox"
             );
         }
+        if (buildValidationCommand && executionMode != ValidationExecutionMode.DOCKER) {
+            return GitPatchExecutionResult.failure(
+                    "Build validation commands require Docker sandbox execution mode.",
+                    "command=" + parsedCommand.normalized()
+                            + ", executionMode=" + executionMode
+                            + ", set codepilot.github.fix-validation-execution-mode=docker"
+            );
+        }
+        if (executionMode == ValidationExecutionMode.DOCKER) {
+            return validateInDockerSandbox(
+                    workDir,
+                    parsedCommand,
+                    validationDockerImage,
+                    validationDockerNetwork,
+                    timeoutSeconds
+            );
+        }
+        return validateLocally(workDir, parsedCommand, inheritValidationEnvironment, timeoutSeconds);
+    }
+
+    private GitPatchExecutionResult validateLocally(
+            Path workDir,
+            ValidationCommand parsedCommand,
+            boolean inheritValidationEnvironment,
+            int timeoutSeconds
+    ) throws IOException, InterruptedException {
         Path outputFile = Files.createTempFile("codepilot-validation-", ".log");
         try {
             ProcessBuilder processBuilder = new ProcessBuilder(parsedCommand.tokens());
@@ -307,6 +370,244 @@ public class JGitPatchExecutor implements GitPatchExecutor {
             return GitPatchExecutionResult.success(null, "Validation command passed.", output);
         } finally {
             deleteFileQuietly(outputFile);
+        }
+    }
+
+    private GitPatchExecutionResult validateInDockerSandbox(
+            Path workDir,
+            ValidationCommand parsedCommand,
+            String validationDockerImage,
+            String validationDockerNetwork,
+            int timeoutSeconds
+    ) throws IOException, InterruptedException {
+        try {
+            validateDockerSandboxConfig(validationDockerImage, validationDockerNetwork);
+        } catch (IllegalArgumentException exception) {
+            return GitPatchExecutionResult.failure(
+                    "Docker sandbox validation is not configured safely.",
+                    SensitiveDataSanitizer.redact(exception.getMessage())
+            );
+        }
+
+        String containerName = dockerValidationContainerName();
+        String dockerImage = normalizeDockerImage(validationDockerImage);
+        String dockerNetwork = normalizeDockerNetwork(validationDockerNetwork);
+        Path outputFile = Files.createTempFile("codepilot-validation-docker-", ".log");
+        try {
+            DockerCommandResult createResult = runDockerCommand(
+                    buildDockerCreateCommand(containerName, dockerImage, dockerNetwork, parsedCommand.tokens()),
+                    outputFile,
+                    Math.min(timeoutSeconds, 60)
+            );
+            if (!createResult.success()) {
+                return dockerValidationFailure("Docker sandbox container creation failed.", createResult, outputFile);
+            }
+
+            DockerCommandResult copyResult = runDockerCommand(
+                    buildDockerCopyCommand(workDir, containerName),
+                    outputFile,
+                    timeoutSeconds
+            );
+            if (!copyResult.success()) {
+                return dockerValidationFailure("Docker sandbox workspace copy failed.", copyResult, outputFile);
+            }
+
+            DockerCommandResult startResult = runDockerCommand(
+                    buildDockerStartCommand(containerName),
+                    outputFile,
+                    timeoutSeconds
+            );
+            String output = sanitizedValidationOutput(outputFile);
+            if (startResult.timedOut()) {
+                return GitPatchExecutionResult.failure(
+                        "Docker sandbox validation timed out after " + timeoutSeconds + " seconds.",
+                        output
+                );
+            }
+            if (startResult.exitCode() != 0) {
+                return GitPatchExecutionResult.failure(
+                        "Docker sandbox validation failed with exit code " + startResult.exitCode(),
+                        output
+                );
+            }
+            return GitPatchExecutionResult.success(null, "Docker sandbox validation command passed.", output);
+        } finally {
+            cleanupDockerContainer(containerName);
+            deleteFileQuietly(outputFile);
+        }
+    }
+
+    private GitPatchExecutionResult dockerValidationFailure(
+            String message,
+            DockerCommandResult result,
+            Path outputFile
+    ) throws IOException {
+        String detail = sanitizedValidationOutput(outputFile);
+        if (result.timedOut()) {
+            return GitPatchExecutionResult.failure(message + " Timed out.", detail);
+        }
+        return GitPatchExecutionResult.failure(message + " Exit code " + result.exitCode() + ".", detail);
+    }
+
+    private DockerCommandResult runDockerCommand(
+            List<String> command,
+            Path outputFile,
+            int timeoutSeconds
+    ) throws IOException, InterruptedException {
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        sanitizeDockerClientEnvironment(processBuilder.environment());
+        processBuilder.redirectErrorStream(true);
+        processBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(outputFile.toFile()));
+        Process process = processBuilder.start();
+        boolean completed = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        if (!completed) {
+            process.destroyForcibly();
+            process.waitFor(5, TimeUnit.SECONDS);
+            return new DockerCommandResult(-1, true);
+        }
+        return new DockerCommandResult(process.exitValue(), false);
+    }
+
+    List<String> buildDockerCreateCommand(
+            String containerName,
+            String dockerImage,
+            String dockerNetwork,
+            List<String> validationTokens
+    ) {
+        List<String> command = new ArrayList<>();
+        command.add(DOCKER_EXECUTABLE);
+        command.add("create");
+        command.add("--name");
+        command.add(containerName);
+        command.add("--label");
+        command.add("codepilot.validation=true");
+        command.add("--network");
+        command.add(normalizeDockerNetwork(dockerNetwork));
+        command.add("--workdir");
+        command.add(DOCKER_CONTAINER_WORKDIR);
+        command.add("--cap-drop");
+        command.add("ALL");
+        command.add("--security-opt");
+        command.add("no-new-privileges");
+        command.add("--pids-limit");
+        command.add("256");
+        command.add("--memory");
+        command.add("1g");
+        command.add("--cpus");
+        command.add("1.0");
+        command.add(normalizeDockerImage(dockerImage));
+        command.addAll(validationTokens == null ? List.of() : validationTokens);
+        return List.copyOf(command);
+    }
+
+    List<String> buildDockerCopyCommand(Path workDir, String containerName) {
+        return List.of(
+                DOCKER_EXECUTABLE,
+                "cp",
+                dockerCopySource(workDir),
+                containerName + ":" + DOCKER_CONTAINER_WORKDIR
+        );
+    }
+
+    List<String> buildDockerStartCommand(String containerName) {
+        return List.of(DOCKER_EXECUTABLE, "start", "--attach", containerName);
+    }
+
+    List<String> buildDockerRemoveCommand(String containerName) {
+        return List.of(DOCKER_EXECUTABLE, "rm", "--force", containerName);
+    }
+
+    private void cleanupDockerContainer(String containerName) {
+        try {
+            ProcessBuilder processBuilder = new ProcessBuilder(buildDockerRemoveCommand(containerName));
+            sanitizeDockerClientEnvironment(processBuilder.environment());
+            processBuilder.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+            processBuilder.redirectError(ProcessBuilder.Redirect.DISCARD);
+            Process process = processBuilder.start();
+            boolean completed = process.waitFor(DOCKER_CLEANUP_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!completed) {
+                process.destroyForcibly();
+                process.waitFor(5, TimeUnit.SECONDS);
+            }
+        } catch (Exception ignored) {
+            // Best effort cleanup for sandbox containers.
+        }
+    }
+
+    String dockerCopySource(Path workDir) {
+        Path normalizedWorkDir = workDir.toAbsolutePath().normalize();
+        return normalizedWorkDir.toString().replace('\\', '/') + "/.";
+    }
+
+    String dockerValidationContainerName() {
+        return "codepilot-validation-" + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private void validateDockerSandboxConfig(String dockerImage, String dockerNetwork) {
+        if (!isSafeDockerImage(dockerImage)) {
+            throw new IllegalArgumentException(
+                    "Docker validation mode requires a safe codepilot.github.fix-validation-docker-image value"
+            );
+        }
+        if (!isSafeDockerNetwork(dockerNetwork)) {
+            throw new IllegalArgumentException(
+                    "Docker validation mode requires a safe codepilot.github.fix-validation-docker-network value"
+            );
+        }
+    }
+
+    private boolean isSafeDockerImage(String dockerImage) {
+        String normalized = normalizeDockerImage(dockerImage);
+        return StringUtils.hasText(normalized)
+                && !normalized.startsWith("-")
+                && !normalized.contains("..")
+                && SAFE_DOCKER_IMAGE_PATTERN.matcher(normalized).matches();
+    }
+
+    private boolean isSafeDockerNetwork(String dockerNetwork) {
+        String normalized = normalizeDockerNetwork(dockerNetwork);
+        return StringUtils.hasText(normalized)
+                && !normalized.startsWith("-")
+                && !normalized.contains("..")
+                && SAFE_DOCKER_NETWORK_PATTERN.matcher(normalized).matches();
+    }
+
+    private String normalizeDockerImage(String dockerImage) {
+        return dockerImage == null ? "" : dockerImage.trim();
+    }
+
+    private String normalizeDockerNetwork(String dockerNetwork) {
+        if (!StringUtils.hasText(dockerNetwork)) {
+            return DEFAULT_DOCKER_NETWORK;
+        }
+        return dockerNetwork.trim();
+    }
+
+    private ValidationExecutionMode resolveValidationExecutionMode(ValidationExecutionMode validationExecutionMode) {
+        return validationExecutionMode == null ? ValidationExecutionMode.LOCAL : validationExecutionMode;
+    }
+
+    void sanitizeDockerClientEnvironment(Map<String, String> environment) {
+        Map<String, String> inheritedSafeValues = new HashMap<>();
+        keepEnvironmentValue(environment, inheritedSafeValues, "PATH");
+        keepEnvironmentValue(environment, inheritedSafeValues, "Path");
+        keepEnvironmentValue(environment, inheritedSafeValues, "SystemRoot");
+        keepEnvironmentValue(environment, inheritedSafeValues, "WINDIR");
+        keepEnvironmentValue(environment, inheritedSafeValues, "HOME");
+        keepEnvironmentValue(environment, inheritedSafeValues, "USERPROFILE");
+        keepEnvironmentValue(environment, inheritedSafeValues, "DOCKER_HOST");
+        keepEnvironmentValue(environment, inheritedSafeValues, "DOCKER_CONTEXT");
+        keepEnvironmentValue(environment, inheritedSafeValues, "DOCKER_TLS_VERIFY");
+        keepEnvironmentValue(environment, inheritedSafeValues, "DOCKER_CERT_PATH");
+        keepEnvironmentValue(environment, inheritedSafeValues, "DOCKER_CONFIG");
+        environment.clear();
+        environment.putAll(inheritedSafeValues);
+    }
+
+    private record DockerCommandResult(int exitCode, boolean timedOut) {
+
+        private boolean success() {
+            return !timedOut && exitCode == 0;
         }
     }
 

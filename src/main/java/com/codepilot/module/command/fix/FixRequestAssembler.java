@@ -57,6 +57,9 @@ public class FixRequestAssembler {
         request.setAllowBuildValidationCommands(properties.isFixValidationAllowBuildCommands());
         request.setInheritValidationEnvironment(properties.isFixValidationInheritEnvironment());
         request.setValidationTimeoutSeconds(properties.getFixValidationTimeoutSeconds());
+        request.setValidationExecutionMode(properties.getFixValidationExecutionMode());
+        request.setValidationDockerImage(properties.getFixValidationDockerImage());
+        request.setValidationDockerNetwork(properties.getFixValidationDockerNetwork());
         request.setDryRun(Boolean.TRUE.equals(task.getDryRun()));
         return request;
     }
