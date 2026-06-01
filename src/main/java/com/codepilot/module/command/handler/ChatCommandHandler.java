@@ -126,6 +126,9 @@ public class ChatCommandHandler implements GithubCommandHandler {
     }
 
     private String buildReviewSessionContext(GitHubPullRequestWebhookPayload payload) {
+        if (reviewSessionContextBuilder == null) {
+            return "Stored review context is unavailable because the review session context builder is not configured.";
+        }
         try {
             return reviewSessionContextBuilder.build(payload.getOwner(), payload.getRepo(), payload.getPullNumber());
         } catch (Exception exception) {

@@ -129,6 +129,33 @@ class ChatCommandHandlerTest {
     }
 
     @Test
+    void shouldFallbackWhenReviewSessionContextBuilderIsMissing() {
+        GithubClient githubClient = mock(GithubClient.class);
+        GithubCommandChatAiAssistant assistant = mock(GithubCommandChatAiAssistant.class);
+
+        @SuppressWarnings("unchecked")
+        ObjectProvider<GithubCommandChatAiAssistant> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(assistant);
+        when(assistant.reply(anyString(), anyString(), anyString(), anyString(), anyString(), anyInt()))
+                .thenReturn("暂时拿不到上一轮 review 上下文。");
+
+        ChatCommandHandler handler = new ChatCommandHandler(githubClient, provider, null, enabledLlmProperties());
+        GitHubPullRequestWebhookPayload payload = payload("@x-pilotx 解释一下 review 发现");
+        payload.setCommandText("解释一下 review 发现");
+
+        handler.handle(payload);
+
+        verify(assistant).reply(
+                eq("@x-pilotx 解释一下 review 发现"),
+                eq("解释一下 review 发现"),
+                eq("Stored review context is unavailable because the review session context builder is not configured."),
+                eq("liche719"),
+                eq("codeAireview"),
+                eq(12)
+        );
+    }
+
+    @Test
     void shouldRedactAndRemoveModelGeneratedMarkerFromChatComment() {
         GithubClient githubClient = mock(GithubClient.class);
         GithubCommandChatAiAssistant assistant = mock(GithubCommandChatAiAssistant.class);

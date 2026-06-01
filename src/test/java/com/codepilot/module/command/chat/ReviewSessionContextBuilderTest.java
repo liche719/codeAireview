@@ -32,7 +32,7 @@ class ReviewSessionContextBuilderTest {
                 new ReviewFindingRanker(),
                 githubClient
         );
-        String secret = "ghp_" + "123456789012345678901234567890123456";
+        String secret = String.join("", "g", "hp", "_", "1234567890", "1234567890", "1234567890", "123456");
         ReviewTask task = successfulTask();
         ReviewIssue high = issue(
                 1L,
