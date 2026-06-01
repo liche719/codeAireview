@@ -1,8 +1,9 @@
 package com.codepilot.module.command.handler;
 
-import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.common.util.PromptInputSanitizer;
 import com.codepilot.common.util.SensitiveDataSanitizer;
+import com.codepilot.infrastructure.llm.LlmProperties;
+import com.codepilot.module.command.chat.ReviewSessionContextBuilder;
 import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.command.dto.GithubCommandType;
 import com.codepilot.module.git.client.GithubClient;
@@ -21,9 +22,14 @@ public class ChatCommandHandler implements GithubCommandHandler {
 
     private static final int MAX_CHAT_COMMENT_LENGTH = 4000;
 
+    private static final String DEFAULT_CHAT_RESPONSE =
+            "我可以帮你总结这个 PR、解释 review 发现，或根据最新审查结果说明证据。";
+
     private final GithubClient githubClient;
 
     private final ObjectProvider<GithubCommandChatAiAssistant> chatAiAssistantProvider;
+
+    private final ReviewSessionContextBuilder reviewSessionContextBuilder;
 
     private final LlmProperties llmProperties;
 
@@ -49,6 +55,7 @@ public class ChatCommandHandler implements GithubCommandHandler {
             String response = assistant.reply(
                     promptSafe(payload.getCommentBody()),
                     promptSafe(payload.getCommandText()),
+                    promptSafe(buildReviewSessionContext(payload)),
                     payload.getOwner(),
                     payload.getRepo(),
                     payload.getPullNumber()
@@ -82,7 +89,7 @@ public class ChatCommandHandler implements GithubCommandHandler {
     }
 
     private void postUnavailableComment(GitHubPullRequestWebhookPayload payload) {
-                githubClient.createPullRequestComment(
+        githubClient.createPullRequestComment(
                 payload.getOwner(),
                 payload.getRepo(),
                 payload.getPullNumber(),
@@ -99,7 +106,7 @@ public class ChatCommandHandler implements GithubCommandHandler {
     private String formatCommentBody(String response) {
         String content = StringUtils.hasText(response)
                 ? sanitizeAssistantResponse(response)
-                : "我可以帮你审查这个 PR、修复一个具体问题，或者总结一下变更。";
+                : DEFAULT_CHAT_RESPONSE;
         return ReviewReportFormatter.DEFAULT_COMMENT_MARKER + "\n\n" + content;
     }
 
@@ -109,13 +116,24 @@ public class ChatCommandHandler implements GithubCommandHandler {
                 .replace("\u0000", "")
                 .trim();
         if (!StringUtils.hasText(safe)) {
-            return "我可以帮你审查这个 PR、修复一个具体问题，或者总结一下变更。";
+            return DEFAULT_CHAT_RESPONSE;
         }
         if (safe.length() <= MAX_CHAT_COMMENT_LENGTH) {
             return safe;
         }
         return SensitiveDataSanitizer.truncatePreservingRedactionMarker(safe, MAX_CHAT_COMMENT_LENGTH)
                 + "\n\n... truncated ...";
+    }
+
+    private String buildReviewSessionContext(GitHubPullRequestWebhookPayload payload) {
+        try {
+            return reviewSessionContextBuilder.build(payload.getOwner(), payload.getRepo(), payload.getPullNumber());
+        } catch (Exception exception) {
+            log.warn("Failed to build GitHub command review session context, owner={}, repo={}, pullNumber={}, errorType={}, message={}",
+                    payload.getOwner(), payload.getRepo(), payload.getPullNumber(),
+                    exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
+            return "Stored review context is unavailable because the server failed to load the latest review session.";
+        }
     }
 
     private String safeText(String value, String fallback) {
