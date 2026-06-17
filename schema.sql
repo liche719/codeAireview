@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS rule_chunk (
     document_id BIGINT NOT NULL,
     chunk_index INT NOT NULL,
     content TEXT NOT NULL,
-    embedding VECTOR,
+    embedding VECTOR(1536),
     type VARCHAR(64),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

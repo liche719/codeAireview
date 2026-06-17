@@ -2,10 +2,10 @@ package com.codepilot.infrastructure.llm;
 
 import dev.langchain4j.model.chat.Capability;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.DisabledChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -28,16 +28,19 @@ public class LangChain4jConfig {
     @Bean
     @Primary
     @SuppressWarnings("deprecation")
-    @ConditionalOnProperty(prefix = "codepilot.llm", name = "enabled", havingValue = "true", matchIfMissing = true)
     public ChatModel codeReviewChatModel() {
+        if (!llmProperties.isEnabled()) {
+            log.info("LangChain4j ChatModel uses disabled model because codepilot.llm.enabled=false");
+            return new DisabledChatModel();
+        }
         if (!StringUtils.hasText(llmProperties.getApiKey())) {
-            log.info("LangChain4j ChatModel bean was not created because codepilot.llm.api-key is empty");
-            return null;
+            log.info("LangChain4j ChatModel uses disabled model because codepilot.llm.api-key is empty");
+            return new DisabledChatModel();
         }
         if (!isOpenAiCompatibleProvider()) {
-            log.warn("LangChain4j ChatModel bean was not created because provider is unsupported: {}",
+            log.warn("LangChain4j ChatModel uses disabled model because provider is unsupported: {}",
                     llmProperties.getProvider());
-            return null;
+            return new DisabledChatModel();
         }
 
         Duration timeout = Duration.ofSeconds(Math.max(1, llmProperties.getTimeoutSeconds()));
@@ -55,16 +58,19 @@ public class LangChain4jConfig {
 
     @Bean
     @SuppressWarnings("deprecation")
-    @ConditionalOnProperty(prefix = "codepilot.llm", name = "enabled", havingValue = "true", matchIfMissing = true)
     public ChatModel structuredCodeReviewChatModel() {
+        if (!llmProperties.isEnabled()) {
+            log.info("Structured review ChatModel uses disabled model because codepilot.llm.enabled=false");
+            return new DisabledChatModel();
+        }
         if (!StringUtils.hasText(llmProperties.getApiKey())) {
-            log.info("Structured review ChatModel bean was not created because codepilot.llm.api-key is empty");
-            return null;
+            log.info("Structured review ChatModel uses disabled model because codepilot.llm.api-key is empty");
+            return new DisabledChatModel();
         }
         if (!isOpenAiCompatibleProvider()) {
-            log.warn("Structured review ChatModel bean was not created because provider is unsupported: {}",
+            log.warn("Structured review ChatModel uses disabled model because provider is unsupported: {}",
                     llmProperties.getProvider());
-            return null;
+            return new DisabledChatModel();
         }
         Duration timeout = Duration.ofSeconds(Math.max(1, llmProperties.getTimeoutSeconds()));
         String baseUrl = normalizeBaseUrl(llmProperties.getBaseUrl());
