@@ -1,5 +1,6 @@
 package com.codepilot.module.agent.service.impl;
 
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.agent.dto.AiReviewContext;
 import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.dto.AiReviewResult;
@@ -61,9 +62,25 @@ public class AiReviewServiceImpl implements AiReviewService {
             );
         }
 
-        AiReviewResult llmResult = reviewLlmReviewer
-                .review(request, allChangedFilesText, issueCount(deterministicResult))
-                .orElse(null);
+        AiReviewResult llmResult;
+        try {
+            llmResult = reviewLlmReviewer
+                    .review(request, allChangedFilesText, issueCount(deterministicResult))
+                    .orElse(null);
+        } catch (Exception exception) {
+            if (issueCount(deterministicResult) <= 0) {
+                throw exception;
+            }
+            log.warn("LLM review failed; returning deterministic tool findings, filePath={}, deterministicIssueCount={}, errorType={}, message={}",
+                    filePath,
+                    issueCount(deterministicResult),
+                    exception.getClass().getSimpleName(),
+                    SensitiveDataSanitizer.redact(exception.getMessage()));
+            return withFallbackSummary(
+                    deterministicResult,
+                    "LLM review failed; deterministic tool findings only."
+            );
+        }
         if (llmResult == null) {
             return deterministicResult;
         }

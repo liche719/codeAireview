@@ -31,6 +31,9 @@ spring:
     listener:
       simple:
         acknowledge-mode: auto
+        concurrency: ${CODEPILOT_RABBITMQ_LISTENER_CONCURRENCY:2}
+        max-concurrency: ${CODEPILOT_RABBITMQ_LISTENER_MAX_CONCURRENCY:4}
+        prefetch: ${CODEPILOT_RABBITMQ_LISTENER_PREFETCH:1}
         default-requeue-rejected: ${CODEPILOT_RABBITMQ_DEFAULT_REQUEUE_REJECTED:false}
         retry:
           enabled: true

@@ -2,6 +2,7 @@ package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.codepilot.common.enums.ReviewCommentMode;
+import com.codepilot.common.enums.ReviewTaskStatus;
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.module.review.creator.ReviewTaskCreationResult;
 import com.codepilot.module.review.creator.ReviewTaskCreator;
@@ -12,9 +13,11 @@ import com.codepilot.module.review.queue.ReviewTaskMessageDispatcher;
 import com.codepilot.module.review.runner.ReviewTaskRunner;
 import com.codepilot.module.review.service.ReviewTaskService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewTask> implements ReviewTaskService {
@@ -58,6 +61,10 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
         ReviewTask task = getById(taskId);
         if (task == null) {
             throw new BusinessException("review task not found, taskId=" + taskId);
+        }
+        if (ReviewTaskStatus.SUCCESS.name().equals(task.getStatus())) {
+            log.info("Review task skipped because it is already successful, taskId={}", taskId);
+            return;
         }
         reviewTaskRunner.run(task);
     }

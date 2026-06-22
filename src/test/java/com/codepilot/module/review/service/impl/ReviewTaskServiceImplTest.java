@@ -214,6 +214,21 @@ class ReviewTaskServiceImplTest {
     }
 
     @Test
+    void shouldSkipAlreadySuccessfulTaskWhenMessageIsRedelivered() {
+        TestContext context = new TestContext();
+        ReviewTask task = new ReviewTask();
+        task.setId(1L);
+        task.setStatus("SUCCESS");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(task);
+
+        context.service.processTask(1L);
+
+        verify(context.reviewTaskMapper, never()).updateById(any(ReviewTask.class));
+        verify(context.reviewCommentPublisher, never()).publish(any(ReviewTask.class));
+        verify(context.reviewFileService, never()).saveBatch(anyList());
+    }
+
+    @Test
     void shouldMarkTaskFailedWhenAiReviewFails() {
         TestContext context = new TestContext();
         context.stubTask(ReviewCommentMode.SUMMARY_ONLY);

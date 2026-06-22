@@ -23,7 +23,7 @@ public class FixedWindowRateLimiter {
         this(Clock.systemUTC());
     }
 
-    FixedWindowRateLimiter(Clock clock) {
+    public FixedWindowRateLimiter(Clock clock) {
         this.clock = clock;
     }
 
@@ -38,8 +38,7 @@ public class FixedWindowRateLimiter {
             if (existing == null || existing.windowStartMillis != windowStartMillis) {
                 return new WindowCounter(windowStartMillis, 1);
             }
-            existing.count++;
-            return existing;
+            return new WindowCounter(windowStartMillis, existing.count + 1);
         });
 
         cleanupExpiredEntries(windowStartMillis);
@@ -76,7 +75,7 @@ public class FixedWindowRateLimiter {
 
         private final long windowStartMillis;
 
-        private int count;
+        private final int count;
 
         private WindowCounter(long windowStartMillis, int count) {
             this.windowStartMillis = windowStartMillis;

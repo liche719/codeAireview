@@ -111,6 +111,50 @@ class ReviewFileReviewerTest {
     }
 
     @Test
+    void shouldKeepDeterministicFallbackIssuesWhenOtherFilesUseModelReview() {
+        AiReviewService aiReviewService = mock(AiReviewService.class);
+        ReviewFileReviewer reviewer = new ReviewFileReviewer(
+                aiReviewService,
+                new ReviewIssueAssembler(),
+                new ReviewIssueLocationGuard(new DiffLineMapper()),
+                new ReviewIssuePatchVerifier(new DiffLineMapper()),
+                new ReviewContextBuilder(new ReviewContextSignalExtractor(), new ReviewContextRelationshipExtractor()),
+                new ReviewFindingRanker(),
+                new ReviewProperties()
+        );
+        when(aiReviewService.reviewFile(argThat(request ->
+                request != null && "src/main/java/RiskySql.java".equals(request.filePath()))))
+                .thenReturn(toolSqlReviewResult());
+        when(aiReviewService.reviewFile(argThat(request ->
+                request != null && "src/main/java/Healthy.java".equals(request.filePath()))))
+                .thenReturn(aiReviewResult());
+
+        List<ReviewIssue> issues = reviewer.review(1L, List.of(
+                reviewFile(
+                        "src/main/java/RiskySql.java",
+                        """
+                                @@ -1,1 +1,2 @@
+                                +String sql = "select * from user where name = '" + name + "'";
+                                """,
+                        false
+                ),
+                reviewFile("src/main/java/Healthy.java", "+healthy", false)
+        ));
+
+        assertThat(issues)
+                .anySatisfy(issue -> {
+                    assertThat(issue.getFilePath()).isEqualTo("src/main/java/RiskySql.java");
+                    assertThat(issue.getIssueType()).isEqualTo("SQL_RISK");
+                    assertThat(issue.getSource()).isEqualTo("TOOL");
+                })
+                .anySatisfy(issue -> {
+                    assertThat(issue.getFilePath()).isEqualTo("src/main/java/Healthy.java");
+                    assertThat(issue.getIssueType()).isEqualTo("BUG_RISK");
+                    assertThat(issue.getSource()).isEqualTo("LLM");
+                });
+    }
+
+    @Test
     void shouldFailTaskWhenAllReviewableFilesFail() {
         AiReviewService aiReviewService = mock(AiReviewService.class);
         ReviewFileReviewer reviewer = new ReviewFileReviewer(
@@ -226,6 +270,22 @@ class ReviewFileReviewerTest {
 
         AiReviewResult result = new AiReviewResult();
         result.setIssues(List.of(issue));
+        return result;
+    }
+
+    private static AiReviewResult toolSqlReviewResult() {
+        AiReviewIssue issue = new AiReviewIssue();
+        issue.setLineNumber(1);
+        issue.setIssueType("SQL_RISK");
+        issue.setSeverity("HIGH");
+        issue.setTitle("SQL injection risk");
+        issue.setDescription("Dynamic SQL concatenates untrusted input into the query.");
+        issue.setSuggestion("Use parameter binding before executing this query.");
+        issue.setSource("TOOL");
+
+        AiReviewResult result = new AiReviewResult();
+        result.setIssues(List.of(issue));
+        result.setSummary("deterministic tool findings only");
         return result;
     }
 }

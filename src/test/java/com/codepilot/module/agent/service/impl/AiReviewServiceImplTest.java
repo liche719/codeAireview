@@ -62,6 +62,34 @@ class AiReviewServiceImplTest {
     }
 
     @Test
+    void shouldFallbackToDeterministicFindingsWhenLlmReturnsInvalidJson() {
+        TestContext context = new TestContext();
+        when(context.reviewLlmClient.review(any()))
+                .thenReturn("{ invalid json }");
+        ArgumentCaptor<LlmCallLog> logCaptor = ArgumentCaptor.forClass(LlmCallLog.class);
+
+        var result = context.service.reviewFile(
+                1L,
+                "src/main/java/DemoService.java",
+                """
+                        @@ -1,1 +1,2 @@
+                        +String sql = "select * from user where name = '" + name + "'";
+                        """,
+                List.of("src/main/java/DemoService.java")
+        );
+
+        assertThat(result.getIssues())
+                .anySatisfy(issue -> {
+                    assertThat(issue.getIssueType()).isEqualTo("SQL_RISK");
+                    assertThat(issue.getSource()).isEqualTo("TOOL");
+                });
+        assertThat(result.getSummary()).contains("deterministic tool findings only");
+        verify(context.llmCallLogService).save(logCaptor.capture());
+        assertThat(logCaptor.getValue().getSuccess()).isFalse();
+        assertThat(logCaptor.getValue().getErrorMessage()).isEqualTo("Failed to parse AI review result as JSON");
+    }
+
+    @Test
     void shouldRedactSecretsFromLlmResponseSummary() {
         TestContext context = new TestContext();
         when(context.reviewLlmClient.review(any()))
