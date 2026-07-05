@@ -196,6 +196,24 @@ class ReviewRagServiceImplTest {
         assertThat(searchCount.get()).isEqualTo(searchesAfterFirstCall * 2);
     }
 
+    @Test
+    void shouldEvictLeastRecentlyUsedCachedRuleContextsWhenCacheExceedsMaxSize() {
+        RagProperties properties = defaultProperties();
+        properties.setCacheMaxSize(1);
+        AtomicInteger searchCount = new AtomicInteger();
+        RuleSearchService ruleSearchService = request -> {
+            int count = searchCount.incrementAndGet();
+            return new RuleSearchResponse(List.of(ruleRecord((long) count, request.getType(), "Rule " + count, 0.10D)));
+        };
+        ReviewRagServiceImpl service = new ReviewRagServiceImpl(properties, ruleSearchService);
+
+        service.retrieveRelevantRules("README.md", "+select * from user");
+        service.retrieveRelevantRules("README.md", "+String token = request.getToken();");
+        service.retrieveRelevantRules("README.md", "+select * from user");
+
+        assertThat(searchCount.get()).isEqualTo(3);
+    }
+
     private RuleSearchRecord ruleRecord(Long chunkId, String type, String content, Double distance) {
         RuleSearchRecord record = new RuleSearchRecord();
         record.setChunkId(chunkId);
