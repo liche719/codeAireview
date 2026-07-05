@@ -106,6 +106,29 @@ class GithubAuthTokenProviderTest {
         context.server.verify();
     }
 
+    @Test
+    void shouldAcceptEscapedPemPrivateKeyFromConfiguration() throws Exception {
+        GithubProperties properties = githubAppProperties(true);
+        properties.setAppPrivateKeyBase64("");
+        properties.setAppPrivateKey(privateKeyPem().replace("\n", "\\n"));
+        TestContext context = new TestContext(properties);
+        context.server.expect(once(), requestTo("https://api.github.test/app/installations/999/access_tokens"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, startsWith("Bearer ")))
+                .andRespond(withSuccess(
+                        """
+                        {
+                          "token": "installation-token",
+                          "expires_at": "%s"
+                        }
+                        """.formatted(Instant.now().plusSeconds(600)),
+                        MediaType.APPLICATION_JSON
+                ));
+
+        assertThat(context.provider.resolveToken("liche719", "codeAireview")).contains("installation-token");
+        context.server.verify();
+    }
+
     private GithubProperties githubAppProperties(boolean fixedInstallationId) throws Exception {
         GithubProperties properties = new GithubProperties();
         properties.setAuthMode(GithubProperties.AuthMode.APP);
@@ -123,6 +146,15 @@ class GithubAuthTokenProviderTest {
         generator.initialize(2048);
         KeyPair keyPair = generator.generateKeyPair();
         return Base64.getEncoder().encodeToString(keyPair.getPrivate().getEncoded());
+    }
+
+    private String privateKeyPem() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        KeyPair keyPair = generator.generateKeyPair();
+        String encoded = Base64.getMimeEncoder(64, "\n".getBytes())
+                .encodeToString(keyPair.getPrivate().getEncoded());
+        return "-----BEGIN PRIVATE KEY-----\n" + encoded + "\n-----END PRIVATE KEY-----";
     }
 
     private static class TestContext {
