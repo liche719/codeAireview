@@ -88,6 +88,17 @@ class SqlRiskToolTest {
     }
 
     @Test
+    void shouldDetectMyBatisPlaceholderRiskInInsertStatement() {
+        var results = sqlRiskTool.checkSqlRisk(
+                "src/main/resources/mapper/UserMapper.xml",
+                "+insert into audit_log(message, operator) values (#{message}, ${operator})"
+        );
+
+        assertThat(results)
+                .anySatisfy(result -> assertThat(result.getTitle()).contains("MyBatis ${}"));
+    }
+
+    @Test
     void shouldNotFlagSpringValuePlaceholderAsMyBatisPlaceholderRisk() {
         var results = sqlRiskTool.checkSqlRisk(
                 "src/main/java/com/codepilot/module/review/report/ReviewReportFormatter.java",
