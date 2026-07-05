@@ -132,6 +132,32 @@ class GitHubInlineCommentServiceImplTest {
     }
 
     @Test
+    void shouldSkipDuplicateIssueKeyWithinSameTask() {
+        TestContext context = new TestContext(true, 10, "token");
+        ReviewIssue firstIssue = issue(11);
+        firstIssue.setId(1L);
+        firstIssue.setDescription("First SQL string concatenation risk");
+        ReviewIssue duplicateLocationIssue = issue(11);
+        duplicateLocationIssue.setId(2L);
+        duplicateLocationIssue.setDescription("Second SQL string concatenation risk");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
+                .thenReturn(List.of(firstIssue, duplicateLocationIssue));
+        when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
+                .thenReturn(List.of(reviewFile()));
+        when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
+
+        var result = context.service.commentInlineIssues(1L);
+
+        verify(context.githubClient, times(1))
+                .createPullRequestInlineComment(eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                        eq("src/Demo.java"), eq(11), eq("RIGHT"), any());
+        org.assertj.core.api.Assertions.assertThat(result.successCount()).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(result.skippedCount()).isEqualTo(1);
+    }
+
+    @Test
     void shouldPrioritizeHighSeverityToolIssuesWhenInlineCommentBudgetIsLimited() {
         TestContext context = new TestContext(true, 1, "token");
         ReviewIssue lowValueIssue = issue(11);

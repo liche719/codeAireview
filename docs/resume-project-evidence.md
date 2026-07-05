@@ -126,6 +126,7 @@ CodePilot 的设计目标是把 AI 审查做成可异步调度、可验证、可
 - Patch validation 沙箱化：`JGitPatchExecutor` 把命令白名单、Docker sandbox 命令生成、环境变量清理、输出脱敏截断、验证执行拆成独立组件；构建类命令默认禁止，必须显式开启并使用 Docker 模式。
 - Apply-patch 格式应用拆分：`ApplyPatchFormatApplier` 保留公开入口和结果汇总，`ApplyPatchParser`、`ApplyPatchSectionApplier`、`ApplyPatchHunkApplier`、`ApplyPatchTargetGuard` 分别负责格式解析、文件应用、hunk 替换和路径逃逸防护，降低自动修复写盘逻辑的安全耦合。
 - Patch verification 证据模型拆分：`ReviewIssuePatchVerifier` 保留 LLM 问题过滤入口，`ReviewIssuePatchEvidence` 负责 diff token 和风险路径对齐，`ReviewIssuePlanEvidence` 负责审查计划证据，`ReviewIssueTextTokens` 统一 token 提取和规范化，降低“评论必须有证据”这条防线的复杂度。
+- Inline comment 发布拆分：`GitHubInlineCommentServiceImpl` 保留发布编排，`GitHubInlineCommentBodyBuilder`、`GitHubInlineCommentFingerprintBuilder` 和 `GitHubInlineCommentFingerprintExtractor` 分别负责评论正文、issue fingerprint 和历史评论去重提取，降低 PR 评论刷屏和 Markdown 注入风险。
 - Semantic review planning 拆分：`ReviewPlanRiskCollector` 汇总风险面和 change type，`ReviewPlanPriorityFileScorer` 负责优先级评分，`ReviewPlanFileFocusBuilder`、`ReviewPlanCrossFileFocusBuilder`、`ReviewPlanVerificationHintBuilder` 和 `ReviewPlanQualityEstimator` 分别负责文件审查重点、跨文件关注点、验证提示和计划置信度，`SemanticReviewPlanner` 回到计划编排入口。
 - Prompt formatter 拆分：`AiReviewPlanPromptFormatter`、`AiReviewGraphPromptFormatter`、`AiReviewRelatedContextFormatter` 分别负责计划、图谱和相关上下文，降低 prompt 组装类的复杂度。
 - RAG 规则召回拆分：`ReviewRagServiceImpl` 保留召回流程编排，`ReviewRagQueryBuilder`、`ReviewRagCacheKeyBuilder`、`ReviewRagCache` 和 `ReviewRagRuleSelector` 分别负责查询构造、缓存键、TTL/LRU 缓存和 TopK 去重裁剪，降低规则召回链路的状态耦合。
@@ -145,6 +146,7 @@ CodePilot 的设计目标是把 AI 审查做成可异步调度、可验证、可
 - `src/test/java/com/codepilot/module/review/processor/ReviewFileReviewerTest.java`
 - `src/test/java/com/codepilot/module/review/processor/ReviewFindingRankerTest.java`
 - `src/test/java/com/codepilot/module/review/processor/ReviewIssuePatchVerifierTest.java`
+- `src/test/java/com/codepilot/module/review/service/impl/GitHubInlineCommentServiceImplTest.java`
 - `src/test/java/com/codepilot/module/tool/impl/SqlRiskToolTest.java`
 - `src/test/java/com/codepilot/module/agent/service/impl/ReviewRagServiceImplTest.java`
 - `src/test/java/com/codepilot/module/review/graph/RepositoryGraphSnapshotTest.java`
@@ -154,12 +156,13 @@ CodePilot 的设计目标是把 AI 审查做成可异步调度、可验证、可
 
 ## 已验证结果
 
-- 全量自动化测试：508 个测试运行，0 failure，0 error，2 skipped。
+- 全量自动化测试：509 个测试运行，0 failure，0 error，2 skipped。
 - 本轮关键回归测试：`GithubClientTest`、`ReviewPlanRiskCollectorTest`、`PatchValidationRunnerTest`、`ReviewFileReviewerTest`、`RabbitRetryAttemptResolverTest` 共 26 个测试运行，0 failure，0 error。
 - Review finding 排序回归测试：`ReviewFindingRankerTest`、`ReviewFileReviewerTest`、`ReviewTaskProcessorTest`、`AiReviewPipelineEvalTest`、`AiReviewServiceImplTest`、`ReviewCommentPublisherTest` 共 29 个测试运行，0 failure，0 error。
 - Apply-patch 自动修复写盘回归测试：`ApplyPatchFormatApplierTest`、`PatchValidationRunnerTest`、`JGitPatchExecutorTest`、`PrCommandTaskRunnerTest`、`PrCommandTaskServiceImplTest` 共 43 个测试运行，0 failure，0 error，1 skipped。
 - RAG 规则召回回归测试：`ReviewRagServiceImplTest`、`ReviewLlmReviewerTest`、`AiReviewServiceImplTest`、`AiReviewPipelineEvalTest`、`RagPropertiesTest` 共 25 个测试运行，0 failure，0 error。
-- GitHub 鉴权和评论回归测试：`GithubAuthTokenProviderTest`、`GithubClientTest`、`GithubClientSpringWiringTest`、`GitHubCommentServiceImplTest`、`GitHubInlineCommentServiceImplTest` 共 33 个测试运行，0 failure，0 error。
+- GitHub 鉴权和评论回归测试：`GithubAuthTokenProviderTest`、`GithubClientTest`、`GithubClientSpringWiringTest`、`GitHubCommentServiceImplTest`、`GitHubInlineCommentServiceImplTest` 共 34 个测试运行，0 failure，0 error。
+- GitHub 评论发布回归测试：`GitHubInlineCommentServiceImplTest`、`GitHubCommentServiceImplTest`、`ReviewCommentPublisherTest`、`ReviewFindingRankerTest` 共 30 个测试运行，0 failure，0 error。
 - SQL 规则回归测试：`SqlRiskToolTest`、`DeterministicReviewEvalTest`、`AiReviewPipelineEvalTest`、`AiReviewServiceImplTest` 共 25 个测试运行，0 failure，0 error。
 - 图谱和源码上下文回归测试：`RepositoryGraphSnapshotTest`、`AiReviewContextFormatterGraphTest`、`SemanticReviewPlannerTest`、`ReviewPlanPriorityFileScorerTest`、`RepoSourceExcerptExtractorTest`、`ReviewContextBuilderTest`、`ReviewTaskProcessorTest`、`AiReviewPipelineEvalTest` 共 19 个测试运行，0 failure，0 error。
 - Patch verification 回归测试：`ReviewIssuePatchVerifierTest` 覆盖 changed line、patch text 丢弃、review plan 证据、patch risk area 兜底和 deterministic source，共 5 个测试运行，0 failure，0 error。
@@ -175,7 +178,7 @@ CodePilot 的设计目标是把 AI 审查做成可异步调度、可验证、可
 
 CodePilot AI 智能代码审查系统
 
-面向 GitHub Pull Request 的 AI Review 后端系统，负责审查任务编排、异步执行、规则召回、模型审查、结果落库和 GitHub 评论回写。通过 Redis + headSha 去重避免重复审查，使用 RabbitMQ 解耦 Webhook 触发和耗时审查流程；在 LLM 前强制执行 SQL 风险、敏感信息、测试缺失等确定性规则，并通过 patch verification / location guard 过滤无法绑定变更证据的问题。完成离线评估与运行态验证，508 个自动化用例通过，离线评估 Precision 85.71%、Recall 100%。
+面向 GitHub Pull Request 的 AI Review 后端系统，负责审查任务编排、异步执行、规则召回、模型审查、结果落库和 GitHub 评论回写。通过 Redis + headSha 去重避免重复审查，使用 RabbitMQ 解耦 Webhook 触发和耗时审查流程；在 LLM 前强制执行 SQL 风险、敏感信息、测试缺失等确定性规则，并通过 patch verification / location guard 过滤无法绑定变更证据的问题。完成离线评估与运行态验证，509 个自动化用例通过，离线评估 Precision 85.71%、Recall 100%。
 
 ### 简历项目条目版
 
@@ -183,7 +186,7 @@ CodePilot AI 智能代码审查系统
 - 基于 RabbitMQ 拆分“快速接收触发”和“耗时审查执行”，消费者串联 changed files 拉取、审查规划、上下文构建、规则检测、LLM 审查、问题落库和评论发布，并在失败时记录脱敏错误与重试状态。
 - 构建 planner + deterministic rules + RAG + LLM 的审查流程：按文件类型和风险面生成审查 focus，前置 SQL/Secret/Test 等确定性规则，再合并模型结果，减少纯 LLM 审查的空泛建议。
 - 实现 patch verification、location guard 和评论 fallback：优先将问题绑定 changed line / patch token / review plan evidence，inline comment 失败时回退 Summary Comment，并通过 marker 幂等更新 PR 顶部评论。
-- 建立离线评估和运行验证基线，覆盖 SQL 风险、硬编码密钥、prompt injection、缺少测试、API 契约变化和非法 JSON 降级等场景；508 个自动化用例通过，离线评估 Precision 85.71%、Recall 100%。
+- 建立离线评估和运行验证基线，覆盖 SQL 风险、硬编码密钥、prompt injection、缺少测试、API 契约变化和非法 JSON 降级等场景；509 个自动化用例通过，离线评估 Precision 85.71%、Recall 100%。
 
 ## 面试讲法
 
@@ -205,7 +208,7 @@ CodePilot AI 智能代码审查系统
 
 ### 5. 怎么证明不是 demo
 
-有三类证据：第一，项目接入了 GitHub Webhook、API Key 鉴权、RabbitMQ、PostgreSQL/pgvector、Redis 和 GitHub 评论回写这些真实后端组件；第二，单测覆盖 508 个用例，包含 Webhook、任务状态、评论、规则、RAG、LLM parser、fix 命令等模块；第三，运行态 smoke 在 Docker 环境下验证了鉴权、Webhook 签名、任务创建、Redis 去重、数据库落库和 MQ/DLQ 链路。
+有三类证据：第一，项目接入了 GitHub Webhook、API Key 鉴权、RabbitMQ、PostgreSQL/pgvector、Redis 和 GitHub 评论回写这些真实后端组件；第二，单测覆盖 509 个用例，包含 Webhook、任务状态、评论、规则、RAG、LLM parser、fix 命令等模块；第三，运行态 smoke 在 Docker 环境下验证了鉴权、Webhook 签名、任务创建、Redis 去重、数据库落库和 MQ/DLQ 链路。
 
 ## 下一轮项目补强建议
 

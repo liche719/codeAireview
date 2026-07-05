@@ -2,7 +2,6 @@ package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.codepilot.common.util.SensitiveDataSanitizer;
-import com.codepilot.common.util.MarkdownSanitizer;
 import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubIssueComment;
@@ -15,7 +14,6 @@ import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.processor.ReviewCommentBudgetAllocator;
 import com.codepilot.module.review.processor.ReviewFindingRanker;
-import com.codepilot.module.review.report.ReviewIssueEvidenceFormatter;
 import com.codepilot.module.review.service.GitHubInlineCommentResult;
 import com.codepilot.module.review.service.GitHubInlineCommentService;
 import com.codepilot.module.review.service.ReviewFileService;
@@ -25,27 +23,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Slf4j
 @Service
 public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentService {
-
-    private static final int MAX_TEXT_LENGTH = 500;
-
-    private static final String INLINE_MARKER = "<!-- codepilot-inline-review -->";
-
-    private static final Pattern INLINE_FINGERPRINT_PATTERN =
-            Pattern.compile("<!--\\s*codepilot-inline-review:([a-f0-9]{16,64})\\s*-->", Pattern.CASE_INSENSITIVE);
 
     private final ReviewTaskMapper reviewTaskMapper;
 
@@ -62,6 +48,14 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
     private final ReviewFindingRanker reviewFindingRanker;
 
     private final GithubAuthTokenProvider githubAuthTokenProvider;
+
+    private final GitHubInlineCommentBodyBuilder commentBodyBuilder = new GitHubInlineCommentBodyBuilder();
+
+    private final GitHubInlineCommentFingerprintBuilder fingerprintBuilder =
+            new GitHubInlineCommentFingerprintBuilder();
+
+    private final GitHubInlineCommentFingerprintExtractor fingerprintExtractor =
+            new GitHubInlineCommentFingerprintExtractor();
 
     private final boolean inlineCommentEnabled;
 
@@ -143,7 +137,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
             List<ReviewIssue> inlineIssues = reviewCommentBudgetAllocator.allocateInlineFindings(rankedIssues, inlineCommentMaxPerTask);
             skippedCount += Math.max(0, rankedIssues.size() - inlineIssues.size());
             for (ReviewIssue issue : inlineIssues) {
-                String issueKey = issueKey(issue);
+                String issueKey = fingerprintBuilder.issueKey(issue);
                 if (!sentIssueKeys.add(issueKey)) {
                     skippedCount++;
                     continue;
@@ -163,7 +157,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                     continue;
                 }
 
-                String fingerprint = issueFingerprint(task, headSha, issue);
+                String fingerprint = fingerprintBuilder.issueFingerprint(task, headSha, issue);
                 if (existingFingerprints.contains(fingerprint)) {
                     skippedCount++;
                     continue;
@@ -178,7 +172,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                             issue.getFilePath(),
                             mapping.line(),
                             mapping.side(),
-                            buildInlineCommentBody(issue, fingerprint)
+                            commentBodyBuilder.build(issue, fingerprint)
                     );
                     existingFingerprints.add(fingerprint);
                     successCount++;
@@ -222,81 +216,12 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
             if (comments == null || comments.isEmpty()) {
                 return new HashSet<>();
             }
-            Set<String> fingerprints = new HashSet<>();
-            for (GithubIssueComment comment : comments) {
-                if (comment == null || !StringUtils.hasText(comment.getBody())) {
-                    continue;
-                }
-                Matcher matcher = INLINE_FINGERPRINT_PATTERN.matcher(comment.getBody());
-                while (matcher.find()) {
-                    fingerprints.add(matcher.group(1).toLowerCase());
-                }
-            }
-            return fingerprints;
+            return fingerprintExtractor.extract(comments);
         } catch (Exception exception) {
             log.warn("Failed to list existing GitHub PR inline comments, continue without cross-task dedup, owner={}, repo={}, pullNumber={}, errorType={}, message={}",
                     task.getRepoOwner(), task.getRepoName(), task.getPrNumber(),
                     exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
             return new HashSet<>();
-        }
-    }
-
-    private String issueKey(ReviewIssue issue) {
-        return nullToDash(issue.getFilePath())
-                + ":"
-                + issue.getLineNumber()
-                + ":"
-                + nullToDash(issue.getIssueType());
-    }
-
-    private String issueFingerprint(ReviewTask task, String headSha, ReviewIssue issue) {
-        String rawFingerprint = nullToDash(task.getRepoOwner())
-                + "/"
-                + nullToDash(task.getRepoName())
-                + ":"
-                + task.getPrNumber()
-                + ":"
-                + nullToDash(headSha)
-                + ":"
-                + issueKey(issue);
-        return sha256Hex(rawFingerprint);
-    }
-
-    private String buildInlineCommentBody(ReviewIssue issue, String fingerprint) {
-        StringBuilder body = new StringBuilder();
-        body.append(INLINE_MARKER).append("\n\n");
-        body.append("<!-- codepilot-inline-review:").append(fingerprint).append(" -->").append("\n\n");
-        body.append("Description:\n");
-        body.append(sanitizeIssueText(issue.getDescription())).append("\n\n");
-        String evidenceTrace = ReviewIssueEvidenceFormatter.compactTrace(issue);
-        if (StringUtils.hasText(evidenceTrace)) {
-            body.append("Evidence:\n");
-            body.append(sanitizeIssueText(evidenceTrace)).append("\n\n");
-        }
-        body.append("Suggestion:\n");
-        body.append(sanitizeIssueText(issue.getSuggestion())).append("\n");
-        return body.toString();
-    }
-
-    private String sanitizeIssueText(String content) {
-        return MarkdownSanitizer.sanitizeInlineText(content, MAX_TEXT_LENGTH, "N/A");
-    }
-
-    private String nullToDash(String content) {
-        return StringUtils.hasText(content) ? content : "N/A";
-    }
-
-    private String sha256Hex(String content) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(content.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder();
-            for (int i = 0; i < 16; i++) {
-                hex.append(String.format("%02x", digest[i]));
-            }
-            return hex.toString();
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 is not available", exception);
         }
     }
 }
