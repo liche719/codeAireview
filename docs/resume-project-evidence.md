@@ -128,6 +128,7 @@ CodePilot 的设计目标是把 AI 审查做成可异步调度、可验证、可
 - Semantic review planning 拆分：`ReviewPlanRiskCollector` 汇总风险面和 change type，`ReviewPlanPriorityFileScorer` 负责优先级评分，`ReviewPlanFileFocusBuilder`、`ReviewPlanCrossFileFocusBuilder`、`ReviewPlanVerificationHintBuilder` 和 `ReviewPlanQualityEstimator` 分别负责文件审查重点、跨文件关注点、验证提示和计划置信度，`SemanticReviewPlanner` 回到计划编排入口。
 - Prompt formatter 拆分：`AiReviewPlanPromptFormatter`、`AiReviewGraphPromptFormatter`、`AiReviewRelatedContextFormatter` 分别负责计划、图谱和相关上下文，降低 prompt 组装类的复杂度。
 - SQL 确定性规则拆分：`SqlRiskTool` 保留规则入口和日志，`SqlAstRiskAnalyzer` 负责 JSQLParser/SQL 候选提取，`SqlStringConcatenationDetector` 负责字符串拼接 SQL 识别，`SqlRiskIssueFactory` 统一生成问题描述；同时补充 `insert ... ${}` 的 MyBatis 风险回归测试。
+- Review finding 排序拆分：`ReviewFindingRanker` 保留评分应用和发布决策入口，`ReviewFindingScoreCalculator`、`ReviewFindingDuplicateResolver`、`ReviewFindingPublishSorter` 分别负责分数计算、重复问题赢家选择和发布顺序，降低审查结果落地策略的耦合度。
 - 跨文件图谱和相关源码上下文拆分：`RepositoryGraphSnapshotBuilder` 回到 DTO 适配入口，`RepositoryGraphSnapshotAssembler` 负责编排节点/边排序和 focus 生成，`RepositoryGraphNodeAccumulator` 负责图谱评分；`RepoSourceExcerptExtractor` 拆出候选收集、import 候选解析、source/test 配对解析、源码拉取截断和路径安全工具，支撑“相关文件召回”能力继续扩展。
 
 **新增/更新测试证据**：
@@ -139,6 +140,7 @@ CodePilot 的设计目标是把 AI 审查做成可异步调度、可验证、可
 - `src/test/java/com/codepilot/module/review/planner/ReviewPlanPriorityFileScorerTest.java`
 - `src/test/java/com/codepilot/module/git/client/GithubClientTest.java`
 - `src/test/java/com/codepilot/module/review/processor/ReviewFileReviewerTest.java`
+- `src/test/java/com/codepilot/module/review/processor/ReviewFindingRankerTest.java`
 - `src/test/java/com/codepilot/module/review/processor/ReviewIssuePatchVerifierTest.java`
 - `src/test/java/com/codepilot/module/tool/impl/SqlRiskToolTest.java`
 - `src/test/java/com/codepilot/module/review/graph/RepositoryGraphSnapshotTest.java`
@@ -150,6 +152,7 @@ CodePilot 的设计目标是把 AI 审查做成可异步调度、可验证、可
 
 - 全量自动化测试：504 个测试运行，0 failure，0 error，2 skipped。
 - 本轮关键回归测试：`GithubClientTest`、`ReviewPlanRiskCollectorTest`、`PatchValidationRunnerTest`、`ReviewFileReviewerTest`、`RabbitRetryAttemptResolverTest` 共 26 个测试运行，0 failure，0 error。
+- Review finding 排序回归测试：`ReviewFindingRankerTest`、`ReviewFileReviewerTest`、`ReviewTaskProcessorTest`、`AiReviewPipelineEvalTest`、`AiReviewServiceImplTest`、`ReviewCommentPublisherTest` 共 29 个测试运行，0 failure，0 error。
 - GitHub 鉴权和评论回归测试：`GithubAuthTokenProviderTest`、`GithubClientTest`、`GithubClientSpringWiringTest`、`GitHubCommentServiceImplTest`、`GitHubInlineCommentServiceImplTest` 共 33 个测试运行，0 failure，0 error。
 - SQL 规则回归测试：`SqlRiskToolTest`、`DeterministicReviewEvalTest`、`AiReviewPipelineEvalTest`、`AiReviewServiceImplTest` 共 25 个测试运行，0 failure，0 error。
 - 图谱和源码上下文回归测试：`RepositoryGraphSnapshotTest`、`AiReviewContextFormatterGraphTest`、`SemanticReviewPlannerTest`、`ReviewPlanPriorityFileScorerTest`、`RepoSourceExcerptExtractorTest`、`ReviewContextBuilderTest`、`ReviewTaskProcessorTest`、`AiReviewPipelineEvalTest` 共 19 个测试运行，0 failure，0 error。
