@@ -85,6 +85,105 @@ class ApplyPatchFormatApplierTest {
     }
 
     @Test
+    void shouldApplyPatchWrappedInCodeFence() throws Exception {
+        Path file = tempDir.resolve("src/main/java/com/codepilot/demo/Fenced.java");
+        write(file, """
+                class Fenced {
+                    String value() {
+                        return "old";
+                    }
+                }
+                """);
+
+        String patch = """
+                ```patch
+                *** Begin Patch
+                *** Update File: src/main/java/com/codepilot/demo/Fenced.java
+                @@
+                 class Fenced {
+                     String value() {
+                -        return "old";
+                +        return "new";
+                     }
+                 }
+                *** End Patch
+                ```
+                """;
+
+        ApplyPatchFormatApplier.ApplyPatchApplicationResult result = ApplyPatchFormatApplier.apply(tempDir, patch);
+
+        assertThat(result.changedFiles()).isEqualTo(1);
+        assertThat(Files.readString(file, StandardCharsets.UTF_8)).contains("return \"new\";");
+    }
+
+    @Test
+    void shouldApplyMultipleUpdateHunksInOrder() throws Exception {
+        Path file = tempDir.resolve("src/main/java/com/codepilot/demo/MultiHunk.java");
+        write(file, """
+                class MultiHunk {
+                    String first() {
+                        return "one";
+                    }
+
+                    String second() {
+                        return "two";
+                    }
+                }
+                """);
+
+        String patch = """
+                *** Begin Patch
+                *** Update File: src/main/java/com/codepilot/demo/MultiHunk.java
+                @@
+                     String first() {
+                -        return "one";
+                +        return "uno";
+                     }
+                @@
+                     String second() {
+                -        return "two";
+                +        return "dos";
+                     }
+                *** End Patch
+                """;
+
+        ApplyPatchFormatApplier.ApplyPatchApplicationResult result = ApplyPatchFormatApplier.apply(tempDir, patch);
+
+        assertThat(result.changedFiles()).isEqualTo(1);
+        assertThat(Files.readString(file, StandardCharsets.UTF_8))
+                .contains("return \"uno\";")
+                .contains("return \"dos\";")
+                .doesNotContain("return \"one\";")
+                .doesNotContain("return \"two\";");
+    }
+
+    @Test
+    void shouldNotReportChangedFileWhenAddPatchMatchesExistingContent() throws Exception {
+        Path file = tempDir.resolve("src/test/java/com/codepilot/demo/Existing.java");
+        write(file, """
+                package com.codepilot.demo;
+
+                class Existing {
+                }
+                """);
+
+        String patch = """
+                *** Begin Patch
+                *** Add File: src/test/java/com/codepilot/demo/Existing.java
+                +package com.codepilot.demo;
+                +
+                +class Existing {
+                +}
+                *** End Patch
+                """;
+
+        ApplyPatchFormatApplier.ApplyPatchApplicationResult result = ApplyPatchFormatApplier.apply(tempDir, patch);
+
+        assertThat(result.changedFiles()).isZero();
+        assertThat(result.changedPaths()).isEmpty();
+    }
+
+    @Test
     void shouldDeleteFileForDeletePatch() throws Exception {
         Path file = tempDir.resolve("src/test/java/com/codepilot/demo/OldFile.java");
         Files.createDirectories(file.getParent());
