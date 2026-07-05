@@ -100,6 +100,34 @@ class ReviewIssuePatchVerifierTest {
     }
 
     @Test
+    void shouldKeepHighSignalIssueGroundedByPatchRiskArea() {
+        ReviewIssue issue = issue(
+                "src/main/resources/db/migration/V2__users.sql",
+                null,
+                "SQL_RISK",
+                "HIGH",
+                "Unsafe query construction",
+                "The change may concatenate request input before persistence.",
+                "Use parameter binding before executing the query."
+        );
+
+        List<ReviewIssue> verified = verifier.keepVerified(
+                "src/main/resources/db/migration/V2__users.sql",
+                """
+                        @@ -1,1 +1,2 @@
+                         -- users migration
+                        +-- accepts a new caller-provided filter
+                        """,
+                contextWithDatabasePlan(),
+                List.of(issue)
+        );
+
+        assertThat(verified)
+                .singleElement()
+                .satisfies(kept -> assertThat(kept.getRuleReference()).contains("PATCH_VERIFIED:PATCH_RISK_AREA"));
+    }
+
+    @Test
     void shouldKeepToolIssuesWithoutLlmPatchVerification() {
         ReviewIssue issue = issue(
                 "src/main/java/DemoRepository.java",
@@ -154,6 +182,42 @@ class ReviewIssuePatchVerifierTest {
         );
         return new ReviewContext(
                 List.of("src/main/java/AuthService.java"),
+                1,
+                1,
+                0,
+                1,
+                0,
+                100,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                ReviewContext.ReviewImpactPlan.empty(),
+                plan,
+                List.of(),
+                List.of(),
+                List.of()
+        );
+    }
+
+    private ReviewContext contextWithDatabasePlan() {
+        ReviewPlan plan = new ReviewPlan(
+                List.of("database-change"),
+                List.of(new ReviewPlan.RiskArea(
+                        "database-safety",
+                        "HIGH",
+                        "Database migration changed."
+                )),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of("Check migration ordering, rollback strategy, and destructive SQL."),
+                true,
+                0.8,
+                List.of()
+        );
+        return new ReviewContext(
+                List.of("src/main/resources/db/migration/V2__users.sql"),
                 1,
                 1,
                 0,
