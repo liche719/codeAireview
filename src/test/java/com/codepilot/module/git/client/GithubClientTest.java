@@ -114,6 +114,24 @@ class GithubClientTest {
     }
 
     @Test
+    void shouldRedactSecretsFromRateLimitResponseSummary() {
+        TestContext context = new TestContext();
+        context.server.expect(once(), requestTo("https://api.github.test/repos/liche719/codeAireview/pulls/123"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN)
+                        .header("X-RateLimit-Remaining", "0")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"message\":\"API rate limit exceeded token=ghp_123456789012345678901234567890123456\"}"));
+
+        assertThatThrownBy(() -> context.client.getPullRequestDetail("liche719", "codeAireview", 123))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("GitHub API rate limit exceeded")
+                .hasMessageContaining("[REDACTED]")
+                .hasMessageNotContaining("ghp_123456789012345678901234567890123456");
+        context.server.verify();
+    }
+
+    @Test
     void shouldNotRetryForbiddenWhenItIsNotRateLimit() {
         TestContext context = new TestContext();
         context.server.expect(once(), requestTo("https://api.github.test/repos/liche719/codeAireview/pulls/123"))

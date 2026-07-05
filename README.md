@@ -7,6 +7,8 @@
 
 CodePilot AI 是一个面向 Java / Spring Boot 后端团队的 GitHub PR 自动审查系统。它把 webhook、RabbitMQ、RAG、确定性规则、Semantic Review Planning、Patch Verification 和 GitHub 评论回写串成完整链路，让“发现问题”变成一条可执行、可追溯、可落地的审查工作流。
 
+如果你想快速了解这个项目在简历和面试里怎么讲，可以先看 [CodePilot 简历证据链与面试讲法](docs/resume-project-evidence.md)。这份文档把项目背景、本人职责、核心难点、代码证据、验证结果和 STAR 回答整理在一起。
+
 ## 为什么值得看
 
 - 不是 prompt wrapper：系统先做任务编排、文件预算、风险分层和审查焦点规划，再把受约束的上下文交给 LLM。

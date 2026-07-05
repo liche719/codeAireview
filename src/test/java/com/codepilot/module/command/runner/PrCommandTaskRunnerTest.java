@@ -1,5 +1,6 @@
 package com.codepilot.module.command.runner;
 
+import com.codepilot.common.retry.RabbitRetryAttemptResolver;
 import com.codepilot.module.agent.dto.CodeFixResult;
 import com.codepilot.module.agent.service.CodeFixService;
 import com.codepilot.module.command.config.GithubCommandProperties;
@@ -96,7 +97,12 @@ class PrCommandTaskRunnerTest {
         private final PrCommandTaskStateManager commandTaskStateManager = new PrCommandTaskStateManager(mapper);
 
         private final PrCommandTaskFailureHandler commandTaskFailureHandler =
-                new PrCommandTaskFailureHandler(commandTaskStateManager, commandTaskLogService, fixResultCommenter);
+                new PrCommandTaskFailureHandler(
+                        commandTaskStateManager,
+                        commandTaskLogService,
+                        fixResultCommenter,
+                        new RabbitRetryAttemptResolver()
+                );
 
         private final FixPullRequestWritePolicy fixPullRequestWritePolicy = new FixPullRequestWritePolicy();
 

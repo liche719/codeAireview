@@ -1,5 +1,6 @@
 package com.codepilot.module.command.failure;
 
+import com.codepilot.common.retry.RabbitRetryAttemptResolver;
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.fix.FixResultCommenter;
 import com.codepilot.module.command.service.PrCommandTaskLogService;
@@ -25,8 +26,10 @@ class PrCommandTaskFailureHandlerTest {
 
     private final FixResultCommenter commenter = mock(FixResultCommenter.class);
 
+    private final RabbitRetryAttemptResolver retryAttemptResolver = new RabbitRetryAttemptResolver();
+
     private final PrCommandTaskFailureHandler failureHandler =
-            new PrCommandTaskFailureHandler(stateManager, logService, commenter);
+            new PrCommandTaskFailureHandler(stateManager, logService, commenter, retryAttemptResolver);
 
     @AfterEach
     void clearRetryContext() {
@@ -47,7 +50,7 @@ class PrCommandTaskFailureHandlerTest {
     @Test
     void shouldMarkRetryingAndSkipCommentBeforeFinalAttempt() {
         PrCommandTask task = task();
-        ReflectionTestUtils.setField(failureHandler, "rabbitRetryMaxAttempts", 3);
+        ReflectionTestUtils.setField(retryAttemptResolver, "rabbitRetryMaxAttempts", 3);
         registerRetryContext(0);
 
         assertThatThrownBy(() -> failureHandler.handleRetryable(task, new IllegalStateException("temporary error")))
@@ -62,7 +65,7 @@ class PrCommandTaskFailureHandlerTest {
     @Test
     void shouldMarkFailedAndCommentOnFinalRetryAttempt() {
         PrCommandTask task = task();
-        ReflectionTestUtils.setField(failureHandler, "rabbitRetryMaxAttempts", 3);
+        ReflectionTestUtils.setField(retryAttemptResolver, "rabbitRetryMaxAttempts", 3);
         registerRetryContext(2);
 
         assertThatThrownBy(() -> failureHandler.handleRetryable(task, new IllegalStateException("final error")))

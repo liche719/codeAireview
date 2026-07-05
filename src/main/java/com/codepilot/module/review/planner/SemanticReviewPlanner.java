@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -19,7 +18,9 @@ import java.util.Set;
 @Component
 public class SemanticReviewPlanner {
 
-    private static final int PRIORITY_REASON_LIMIT = 3;
+    private final ReviewPlanRiskCollector riskCollector = new ReviewPlanRiskCollector();
+
+    private final ReviewPlanPriorityFileScorer priorityFileScorer = new ReviewPlanPriorityFileScorer();
 
     public ReviewPlan plan(
             List<ReviewFile> reviewFiles,
@@ -113,14 +114,18 @@ public class SemanticReviewPlanner {
                 safeList(repoSourceExcerpts)
         );
 
-        LinkedHashSet<String> changeTypes = new LinkedHashSet<>(safeImpactPlan.changeTypes());
-        LinkedHashMap<String, ReviewPlan.RiskArea> riskAreas = new LinkedHashMap<>();
-        collectSignalRisks(safeReviewSignals, changeTypes, riskAreas);
-        collectFileRisks(safeFileSummaries, safeSemanticContexts, changeTypes, riskAreas);
-        collectRelationshipRisks(safeRelationshipHints, riskAreas);
-        collectLinkedIssueRisks(safeLinkedIssueContexts, changeTypes, riskAreas);
+        ReviewPlanRiskCollector.RiskProfile riskProfile = riskCollector.collect(
+                safeImpactPlan,
+                safeFileSummaries,
+                safeSemanticContexts,
+                safeRelationshipHints,
+                safeReviewSignals,
+                safeLinkedIssueContexts
+        );
+        LinkedHashSet<String> changeTypes = new LinkedHashSet<>(riskProfile.changeTypes());
+        List<ReviewPlan.RiskArea> riskAreas = riskProfile.riskAreas();
 
-        List<ReviewPlan.PriorityFile> priorityFiles = priorityFiles(
+        List<ReviewPlan.PriorityFile> priorityFiles = priorityFileScorer.priorityFiles(
                 safeFileSummaries,
                 reviewFileByPath,
                 semanticByPath,
@@ -138,14 +143,14 @@ public class SemanticReviewPlanner {
         List<ReviewPlan.CrossFileFocus> crossFileFocuses = crossFileFocuses(safeRelationshipHints);
 
         LinkedHashSet<String> verificationHints = new LinkedHashSet<>(safeImpactPlan.verificationHints());
-        verificationHints.addAll(verificationHints(riskAreas.values(), safeReviewSignals, safeRelationshipHints, safeGraphSnapshot));
+        verificationHints.addAll(verificationHints(riskAreas, safeReviewSignals, safeRelationshipHints, safeGraphSnapshot));
         verificationHints.addAll(linkedIssueVerificationHints(safeLinkedIssueContexts));
 
         boolean requiresRepoContext = requiresRepoContext(
                 changeTypes,
                 safeSemanticContexts,
                 safeRelationshipHints,
-                riskAreas.values(),
+                riskAreas,
                 safeGraphSnapshot
         );
         List<String> plannerWarnings = plannerWarnings(
@@ -160,7 +165,7 @@ public class SemanticReviewPlanner {
 
         return new ReviewPlan(
                 List.copyOf(changeTypes),
-                List.copyOf(riskAreas.values()),
+                List.copyOf(riskAreas),
                 priorityFiles,
                 fileFocuses,
                 crossFileFocuses,
@@ -179,288 +184,6 @@ public class SemanticReviewPlanner {
                 ),
                 plannerWarnings
         );
-    }
-
-    private void collectSignalRisks(
-            List<ReviewContext.ReviewSignal> reviewSignals,
-            Set<String> changeTypes,
-            Map<String, ReviewPlan.RiskArea> riskAreas
-    ) {
-        for (ReviewContext.ReviewSignal signal : reviewSignals) {
-            String type = upper(signal.type());
-            switch (type) {
-                case "DATABASE_CHANGE" -> {
-                    changeTypes.add("database-change");
-                    addRiskArea(riskAreas, "database-safety", signal.severity(), signal.message());
-                }
-                case "SECURITY_SENSITIVE_CHANGE" -> {
-                    changeTypes.add("security-sensitive-change");
-                    addRiskArea(riskAreas, "security-boundary", "HIGH", signal.message());
-                }
-                case "CONFIG_CHANGE" -> {
-                    changeTypes.add("configuration-change");
-                    addRiskArea(riskAreas, "runtime-configuration", signal.severity(), signal.message());
-                }
-                case "DEPENDENCY_CHANGE" -> {
-                    changeTypes.add("dependency-or-build-change");
-                    addRiskArea(riskAreas, "supply-chain-compatibility", signal.severity(), signal.message());
-                }
-                case "PUBLIC_API_CHANGE" -> {
-                    changeTypes.add("public-api-change");
-                    addRiskArea(riskAreas, "api-contract", "HIGH", signal.message());
-                }
-                case "MISSING_TEST_CHANGE" -> addRiskArea(
-                        riskAreas,
-                        "test-coverage-gap",
-                        signal.severity(),
-                        signal.message()
-                );
-                case "LARGE_PR" -> addRiskArea(
-                        riskAreas,
-                        "large-review-scope",
-                        signal.severity(),
-                        signal.message()
-                );
-                case "SKIPPED_FILES" -> addRiskArea(
-                        riskAreas,
-                        "review-completeness",
-                        signal.severity(),
-                        signal.message()
-                );
-                default -> {
-                    if (StringUtils.hasText(signal.message())) {
-                        addRiskArea(riskAreas, lowerOrUnknown(signal.type()), signal.severity(), signal.message());
-                    }
-                }
-            }
-        }
-    }
-
-    private void collectFileRisks(
-            List<ReviewContext.FileSummary> fileSummaries,
-            List<ReviewContext.SemanticFileContext> semanticFileContexts,
-            Set<String> changeTypes,
-            Map<String, ReviewPlan.RiskArea> riskAreas
-    ) {
-        for (ReviewContext.FileSummary fileSummary : fileSummaries) {
-            String path = fileSummary.filePath();
-            if (!fileSummary.reviewable()) {
-                continue;
-            }
-            if (ReviewFileClassifier.isDatabasePath(path)) {
-                changeTypes.add("database-change");
-                addRiskArea(riskAreas, "database-safety", "HIGH", "Database or migration file changed.");
-            }
-            if (ReviewFileClassifier.isSecuritySensitivePath(path)) {
-                changeTypes.add("security-sensitive-change");
-                addRiskArea(riskAreas, "security-boundary", "HIGH", "Security-sensitive path changed.");
-            }
-            if (ReviewFileClassifier.isPublicApiPath(path)) {
-                changeTypes.add("public-api-change");
-                addRiskArea(riskAreas, "api-contract", "HIGH", "Public API surface path changed.");
-            }
-            if (ReviewFileClassifier.isConfigurationPath(path)) {
-                changeTypes.add("configuration-change");
-                addRiskArea(riskAreas, "runtime-configuration", "MEDIUM", "Configuration path changed.");
-            }
-            if (ReviewFileClassifier.isDependencyManifestPath(path)) {
-                changeTypes.add("dependency-or-build-change");
-                addRiskArea(riskAreas, "supply-chain-compatibility", "MEDIUM", "Dependency or build manifest changed.");
-            }
-        }
-
-        for (ReviewContext.SemanticFileContext context : semanticFileContexts) {
-            if (!context.apiRoutes().isEmpty()) {
-                changeTypes.add("public-api-change");
-                addRiskArea(riskAreas, "api-contract", "HIGH", "Changed API route metadata was detected.");
-            }
-            if (context.annotations().stream().anyMatch(this::isSecurityAnnotation)) {
-                changeTypes.add("security-boundary-change");
-                addRiskArea(riskAreas, "security-boundary", "HIGH", "Changed security annotation was detected.");
-            }
-        }
-    }
-
-    private void collectRelationshipRisks(
-            List<ReviewContext.RepoRelationshipHint> repoRelationshipHints,
-            Map<String, ReviewPlan.RiskArea> riskAreas
-    ) {
-        for (ReviewContext.RepoRelationshipHint hint : repoRelationshipHints) {
-            switch (upper(hint.type())) {
-                case "IMPORT_TARGET" -> addRiskArea(
-                        riskAreas,
-                        "cross-file-api-compatibility",
-                        "MEDIUM",
-                        "Changed files include importer/importee relationship."
-                );
-                case "SOURCE_TEST_PAIR" -> addRiskArea(
-                        riskAreas,
-                        "test-coverage-alignment",
-                        "MEDIUM",
-                        "Source and matching test changed together."
-                );
-                case "LAYERED_COMPONENT" -> addRiskArea(
-                        riskAreas,
-                        "layer-boundary-drift",
-                        "MEDIUM",
-                        "Layered components in the same domain changed together."
-                );
-                default -> {
-                    if (StringUtils.hasText(hint.type())) {
-                        addRiskArea(riskAreas, "related-changed-files", "LOW", hint.reason());
-                    }
-                }
-            }
-        }
-    }
-
-    private void collectLinkedIssueRisks(
-            List<ReviewContext.LinkedIssueContext> linkedIssueContexts,
-            Set<String> changeTypes,
-            Map<String, ReviewPlan.RiskArea> riskAreas
-    ) {
-        if (linkedIssueContexts.isEmpty()) {
-            return;
-        }
-        changeTypes.add("issue-driven-change");
-        addRiskArea(
-                riskAreas,
-                "task-requirement-alignment",
-                "MEDIUM",
-                "PR links issue context; review should verify the patch matches the stated task, not only local diff mechanics."
-        );
-        String joinedTitles = linkedIssueContexts.stream()
-                .map(ReviewContext.LinkedIssueContext::title)
-                .filter(StringUtils::hasText)
-                .map(title -> title.toLowerCase(Locale.ROOT))
-                .reduce((left, right) -> left + " " + right)
-                .orElse("");
-        if (containsAny(joinedTitles, "bug", "fix", "regression", "crash", "incorrect", "错误", "修复", "缺陷", "回归")) {
-            changeTypes.add("bugfix");
-            addRiskArea(
-                    riskAreas,
-                    "bugfix-regression",
-                    "MEDIUM",
-                    "Linked issue title indicates bugfix/regression context."
-            );
-        }
-        if (containsAny(joinedTitles, "security", "auth", "permission", "漏洞", "权限", "认证", "安全")) {
-            changeTypes.add("security-sensitive-change");
-            addRiskArea(
-                    riskAreas,
-                    "security-boundary",
-                    "HIGH",
-                    "Linked issue title indicates security or permission context."
-            );
-        }
-    }
-
-    private List<ReviewPlan.PriorityFile> priorityFiles(
-            List<ReviewContext.FileSummary> fileSummaries,
-            Map<String, ReviewFile> reviewFileByPath,
-            Map<String, ReviewContext.SemanticFileContext> semanticByPath,
-            Map<String, List<ReviewContext.RepoRelationshipHint>> relationshipsByPath,
-            RepositoryGraphSnapshot graphSnapshot
-    ) {
-        return fileSummaries.stream()
-                .filter(ReviewContext.FileSummary::reviewable)
-                .map(fileSummary -> scoredFile(
-                        fileSummary,
-                        reviewFileByPath.get(normalizePath(fileSummary.filePath())),
-                        semanticByPath.get(normalizePath(fileSummary.filePath())),
-                        relationshipsByPath.getOrDefault(normalizePath(fileSummary.filePath()), List.of()),
-                        graphSnapshot
-                ))
-                .filter(scoredFile -> scoredFile.score() > 0)
-                .sorted(Comparator.comparingInt(ScoredFile::score)
-                        .reversed()
-                        .thenComparing(scoredFile -> normalizePath(scoredFile.filePath())))
-                .map(scoredFile -> new ReviewPlan.PriorityFile(
-                        scoredFile.filePath(),
-                        scoredFile.score(),
-                        scoredFile.reasons()
-                ))
-                .toList();
-    }
-
-    private ScoredFile scoredFile(
-            ReviewContext.FileSummary fileSummary,
-            ReviewFile reviewFile,
-            ReviewContext.SemanticFileContext semanticContext,
-            List<ReviewContext.RepoRelationshipHint> relationshipHints,
-            RepositoryGraphSnapshot graphSnapshot
-    ) {
-        String path = fileSummary.filePath();
-        String patch = reviewFile == null || reviewFile.getPatch() == null
-                ? ""
-                : reviewFile.getPatch().toLowerCase(Locale.ROOT);
-        int score = 0;
-        LinkedHashSet<String> reasons = new LinkedHashSet<>();
-        RepositoryGraphSnapshot.GraphNode graphNode = graphSnapshot == null ? null : graphSnapshot.nodeFor(path).orElse(null);
-
-        if (ReviewFileClassifier.isSecuritySensitivePath(path)
-                || containsAny(patch, "password", "secret", "token", "auth", "permission", "credential")) {
-            score += 1000;
-            reasons.add("security-sensitive path or patch keyword");
-        }
-        if (ReviewFileClassifier.isDatabasePath(path)
-                || containsAny(patch, "select ", "update ", "delete ", "insert ", "alter table", "drop table")) {
-            score += 900;
-            reasons.add("database or SQL behavior change");
-        }
-        if (ReviewFileClassifier.isPublicApiPath(path)
-                || semanticContext != null && !semanticContext.apiRoutes().isEmpty()) {
-            score += 800;
-            reasons.add("public API contract change");
-        }
-        if (ReviewFileClassifier.isConfigurationPath(path)) {
-            score += 700;
-            reasons.add("runtime configuration change");
-        }
-        if (ReviewFileClassifier.isDependencyManifestPath(path)) {
-            score += 650;
-            reasons.add("dependency or build manifest change");
-        }
-        if (ReviewFileClassifier.isProductionCodePath(path)) {
-            score += 600;
-            reasons.add("production code change");
-        }
-        if (ReviewFileClassifier.isTestPath(path)) {
-            score += 350;
-            reasons.add("test behavior change");
-        }
-        if (fileSummary.patchChars() >= 5_000) {
-            score += 80;
-            reasons.add("large per-file patch");
-        }
-        if (!relationshipHints.isEmpty()) {
-            score += Math.min(200, relationshipHints.size() * 50);
-            reasons.add("cross-file relationship detected");
-        }
-        if (semanticContext != null && !semanticContext.changedMethods().isEmpty()) {
-            score += 60;
-            reasons.add("changed method-level semantics");
-        }
-        if (graphNode != null) {
-            if (graphNode.score() > 0) {
-                score += Math.min(160, graphNode.score() / 10);
-                reasons.add("repository graph score");
-            }
-            if (graphNode.degree() > 1) {
-                score += Math.min(80, graphNode.degree() * 12);
-                reasons.add("repository graph degree");
-            }
-        }
-        if (graphSnapshot != null && graphSnapshot.focusFiles().stream().anyMatch(file -> normalizePath(file).equals(normalizePath(path)))) {
-            score += 60;
-            reasons.add("graph focus file");
-        }
-        if (ReviewFileClassifier.isDocumentationPath(path)) {
-            score -= 250;
-            reasons.add("documentation-only path");
-        }
-
-        return new ScoredFile(path, score, reasons.stream().limit(PRIORITY_REASON_LIMIT).toList());
     }
 
     private List<ReviewPlan.FileFocus> fileFocuses(
@@ -875,21 +598,6 @@ public class SemanticReviewPlanner {
         relatedFiles.computeIfAbsent(normalizePath(sourceFile), ignored -> new LinkedHashSet<>()).add(relatedFile);
     }
 
-    private void addRiskArea(
-            Map<String, ReviewPlan.RiskArea> riskAreas,
-            String type,
-            String severity,
-            String reason
-    ) {
-        if (!StringUtils.hasText(type) || !StringUtils.hasText(reason)) {
-            return;
-        }
-        riskAreas.putIfAbsent(
-                type,
-                new ReviewPlan.RiskArea(type, StringUtils.hasText(severity) ? severity : "MEDIUM", reason)
-        );
-    }
-
     private boolean hasSemanticContent(ReviewContext.SemanticFileContext context) {
         return context != null && (StringUtils.hasText(context.packageName())
                 || !context.declaredSymbols().isEmpty()
@@ -931,10 +639,6 @@ public class SemanticReviewPlanner {
         return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
     }
 
-    private String lowerOrUnknown(String value) {
-        return StringUtils.hasText(value) ? value.trim().toLowerCase(Locale.ROOT) : "unknown";
-    }
-
     private <T> List<T> safeList(List<T> values) {
         return values == null ? List.of() : values;
     }
@@ -949,8 +653,5 @@ public class SemanticReviewPlanner {
                 .limit(limit)
                 .reduce((left, right) -> left + ", " + right)
                 .orElse("");
-    }
-
-    private record ScoredFile(String filePath, int score, List<String> reasons) {
     }
 }

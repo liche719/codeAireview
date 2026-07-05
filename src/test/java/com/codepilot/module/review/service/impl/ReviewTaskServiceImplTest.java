@@ -1,6 +1,7 @@
 package com.codepilot.module.review.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.codepilot.common.retry.RabbitRetryAttemptResolver;
 import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.module.agent.dto.AiReviewRequest;
 import com.codepilot.module.agent.service.AiReviewService;
@@ -283,7 +284,7 @@ class ReviewTaskServiceImplTest {
         context.stubEmptyReviewFlow();
         when(context.githubClient.listPullRequestFiles("liche719", "codeAireview", 123))
                 .thenThrow(new IllegalStateException("github temporary error"));
-        ReflectionTestUtils.setField(context.reviewTaskFailureHandler, "rabbitRetryMaxAttempts", 3);
+        ReflectionTestUtils.setField(context.retryAttemptResolver, "rabbitRetryMaxAttempts", 3);
         registerRetryContext(0);
 
         assertThatThrownBy(() -> context.service.processTask(1L))
@@ -304,7 +305,7 @@ class ReviewTaskServiceImplTest {
         context.stubEmptyReviewFlow();
         when(context.githubClient.listPullRequestFiles("liche719", "codeAireview", 123))
                 .thenThrow(new IllegalStateException("github final error"));
-        ReflectionTestUtils.setField(context.reviewTaskFailureHandler, "rabbitRetryMaxAttempts", 3);
+        ReflectionTestUtils.setField(context.retryAttemptResolver, "rabbitRetryMaxAttempts", 3);
         registerRetryContext(2);
 
         assertThatThrownBy(() -> context.service.processTask(1L))
@@ -376,8 +377,10 @@ class ReviewTaskServiceImplTest {
 
         private final ReviewTaskStateManager reviewTaskStateManager = new ReviewTaskStateManager(reviewTaskMapper);
 
+        private final RabbitRetryAttemptResolver retryAttemptResolver = new RabbitRetryAttemptResolver();
+
         private final ReviewTaskFailureHandler reviewTaskFailureHandler =
-                new ReviewTaskFailureHandler(reviewTaskStateManager);
+                new ReviewTaskFailureHandler(reviewTaskStateManager, retryAttemptResolver);
 
         private final ReviewTaskHeadShaRefresher reviewTaskHeadShaRefresher =
                 new ReviewTaskHeadShaRefresher(githubClient, reviewTaskStateManager);

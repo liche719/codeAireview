@@ -1,5 +1,6 @@
 package com.codepilot.module.command.service.impl;
 
+import com.codepilot.common.retry.RabbitRetryAttemptResolver;
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.creator.PrCommandTaskCreator;
@@ -131,7 +132,7 @@ class PrCommandTaskServiceImplTest {
         context.stubRunnableFixTask();
         when(context.gitPatchExecutor.execute(any(GitPatchExecutionRequest.class)))
                 .thenReturn(GitPatchExecutionResult.retryableFailure("temporary validation runner error", "detail"));
-        ReflectionTestUtils.setField(context.commandTaskFailureHandler, "rabbitRetryMaxAttempts", 3);
+        ReflectionTestUtils.setField(context.retryAttemptResolver, "rabbitRetryMaxAttempts", 3);
         registerRetryContext(0);
 
         assertThatThrownBy(() -> context.service.processFixTask(1L))
@@ -153,7 +154,7 @@ class PrCommandTaskServiceImplTest {
         context.stubRunnableFixTask();
         when(context.gitPatchExecutor.execute(any(GitPatchExecutionRequest.class)))
                 .thenReturn(GitPatchExecutionResult.retryableFailure("validation failed", "detail"));
-        ReflectionTestUtils.setField(context.commandTaskFailureHandler, "rabbitRetryMaxAttempts", 3);
+        ReflectionTestUtils.setField(context.retryAttemptResolver, "rabbitRetryMaxAttempts", 3);
         registerRetryContext(2);
 
         assertThatThrownBy(() -> context.service.processFixTask(1L))
@@ -295,8 +296,15 @@ class PrCommandTaskServiceImplTest {
 
         private final PrCommandTaskStateManager commandTaskStateManager = new PrCommandTaskStateManager(mapper);
 
+        private final RabbitRetryAttemptResolver retryAttemptResolver = new RabbitRetryAttemptResolver();
+
         private final PrCommandTaskFailureHandler commandTaskFailureHandler =
-                new PrCommandTaskFailureHandler(commandTaskStateManager, commandTaskLogService, fixResultCommenter);
+                new PrCommandTaskFailureHandler(
+                        commandTaskStateManager,
+                        commandTaskLogService,
+                        fixResultCommenter,
+                        retryAttemptResolver
+                );
 
         private final FixPullRequestWritePolicy fixPullRequestWritePolicy = new FixPullRequestWritePolicy();
 
