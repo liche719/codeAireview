@@ -126,6 +126,7 @@ CodePilot 的设计目标是把 AI 审查做成可异步调度、可验证、可
 - Semantic review planning 拆分：`ReviewPlanRiskCollector` 汇总风险面和 change type，`ReviewPlanPriorityFileScorer` 负责优先级评分，`SemanticReviewPlanner` 聚焦计划编排。
 - Prompt formatter 拆分：`AiReviewPlanPromptFormatter`、`AiReviewGraphPromptFormatter`、`AiReviewRelatedContextFormatter` 分别负责计划、图谱和相关上下文，降低 prompt 组装类的复杂度。
 - SQL 确定性规则拆分：`SqlRiskTool` 保留规则入口和日志，`SqlAstRiskAnalyzer` 负责 JSQLParser/SQL 候选提取，`SqlStringConcatenationDetector` 负责字符串拼接 SQL 识别，`SqlRiskIssueFactory` 统一生成问题描述；同时补充 `insert ... ${}` 的 MyBatis 风险回归测试。
+- 跨文件图谱和相关源码上下文拆分：`RepositoryGraphSnapshotBuilder` 回到 DTO 适配入口，`RepositoryGraphSnapshotAssembler` 负责编排节点/边排序和 focus 生成，`RepositoryGraphNodeAccumulator` 负责图谱评分；`RepoSourceExcerptExtractor` 拆出候选收集、import 候选解析、source/test 配对解析、源码拉取截断和路径安全工具，支撑“相关文件召回”能力继续扩展。
 
 **新增/更新测试证据**：
 
@@ -136,12 +137,17 @@ CodePilot 的设计目标是把 AI 审查做成可异步调度、可验证、可
 - `src/test/java/com/codepilot/module/git/client/GithubClientTest.java`
 - `src/test/java/com/codepilot/module/review/processor/ReviewFileReviewerTest.java`
 - `src/test/java/com/codepilot/module/tool/impl/SqlRiskToolTest.java`
+- `src/test/java/com/codepilot/module/review/graph/RepositoryGraphSnapshotTest.java`
+- `src/test/java/com/codepilot/module/review/context/RepoSourceExcerptExtractorTest.java`
+- `src/test/java/com/codepilot/module/agent/prompt/AiReviewContextFormatterGraphTest.java`
+- `src/test/java/com/codepilot/module/review/context/ReviewContextBuilderTest.java`
 
 ## 已验证结果
 
 - 全量自动化测试：502 个测试运行，0 failure，0 error，2 skipped。
 - 本轮关键回归测试：`GithubClientTest`、`ReviewPlanRiskCollectorTest`、`PatchValidationRunnerTest`、`ReviewFileReviewerTest`、`RabbitRetryAttemptResolverTest` 共 26 个测试运行，0 failure，0 error。
 - SQL 规则回归测试：`SqlRiskToolTest`、`DeterministicReviewEvalTest`、`AiReviewPipelineEvalTest`、`AiReviewServiceImplTest` 共 25 个测试运行，0 failure，0 error。
+- 图谱和源码上下文回归测试：`RepositoryGraphSnapshotTest`、`AiReviewContextFormatterGraphTest`、`SemanticReviewPlannerTest`、`ReviewPlanPriorityFileScorerTest`、`RepoSourceExcerptExtractorTest`、`ReviewContextBuilderTest`、`ReviewTaskProcessorTest`、`AiReviewPipelineEvalTest` 共 19 个测试运行，0 failure，0 error。
 - 离线 AI Review 评估：6 个样本场景，Precision 85.71%，Recall 100%，must-not-comment violation rate 0%。
 - 本地运行态 smoke：验证 OpenAPI、API Key 鉴权、Webhook HMAC 签名、unsupported event 忽略、PR opened 创建任务、Redis 去重、数据库落库、RabbitMQ 投递和 DLQ 链路。
 - 本地并发验证：核心查询和 Webhook 触发接口在 20 并发下成功率 100%，P95 约 59ms 以内；PR 创建任务场景 20 次成功，P95 约 35ms。
