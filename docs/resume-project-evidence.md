@@ -124,7 +124,7 @@ CodePilot 的设计目标是把 AI 审查做成可异步调度、可验证、可
 - GitHub Client 职责拆分：`GithubRequestExecutor` 负责 REST 执行、rate limit 判断、重试等待和脱敏异常；`GithubLinkedIssueResolver` 负责 GraphQL closing issue 和 PR body closing keyword 解析，`GithubClient` 回到 API 编排层。
 - Patch validation 沙箱化：`JGitPatchExecutor` 把命令白名单、Docker sandbox 命令生成、环境变量清理、输出脱敏截断、验证执行拆成独立组件；构建类命令默认禁止，必须显式开启并使用 Docker 模式。
 - Patch verification 证据模型拆分：`ReviewIssuePatchVerifier` 保留 LLM 问题过滤入口，`ReviewIssuePatchEvidence` 负责 diff token 和风险路径对齐，`ReviewIssuePlanEvidence` 负责审查计划证据，`ReviewIssueTextTokens` 统一 token 提取和规范化，降低“评论必须有证据”这条防线的复杂度。
-- Semantic review planning 拆分：`ReviewPlanRiskCollector` 汇总风险面和 change type，`ReviewPlanPriorityFileScorer` 负责优先级评分，`SemanticReviewPlanner` 聚焦计划编排。
+- Semantic review planning 拆分：`ReviewPlanRiskCollector` 汇总风险面和 change type，`ReviewPlanPriorityFileScorer` 负责优先级评分，`ReviewPlanFileFocusBuilder`、`ReviewPlanCrossFileFocusBuilder`、`ReviewPlanVerificationHintBuilder` 和 `ReviewPlanQualityEstimator` 分别负责文件审查重点、跨文件关注点、验证提示和计划置信度，`SemanticReviewPlanner` 回到计划编排入口。
 - Prompt formatter 拆分：`AiReviewPlanPromptFormatter`、`AiReviewGraphPromptFormatter`、`AiReviewRelatedContextFormatter` 分别负责计划、图谱和相关上下文，降低 prompt 组装类的复杂度。
 - SQL 确定性规则拆分：`SqlRiskTool` 保留规则入口和日志，`SqlAstRiskAnalyzer` 负责 JSQLParser/SQL 候选提取，`SqlStringConcatenationDetector` 负责字符串拼接 SQL 识别，`SqlRiskIssueFactory` 统一生成问题描述；同时补充 `insert ... ${}` 的 MyBatis 风险回归测试。
 - 跨文件图谱和相关源码上下文拆分：`RepositoryGraphSnapshotBuilder` 回到 DTO 适配入口，`RepositoryGraphSnapshotAssembler` 负责编排节点/边排序和 focus 生成，`RepositoryGraphNodeAccumulator` 负责图谱评分；`RepoSourceExcerptExtractor` 拆出候选收集、import 候选解析、source/test 配对解析、源码拉取截断和路径安全工具，支撑“相关文件召回”能力继续扩展。
