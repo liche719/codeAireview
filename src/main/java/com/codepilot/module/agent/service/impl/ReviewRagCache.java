@@ -11,10 +11,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 final class ReviewRagCache {
 
     private final Map<String, CachedRuleContext> cache = new ConcurrentHashMap<>();
+
+    private final AtomicLong accessSequence = new AtomicLong();
 
     List<ReviewRuleContext> get(String cacheKey, RagProperties properties) {
         if (!isCacheEnabled(properties) || !StringUtils.hasText(cacheKey)) {
@@ -28,7 +31,7 @@ final class ReviewRagCache {
             cache.remove(cacheKey, cached);
             return null;
         }
-        cached.markAccessed();
+        cached.markAccessed(accessSequence.incrementAndGet());
         return copyContexts(cached.contexts());
     }
 
@@ -36,7 +39,7 @@ final class ReviewRagCache {
         if (!isCacheEnabled(properties) || !StringUtils.hasText(cacheKey)) {
             return;
         }
-        cache.put(cacheKey, new CachedRuleContext(copyContexts(contexts)));
+        cache.put(cacheKey, new CachedRuleContext(copyContexts(contexts), accessSequence.incrementAndGet()));
         evictIfNeeded(properties);
     }
 
@@ -46,7 +49,9 @@ final class ReviewRagCache {
             return;
         }
         cache.entrySet().stream()
-                .sorted(Comparator.comparing(entry -> entry.getValue().lastAccessedAt()))
+                .sorted(Comparator
+                        .comparing((Map.Entry<String, CachedRuleContext> entry) -> entry.getValue().lastAccessedAt())
+                        .thenComparingLong(entry -> entry.getValue().lastAccessSequence()))
                 .limit(Math.max(1, cache.size() - maxSize))
                 .map(Map.Entry::getKey)
                 .toList()
@@ -91,19 +96,23 @@ final class ReviewRagCache {
 
         private volatile Instant lastAccessedAt;
 
-        private CachedRuleContext(List<ReviewRuleContext> contexts) {
+        private volatile long lastAccessSequence;
+
+        private CachedRuleContext(List<ReviewRuleContext> contexts, long accessSequence) {
             Instant now = Instant.now();
             this.contexts = contexts == null ? List.of() : contexts;
             this.createdAt = now;
             this.lastAccessedAt = now;
+            this.lastAccessSequence = accessSequence;
         }
 
         private boolean isExpired(Duration ttl) {
             return createdAt.plus(ttl).isBefore(Instant.now());
         }
 
-        private void markAccessed() {
+        private void markAccessed(long accessSequence) {
             lastAccessedAt = Instant.now();
+            lastAccessSequence = accessSequence;
         }
 
         private List<ReviewRuleContext> contexts() {
@@ -112,6 +121,10 @@ final class ReviewRagCache {
 
         private Instant lastAccessedAt() {
             return lastAccessedAt;
+        }
+
+        private long lastAccessSequence() {
+            return lastAccessSequence;
         }
     }
 }

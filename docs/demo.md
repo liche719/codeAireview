@@ -1,88 +1,189 @@
-# 演示流程
+# 本地演示流程
 
-1. 启动依赖服务。
+这份文档用于把 CodePilot AI 跑成一个可展示、可截图、可复现的项目，而不是只停留在 README 描述。
 
-```bash
+## 方案 A：本地 smoke 演示
+
+适合快速证明项目能启动、鉴权有效、数据库可写、API 可访问。
+
+### 1. 启动依赖
+
+```powershell
 docker compose up -d
 ```
 
-2. 启动应用。
+### 2. 启动应用
 
-```bash
+```powershell
+copy .env.example .env
 mvn spring-boot:run
 ```
 
-如果要演示 GitHub 评论回写和 Webhook 自动触发，请先配置：
+如果使用脚本：
 
-```bash
-set CODEPILOT_GITHUB_COMMENT_ENABLED=true
-set CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED=true
-set CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK=10
-set CODEPILOT_GITHUB_WEBHOOK_ENABLED=true
-set CODEPILOT_GITHUB_TOKEN=你的 GitHub Token
-set CODEPILOT_GITHUB_WEBHOOK_SECRET=你的 Webhook Secret
-set CODEPILOT_API_AUTH_API_KEY=你的内部 API Key
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1
 ```
 
-3. 创建一份 SQL 规范。
+### 3. 运行 smoke 脚本
 
-```bash
-curl -X POST http://localhost:8080/api/rules ^
-  -H "X-CodePilot-Api-Key: 你的内部 API Key" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"title\":\"MySQL SQL 编写规范\",\"type\":\"SQL_RULE\",\"source\":\"manual\",\"content\":\"禁止使用 SELECT *。禁止字符串拼接 SQL。UPDATE 和 DELETE 必须带 WHERE。\"}"
+另开一个终端：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/smoke-local.ps1
 ```
 
-4. 对规范执行 index。
+脚本会检查：
 
-```bash
-curl -X POST http://localhost:8080/api/rules/1/index ^
-  -H "X-CodePilot-Api-Key: 你的内部 API Key"
+- `GET /v3/api-docs` 能访问。
+- `GET /api/reviews` 不带 API Key 会返回 `401`。
+- 带 `X-CodePilot-Api-Key` 能访问受保护接口。
+- `POST /api/rules` 能创建一条规则文档。
+- `GET /api/rules` 能读回规则文档。
+- 响应里能看到限流相关 header。
+
+### 4. 建议截图/日志
+
+用于 GitHub PR、简历附件或面试展示：
+
+- smoke 脚本成功输出。
+- RabbitMQ 管理页面 `http://localhost:15672` 的 queue 列表。
+- Swagger UI：`http://localhost:8080/swagger-ui/index.html`。
+- 数据库里的 `review_task`、`review_file`、`review_issue` 或 `rule_document` 记录。
+
+## 方案 B：离线审查质量评估
+
+适合证明不是“人工点一点”的 demo，而是有可回归的质量基线。
+
+```powershell
+mvn "-Dtest=AiReviewPipelineEvalTest,DeterministicReviewEvalTest,PromptRegressionEvalTest" test
 ```
 
-5. 用 ngrok 暴露本地端口。
+或者运行综合可靠性基线：
 
-```bash
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-review-reliability-baseline.ps1
+```
+
+该评估不调用真实 LLM，会 replay 测试夹具里的 PR-like diff，覆盖 SQL 风险、Secret、prompt injection、缺少测试、API 契约变化、配置安全回归和非法 JSON 降级。
+
+## 方案 C：真实 GitHub PR 演示
+
+适合完整展示 Webhook、RabbitMQ、GitHub 评论回写和 inline comment。
+
+### 1. 准备 GitHub 凭证
+
+本地 `.env` 至少设置：
+
+```env
+CODEPILOT_API_AUTH_API_KEY=change-me-local-dev-key
+CODEPILOT_GITHUB_AUTH_MODE=pat
+CODEPILOT_GITHUB_TOKEN=<fine-grained token>
+CODEPILOT_GITHUB_COMMENT_ENABLED=true
+CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED=true
+CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK=10
+CODEPILOT_GITHUB_WEBHOOK_ENABLED=true
+CODEPILOT_GITHUB_WEBHOOK_SECRET=<random secret>
+CODEPILOT_GITHUB_ALLOWED_REPOSITORIES=owner/repo
+CODEPILOT_LLM_API_KEY=<model api key>
+CODEPILOT_EMBEDDING_API_KEY=<embedding api key>
+```
+
+生产或长期部署推荐使用 GitHub App，见 [github-auth.md](github-auth.md)。
+
+### 2. 暴露本地服务
+
+```powershell
 ngrok http 8080
 ```
 
-6. 在 GitHub 仓库配置 Webhook。
+### 3. 配置 GitHub Webhook
+
+在目标仓库 `Settings -> Webhooks` 新增：
 
 ```text
-Payload URL: https://xxx.ngrok-free.app/api/github/webhook
+Payload URL: https://<ngrok-domain>/api/github/webhook
 Content type: application/json
-Secret: 与 CODEPILOT_GITHUB_WEBHOOK_SECRET 保持一致
+Secret: 与 CODEPILOT_GITHUB_WEBHOOK_SECRET 一致
 Events: Pull requests, Issue comments
 ```
 
-`Pull requests` 用于 PR `opened` / `synchronize` / `reopened` 自动审查；`Issue comments` 用于在 PR Conversation 中输入 `/review` 手动触发审查。
+### 4. 创建一个测试 PR
 
-PR 评论命令还支持：
-
-```text
-/review
-@x-pilotx review
-@x-pilotx fix dry-run
-@x-pilotx fix
-```
-
-`@x-pilotx fix dry-run` previews the generated patch without pushing a commit. `@x-pilotx fix` only reuses successful review issues from the current PR head sha, generates a small unified diff, validates it with the allowlisted validation command, and only then pushes a new commit to the current PR branch. Automatic fix is only supported for PR branches in the same repository.
-
-7. 提交一个包含 SQL 拼接和敏感信息的 PR。
+可以在测试仓库里制造一些明显风险：
 
 ```java
 String sql = "select * from user where name = '" + name + "'";
-String token = "abc123";
+String token = "abc123-secret";
 ```
 
-8. 查看结果。
+PR 打开或同步后，CodePilot 会：
+
+1. 接收 Webhook。
+2. Redis 去重。
+3. 创建 `review_task`。
+4. 投递 RabbitMQ。
+5. 拉取 changed files 和 diff。
+6. 执行 deterministic rules、RAG、LLM 审查。
+7. 保存 `review_issue`。
+8. 回写 GitHub Summary Comment / inline comment。
+
+### 5. 手动触发命令
+
+在 PR Conversation 评论：
 
 ```text
-review_task 创建成功
-RabbitMQ 正常消费
-review_issue 入库
-PR 顶部出现 CodePilot AI 审查报告
-再次触发时更新原评论，不新增第二条
-如果 issue 的 lineNumber 对应 diff 新增行，代码行上出现 CodePilot inline comment
-在 PR Conversation 评论 /review，会再次创建 ReviewTask 并触发审查
+/review
 ```
+
+或：
+
+```text
+@x-pilotx review
+```
+
+如果开启 fix 模式，还可以演示：
+
+```text
+@x-pilotx fix dry-run
+```
+
+`@x-pilotx fix` 默认关闭。只有在隔离环境、最小权限 token 和 sandbox 校验准备好后才建议开启。
+
+## 演示时重点讲什么
+
+- “我不是直接把 diff 塞给模型，而是先做任务编排、文件规划、风险识别和规则召回。”
+- “审查执行有两层并发：RabbitMQ 任务级并发和单任务内文件级并发。”
+- “LLM 输出不会直接发布，必须经过 patch verification 和 location guard。”
+- “GitHub 评论有 marker/fingerprint，避免重复刷屏。”
+- “失败路径有 retry、DLQ、脱敏日志和任务状态记录。”
+
+## 常见问题
+
+### Smoke 脚本 401
+
+检查应用启动时使用的 `CODEPILOT_API_AUTH_API_KEY` 是否与脚本参数一致：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/smoke-local.ps1 -ApiKey your-key
+```
+
+### Webhook 一直 ignored
+
+检查：
+
+- `CODEPILOT_GITHUB_WEBHOOK_ENABLED=true`
+- Webhook secret 与 GitHub 页面配置一致。
+- `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES` 是否包含当前仓库。
+- GitHub Webhook delivery 页面里的 response body。
+
+### inline comment 没出现
+
+可能原因：
+
+- `CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED=false`
+- issue 无法定位到 changed diff line。
+- 超过 `CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK`。
+- GitHub token/App 缺少 Pull requests write 权限。
+
+这不是失败，系统仍会通过 Summary Comment 展示结果。

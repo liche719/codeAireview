@@ -1,58 +1,59 @@
 # Docker 部署
 
-这套部署方式适合把 CodePilot AI 直接跑在 Linux 服务器上。
+这份文档用于把 CodePilot AI 部署到 Linux 服务器。生产暴露前请先读 [env.md](env.md) 和 [github-auth.md](github-auth.md)。
 
 ## 前置条件
 
 - Docker Engine 24+
 - Docker Compose v2
-- 一份可用的 `.env` 文件
+- 一份真实 `.env`
+- 可用的 GitHub PAT 或 GitHub App 配置
+- 可用的 LLM / Embedding API Key
 
-## 1. 准备环境
+## 1. 准备配置
 
-先把模板复制成真实配置：
-
-```powershell
-copy .env.example .env
+```bash
+cp .env.example .env
 ```
 
-然后填写至少这些值：
+至少需要设置：
 
-- `CODEPILOT_API_AUTH_API_KEY`
-- `CODEPILOT_GITHUB_AUTH_MODE`
-- `CODEPILOT_GITHUB_TOKEN` 或 `CODEPILOT_GITHUB_APP_ID` / `CODEPILOT_GITHUB_APP_PRIVATE_KEY_BASE64`
-- `CODEPILOT_LLM_API_KEY`
-- `CODEPILOT_EMBEDDING_API_KEY`
-- `CODEPILOT_GITHUB_WEBHOOK_SECRET`
+```env
+CODEPILOT_API_AUTH_API_KEY=<strong random key>
+CODEPILOT_GITHUB_AUTH_MODE=app
+CODEPILOT_GITHUB_APP_ID=<app id>
+CODEPILOT_GITHUB_APP_PRIVATE_KEY_BASE64=<base64 private key>
+CODEPILOT_GITHUB_ALLOWED_REPOSITORIES=owner/repo
+CODEPILOT_GITHUB_WEBHOOK_ENABLED=true
+CODEPILOT_GITHUB_WEBHOOK_SECRET=<strong random webhook secret>
+CODEPILOT_GITHUB_COMMENT_ENABLED=true
+CODEPILOT_LLM_API_KEY=<llm key>
+CODEPILOT_EMBEDDING_API_KEY=<embedding key>
+```
 
-`CODEPILOT_API_AUTH_API_KEY` 用于保护除 GitHub Webhook 外的内部 REST API，服务器部署时必须替换为强随机值。不要沿用 `.env.example` 里的本地开发示例值。
+本地或小型自托管也可以使用 PAT：
 
-生产环境建议同时设置 `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES=owner/repo`，只允许受信仓库触发手动审查、Webhook 自动审查和 PR 评论命令，避免同一个 GitHub Token 被任意仓库消耗或越过数据边界。
+```env
+CODEPILOT_GITHUB_AUTH_MODE=pat
+CODEPILOT_GITHUB_TOKEN=<fine-grained token>
+```
+
+生产建议配置 `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES`，避免任意仓库触发任务并消耗 GitHub/LLM 配额。
 
 ## 2. 启动
-
-在项目根目录执行：
 
 ```bash
 docker compose -f docker-compose.server.yml up -d --build
 ```
 
-这个命令会启动：
+该 compose 会启动：
 
 - PostgreSQL + pgvector
 - Redis
 - RabbitMQ
 - CodePilot AI 应用容器
 
-其中 PostgreSQL 和 RabbitMQ 都带了持久化卷，方便服务器重启后保留数据和队列状态。
-
-应用容器会通过服务名访问依赖：
-
-- `postgres`
-- `redis`
-- `rabbitmq`
-
-所以不用把数据库和中间件额外暴露到公网。
+依赖服务通过 Docker 网络互相访问，数据库和中间件不需要直接暴露到公网。
 
 ## 3. 查看状态
 
@@ -61,35 +62,109 @@ docker compose -f docker-compose.server.yml ps
 docker compose -f docker-compose.server.yml logs -f app
 ```
 
-## 4. 停止
+RabbitMQ 管理界面默认映射到 `15672`。如果部署在公网，请通过防火墙、VPN 或反向代理鉴权保护它。
+
+## 4. 配置 GitHub Webhook
+
+在 GitHub 仓库 `Settings -> Webhooks` 中新增：
+
+```text
+Payload URL: https://your-domain/api/github/webhook
+Content type: application/json
+Secret: 与 CODEPILOT_GITHUB_WEBHOOK_SECRET 一致
+Events: Pull requests, Issue comments
+```
+
+支持：
+
+- PR 打开、同步、重新打开时自动审查。
+- PR Conversation 评论 `/review` 或 `@x-pilotx review` 手动触发。
+- 在显式开启 fix 模式后处理 `@x-pilotx fix dry-run` 和 `@x-pilotx fix`。
+
+## 5. 反向代理建议
+
+建议用 Nginx / Caddy / Traefik 做 TLS 和公网入口。
+
+最少要保护：
+
+- 只暴露应用 `8080`，不要暴露 PostgreSQL、Redis、RabbitMQ AMQP 到公网。
+- 保持 `CODEPILOT_API_AUTH_ENABLED=true`。
+- Webhook 必须配置 secret。
+- 在代理层补充 IP allowlist / rate limit。
+- 生产设置强随机 API Key，不使用 `.env.example` 的示例值。
+
+## 6. 自动修复模式的部署注意
+
+`@x-pilotx fix` 默认关闭：
+
+```env
+CODEPILOT_GITHUB_FIX_ENABLED=false
+```
+
+开启后系统会从当前 PR head sha 对应的成功审查结果中选择可修复 issue，生成小 patch，执行校验，通过后再推送到同仓库 PR 分支。
+
+默认校验只允许：
+
+```env
+CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND=git diff --check
+CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS=git diff --check
+CODEPILOT_GITHUB_FIX_VALIDATION_EXECUTION_MODE=local
+```
+
+如果想运行 Maven/Gradle/npm 等会执行 PR 代码的命令，必须显式使用 Docker sandbox：
+
+```env
+CODEPILOT_GITHUB_FIX_VALIDATION_ALLOW_BUILD_COMMANDS=true
+CODEPILOT_GITHUB_FIX_VALIDATION_EXECUTION_MODE=docker
+CODEPILOT_GITHUB_FIX_VALIDATION_DOCKER_IMAGE=maven:3.9-eclipse-temurin-21
+CODEPILOT_GITHUB_FIX_VALIDATION_DOCKER_NETWORK=none
+```
+
+`docker-compose.server.yml` 默认不挂载 `/var/run/docker.sock`。这是刻意的安全默认值，因为 Docker socket 近似宿主机级权限。只有在专用隔离主机上确实需要构建校验时，才考虑显式挂载 Docker socket 或接入远程 sandbox runner。
+
+## 7. 扩容和并发
+
+关键配置：
+
+```env
+CODEPILOT_RABBITMQ_LISTENER_CONCURRENCY=2
+CODEPILOT_RABBITMQ_LISTENER_MAX_CONCURRENCY=4
+CODEPILOT_RABBITMQ_LISTENER_PREFETCH=1
+CODEPILOT_REVIEW_MAX_PARALLEL_FILES=2
+CODEPILOT_REVIEW_MAX_FILES_PER_TASK=30
+```
+
+调大并发前先评估：
+
+- GitHub API rate limit。
+- LLM provider QPS 和费用。
+- PostgreSQL 连接数。
+- RabbitMQ 消费积压和 DLQ。
+- 单个 PR 内大文件数量。
+
+## 8. 停止和升级
+
+停止：
 
 ```bash
 docker compose -f docker-compose.server.yml down
 ```
 
-## 5. GitHub Actions 部署配置
+保留数据卷升级：
 
-如果使用 `.github/workflows/deploy.yml` 自动部署，需要在 GitHub 仓库中配置这些值：
+```bash
+git pull
+docker compose -f docker-compose.server.yml up -d --build
+```
 
-- Repository variables：`CODEPILOT_DEPLOY_HOST`、`CODEPILOT_DEPLOY_USER`、`CODEPILOT_DEPLOY_DIR`。如果不配置，workflow 会回退到默认值：`121.43.251.65`、`root`、`/opt/codeAireview`。
-- Repository secret：`SERVER_PASSWORD`。当前部署 workflow 使用密码方式登录服务器，不再强制要求 SSH key。
-- 如果你后续想改回 SSH key 部署，可以再扩展 workflow 让它同时支持 `CODEPILOT_DEPLOY_SSH_KEY` 和 `CODEPILOT_DEPLOY_KNOWN_HOSTS`。
+Flyway 会在应用启动时执行数据库迁移。
 
-## 6. 常见调整
+## 9. 常见端口
 
-- 如果 8080 被占用，可以修改 `docker-compose.server.yml` 里的端口映射。
-- 如果你要放到 Nginx / Caddy 后面，可以只对外暴露反向代理端口。
-- RabbitMQ 管理界面默认已经映射到 `15672`，直接访问 `http://<host>:15672` 即可。
-- 当前统一端口为：PostgreSQL 容器内 `5432` / 宿主机 `15432`，Redis 容器内 `6379` / 宿主机 `16379`，RabbitMQ AMQP `5672`，RabbitMQ 管理界面 `15672`，应用 `8080`。
-- 应用运行镜像只包含 JRE 和 Git，不包含 Maven/Gradle/npm，也不会挂载 `/root/.m2`。默认 `git diff --check` 校验可用；如果你确实要运行 `mvn`、`gradle` 或 `npm` 类构建校验，必须启用 Docker sandbox，并使用预置好工具和依赖的校验镜像，不要直接把构建工具和依赖缓存塞回生产应用容器。
-- `@x-pilotx fix` 默认关闭，开启 `CODEPILOT_GITHUB_FIX_ENABLED=true` 后才会在临时检出的 PR 分支里执行校验命令。默认校验命令是 `git diff --check`，不会执行 PR 内构建脚本；如果改成 Maven/Gradle/npm 等构建命令，必须同时配置 `CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS`、`CODEPILOT_GITHUB_FIX_VALIDATION_ALLOW_BUILD_COMMANDS=true`、`CODEPILOT_GITHUB_FIX_VALIDATION_EXECUTION_MODE=docker` 和 `CODEPILOT_GITHUB_FIX_VALIDATION_DOCKER_IMAGE`。校验命令不会通过 shell 执行，并且不允许 `./gradlew`、绝对路径、管道或重定向；构建类命令会被复制到 Docker sandbox 内执行，默认 `--network none`，不会继承应用容器里的 GitHub/LLM 密钥。校验超时时间可通过 `CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS` 调整。
-- Docker sandbox 模式要求应用运行环境能调用 Docker CLI 并访问 Docker daemon。当前 `docker-compose.server.yml` 默认不挂载 `/var/run/docker.sock`，这是故意保守的安全默认值；只有在专用隔离主机上需要构建校验时才应显式挂载 Docker socket 或改用等价的远程 sandbox runner。
+- 应用：`8080`
+- PostgreSQL 宿主机映射：`15432`
+- Redis 宿主机映射：`16379`
+- RabbitMQ AMQP：`5672`
+- RabbitMQ Management：`15672`
 
-生产环境可以通过 `CODEPILOT_API_RATE_LIMIT_MAX_REQUESTS_PER_WINDOW` 和 `CODEPILOT_API_RATE_LIMIT_WINDOW` 调整应用层固定窗口限流。它是单实例成本保护，不替代反向代理层的 IP allowlist / rate limit；如果部署多副本，仍需要在网关层做集中式限流。
-
-## 7. 说明
-
-- `.env` 不要提交。
-- `.env.example` 是模板，可以提交。
-- `docker-compose.server.yml` 适合服务器部署，`docker-compose.yml` 继续保留给本地基础设施使用。
-- 如果应用暴露到公网，保持 `CODEPILOT_API_AUTH_ENABLED=true`，并在反向代理层继续补充 IP allowlist / rate limit。
+生产环境通常只需要公网暴露应用反向代理入口。

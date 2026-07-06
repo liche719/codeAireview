@@ -1,140 +1,74 @@
 # CodePilot AI
 
-> 面向 GitHub Pull Request 的 Java AI Review 系统。
-> 它把 PR 审查做成一条可异步调度、可验证、可回写的工程流水线，而不是一次性的 LLM 调用。
+> 面向 GitHub Pull Request 的 Java AI Review 后端系统。
+> 它把 PR 审查做成一条可异步调度、可并发执行、可验证证据、可回写 GitHub 的工程流水线，而不是一次简单的 LLM 调用。
+
+GitHub: https://github.com/liche719/codeAireview
 
 ## 项目定位
 
-CodePilot AI 是一个面向 Java / Spring Boot 后端团队的 GitHub PR 自动审查系统。它把 webhook、RabbitMQ、RAG、确定性规则、Semantic Review Planning、Patch Verification 和 GitHub 评论回写串成完整链路，让“发现问题”变成一条可执行、可追溯、可落地的审查工作流。
+CodePilot AI 是一个面向 Java / Spring Boot 团队的智能 PR 审查系统。系统接收 GitHub Webhook、手动 API 或 PR 评论命令，把一次 PR 审查转成可追踪的 `review_task`，再通过 RabbitMQ 异步消费、Redis 去重、PostgreSQL/pgvector 规则召回、确定性规则检测、LLM 结构化审查、patch 证据校验和 GitHub 评论回写完成闭环。
 
-如果你想快速了解这个项目在简历和面试里怎么讲，可以先看 [CodePilot 简历证据链与面试讲法](docs/resume-project-evidence.md)。这份文档把项目背景、本人职责、核心难点、代码证据、验证结果和 STAR 回答整理在一起。
+简历里可以概括为：
 
-## 为什么值得看
+> 设计并实现 GitHub PR AI Review 后端系统，将 PR 审查从单次 LLM 调用升级为“Webhook 触发 + RabbitMQ 异步任务 + 文件级并发审查 + RAG 规则召回 + 确定性规则检测 + Patch Verification + GitHub 评论回写”的工程化流水线。
 
-- 不是 prompt wrapper：系统先做任务编排、文件预算、风险分层和审查焦点规划，再把受约束的上下文交给 LLM。
-- 不是单次 diff -> LLM：审查结果会和确定性工具、RAG 规则、patch 校验结果合并。
-- 不是只会吐文本：最终 issue 会落库，并回写到 GitHub PR 顶部评论或 inline comment。
-- 工程边界清晰：Webhook、任务队列、AI 层、评论发布、数据库各自解耦。
+## 为什么不是普通 prompt wrapper
 
-## 我做了什么
+- 多入口触发：支持 `POST /api/reviews`、GitHub PR Webhook、PR 评论 `/review` 和 `@x-pilotx review/fix/chat` 命令。
+- 异步执行：Webhook/API 只创建任务并投递 RabbitMQ，耗时审查由消费者执行，避免请求线程阻塞。
+- 并发审查：任务内按文件规划审查顺序，并通过 `reviewFileExecutor` 控制文件级并行度。
+- 规则优先：SQL 风险、敏感信息、测试缺失等确定性规则在 LLM 前执行，不依赖模型“主动想起”。
+- RAG 约束：团队规范进入 pgvector 规则库，按 PR 上下文召回后注入 prompt。
+- 证据过滤：LLM 输出必须尽量绑定 changed line、patch token 或 review plan risk，降低空泛评论。
+- GitHub 落地：结果会入库，并回写 PR Summary Comment 或 inline comment，评论带 marker/指纹去重。
+- 安全边界：API Key、固定窗口限流、Webhook HMAC、仓库 allowlist、GitHub App/PAT 双鉴权、fix 命令白名单和 Docker sandbox 都有实现。
 
-- 任务编排：`ReviewTaskServiceImpl` 创建任务，`ReviewTaskRunner` 负责 head sha 去重和状态流转，RabbitMQ 负责异步消费。
-- 上下文构建：`ReviewContextBuilder` 聚合 file summary、语义信号、关系信号、相关 patch 和仓库代码片段。
-- 审查规划：`ReviewFilePlanner` 和 `SemanticReviewPlanner` 会按文件预算、路径风险和语义风险分配审查焦点。
-- 审查执行：确定性工具先跑 SQL 风险、敏感信息、测试建议，再由 LangChain4j `@AiService` 产出结构化审查结果。
-- 证据约束：`ReviewIssuePatchVerifier` 和 Location Guard 让 issue 尽量绑定 changed line、patch token 或审查计划风险面。
-- 回写发布：审查问题入库到 `review_issue`，并回写 GitHub Summary Comment、inline comment，外加 PR 关联 Issue 查询。
-
-## 核心能力
-
-- 手动 `POST /api/reviews` 创建 PR 审查任务。
-- GitHub Webhook 自动触发 `opened`、`synchronize`、`reopened` 的 PR 审查。
-- PR 评论区输入 `/review` 可手动触发一次审查。
-- 支持对话型 `chat` 能力，用于解释 PR、总结变更或回答简短问题。
-- 支持 `@x-pilotx review`、`@x-pilotx fix dry-run`、`@x-pilotx fix` 等 PR 评论命令代理。
-- RabbitMQ 异步消费审查任务，避免接口阻塞。
-- GitHub API 拉取 PR changed files、diff、评论和 PR 详情。
-- PostgreSQL + pgvector 存储规则文档和向量块，供 RAG 检索使用。
-- SQL 风险、敏感信息、单测建议等确定性检测会在 LLM 之前执行。
-- 审查问题入库到 `review_issue`，并回写 GitHub Summary Comment 或 inline review comment。
-- 可查询 PR 关联 Issue，用于展示 PR 上下游背景。
-
-## 你可以把它理解成
-
-```text
-不是纯 LLM 聊天机器人
-不是简单的 diff->prompt->response 包装器
-而是一个带审查计划、规则引擎、Patch Verification 和 GitHub 证据回写的 AI Review Pipeline
-```
-
-## 核心架构图
-
-CodePilot AI 的核心不是把 diff 直接扔给大模型，而是先用确定性上下文和规则系统把 PR 拆成可审查、可排序、可验证的 review task，再让 LLM 处理被约束后的问题空间。
+## 核心架构
 
 ```mermaid
 flowchart TD
-    A["GitHub PR / Webhook / /review command"] --> B["ReviewTaskCreator<br/>idempotency + task state"]
-    B --> C["RabbitMQ async task queue"]
-    C --> D["GitHub changed files + diff fetch"]
-    D --> E["ReviewFilePlanner<br/>budget / risk / skip policy"]
-    E --> F["ReviewContextBuilder"]
-    F --> G["SemanticReviewPlanner<br/>risk areas / priority files / file focus"]
-    G --> H["Planner-driven file scheduling"]
-    H --> I["Deterministic Rule Engine<br/>SQL / Secret / Test rules"]
-    H --> J["RAG + Prompt Builder + LLM reviewer"]
-    I --> K["ReviewResultMerger<br/>dedupe tool + LLM findings"]
-    J --> K
-    K --> L["Patch Verification<br/>changed line / patch token / plan grounding"]
-    L --> M["Location Guard<br/>commentable diff line check"]
+    A["GitHub PR / Webhook / API / PR command"] --> B["ReviewTaskCreator<br/>idempotency + headSha reuse"]
+    B --> C["RabbitMQ review task queue"]
+    C --> D["ReviewTaskRunner<br/>state transition + failure handling"]
+    D --> E["GitHub changed files + diff fetch"]
+    E --> F["ReviewFilePlanner<br/>budget / risk / skip policy"]
+    F --> G["ReviewContextBuilder<br/>file signals + repo context + linked issues"]
+    G --> H["SemanticReviewPlanner<br/>risk areas + priority files + focus"]
+    H --> I["ReviewFileReviewExecutor<br/>file-level concurrency"]
+    I --> J["Deterministic rules<br/>SQL / Secret / Test"]
+    I --> K["RAG + Prompt Builder + LLM reviewer"]
+    J --> L["ReviewResultMerger<br/>dedupe + score"]
+    K --> L
+    L --> M["Patch Verification + Location Guard"]
     M --> N["review_issue persistence"]
-    N --> O["GitHub inline comments<br/>source / rule / grounding evidence"]
-    N --> P["GitHub summary comment<br/>idempotent marker update"]
+    N --> O["GitHub Summary Comment<br/>idempotent marker update"]
+    N --> P["GitHub inline comments<br/>fingerprint dedupe"]
 ```
 
 更详细的模块说明见 [docs/architecture.md](docs/architecture.md)。
 
-## Review Pipeline 示例
+## 关键能力
 
-假设一个 PR 同时修改 `README.md` 和 `src/main/resources/mapper/UserMapper.xml`：
+### 1. 异步任务与并发审查
 
-1. `ReviewFilePlanner` 会先按文件预算和路径风险筛掉不适合审查的超大文件或低价值文件。
-2. `SemanticReviewPlanner` 会识别 `UserMapper.xml` 属于 database / SQL 风险面，生成 `ReviewPlan.priorityFiles`，并把它排到 `README.md` 之前审查。
-3. `AiReviewContextFormatter` 不会把同一份大上下文无差别塞给每个文件，而是为当前文件注入 file-specific focus，例如 SQL 注入、`SELECT *`、无 WHERE 更新、迁移回滚等。
-4. `DeterministicReviewToolRunner` 通过可插拔 `DeterministicReviewRule` 执行 SQL 风险、Secret 扫描、测试缺失建议等规则；单个规则失败不会拖垮整个 review。
-5. LLM 输出的 issue 必须经过 `ReviewIssuePatchVerifier` 校验，只有能绑定到 changed line、patch token、semantic review plan risk 或高信号风险面的评论才会被保留。
-6. GitHub inline / summary comment 会展示 `source / rule / grounding`，例如 `source=LLM, rule=SECURITY_RULE, grounding=changed diff line`，避免用户看不出评论依据。
+- RabbitMQ 队列：`codepilot.review.task.queue`、`codepilot.pr.command.task.queue`。
+- 死信队列：`codepilot.review.task.dlq`、`codepilot.pr.command.task.dlq`。
+- Listener 并发：`CODEPILOT_RABBITMQ_LISTENER_CONCURRENCY` / `CODEPILOT_RABBITMQ_LISTENER_MAX_CONCURRENCY`。
+- 文件级并行：`CODEPILOT_REVIEW_MAX_PARALLEL_FILES` 控制单个 PR 内最多并发审查文件数。
+- 单文件失败隔离：某个文件审查失败时生成系统 issue，其他文件继续审查。
 
-这条链路让系统从简单的 LLM comment generator 升级为一个带 planner、deterministic rules、patch-grounded verification 和 GitHub 证据回写的 AI Review Pipeline。
+### 2. RAG + 确定性规则 + LLM
 
-## 项目亮点
+- 规则文档通过 `/api/rules` 创建，`/api/rules/{id}/index` 切片并向量化。
+- RAG 召回支持 TTL + LRU 缓存，避免同类审查重复查询。
+- SQL 风险、Secret 扫描、测试建议是确定性工具，先于 LLM 执行。
+- LLM 输出走结构化 schema 和 parser 校验，异常时降级而不是让任务直接失控。
 
-- 把 PR 审查做成完整工程闭环，而不是单次 LLM 调用。
-- 使用 RabbitMQ 解耦审查耗时逻辑。
-- 使用 pgvector 做规则库检索。
-- 使用 LangChain4j `@AiService`，并把确定性工具结果与模型审查结果合并，降低工具漏跑风险。
-- 支持 Webhook 自动触发，适合真实 GitHub 工作流。
-- 支持 PR 评论区 `/review` 手动触发，适合需要临时复审的场景。
-- 支持 GitHub 评论回写，审查结果能直接落到 PR 页面。
-- 顶部 Summary Comment 幂等更新，inline comment 可按配置开启。
-- 支持查询 PR 关联 Issue，能补足审查时的上下游背景。
+### 3. GitHub 集成
 
-## 技术栈
-
-- Spring Boot 3.5.x
-- Spring Web
-- Spring Validation
-- MyBatis Plus
-- PostgreSQL
-- pgvector
-- Redis
-- RabbitMQ
-- LangChain4j
-- GitHub REST API
-- Springdoc OpenAPI
-- Docker Compose
-
-## GitHub 集成
-
-### Webhook
-
-在 GitHub 仓库的 `Settings -> Webhooks` 中新增 Webhook：
-
-- Payload URL: `https://your-domain/api/github/webhook`
-- Content type: `application/json`
-- Secret: 与 `CODEPILOT_GITHUB_WEBHOOK_SECRET` 保持一致
-- Events: `Pull requests`、`Issue comments`
-
-支持的 PR 事件：
-
-- `opened`
-- `synchronize`
-- `reopened`
-
-`Pull requests` 用于 PR 打开、更新、重新打开时自动审查；`Issue comments` 用于在 PR Conversation 中输入 `/review` 手动触发审查。普通 issue 评论、非 `/review` 内容和非 `created` 评论事件会被忽略。
-
-### PR 评论命令代理
-
-PR 评论支持以下命令：
+- Webhook 支持 `pull_request` 的 `opened`、`synchronize`、`reopened`。
+- `issue_comment` 支持 PR Conversation 中的命令：
 
 ```text
 /review
@@ -143,142 +77,201 @@ PR 评论支持以下命令：
 @x-pilotx fix
 ```
 
-`@x-pilotx review` 会复用普通审查流水线，并更新带 marker 的 PR 总结评论；如果 marker 评论不存在才会创建新评论。`@x-pilotx fix dry-run` 会生成并校验一个小型 unified diff，但不会推送提交。`@x-pilotx fix` 会使用与当前 PR head sha 匹配的最近一次成功审查结果，在临时检出目录中应用补丁，运行校验命令，通过后才向当前 PR 分支推送新提交。
+- 支持 PAT 和 GitHub App 两种鉴权模式，生产推荐 GitHub App。
+- Summary Comment 使用 marker 幂等更新，inline comment 使用 fingerprint 去重。
+- 可查询 PR closing issues，用于审查上下游上下文。
 
-Fix 模式默认关闭。若要开启，请设置 `CODEPILOT_GITHUB_FIX_ENABLED=true`。它只会写回同仓库的 PR 分支，token 仍需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`。
+### 4. 安全与失败处理
 
-Fix validation 默认只允许运行 `git diff --check`。如果要执行 `mvn`、`gradle`、`npm` 等会运行 PR 代码的构建/测试命令，必须显式开启 build validation，并切到 Docker sandbox execution mode；否则本地模式会直接拒绝这类命令。
+- `/api/**` 默认需要 `X-CodePilot-Api-Key`。
+- `/api/**` 默认开启固定窗口限流。
+- Webhook 使用 `X-Hub-Signature-256` HMAC 校验。
+- 生产建议配置 `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES=owner/repo`。
+- `@x-pilotx fix` 默认关闭；开启后仍受补丁范围、命令白名单、超时、环境变量隔离和 Docker sandbox 约束。
+- GitHub 请求有 rate limit retry/backoff，错误日志会脱敏。
 
-PR 评论命令默认只允许 GitHub `author_association` 为 `OWNER`、`MEMBER` 或 `COLLABORATOR` 的评论者触发。若确需调整，请设置 `CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS`。
+## 技术栈
 
-如果服务面向多个仓库或暴露到公网，建议设置 `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES=owner/repo`。该 allowlist 会同时限制手动 `/api/reviews`、PR Webhook 自动审查和 PR 评论命令，未在列表内的仓库不会创建审查任务，也不会执行 `review/fix/chat` 命令。
+- Java 21
+- Spring Boot 3.5.x
+- Spring Web / Validation / AMQP / Redis
+- MyBatis Plus
+- PostgreSQL + pgvector
+- RabbitMQ
+- Redis
+- LangChain4j
+- GitHub REST / GraphQL API
+- Flyway
+- Docker Compose
+- JUnit 5 / Spring Boot Test
 
-### PR 关联 Issue
+## 本地快速启动
 
-```bash
-curl http://localhost:8080/api/reviews/123/linked-issues ^
-  -H "X-CodePilot-Api-Key: change-me-local-dev-key"
-```
+### 1. 准备环境
 
-这个接口会返回 PR 关联的 issue 列表，适合在 PR 审查和评论机器人里展示上下游背景。
+需要：
 
-## 本地启动
+- JDK 21
+- Maven
+- Docker Desktop 或 Docker Engine + Compose v2
 
-### 1. 准备环境变量
-
-复制模板：
+复制环境变量模板：
 
 ```powershell
 copy .env.example .env
 ```
 
-编辑 `.env`，至少填写：
+本地最少需要确认：
 
-- `CODEPILOT_API_AUTH_API_KEY`
-- `CODEPILOT_GITHUB_TOKEN`
-- `CODEPILOT_LLM_API_KEY`
-- `CODEPILOT_EMBEDDING_API_KEY`
-- `CODEPILOT_GITHUB_WEBHOOK_SECRET`
+```env
+CODEPILOT_API_AUTH_API_KEY=change-me-local-dev-key
+CODEPILOT_DB_URL=jdbc:postgresql://localhost:15432/codepilot
+CODEPILOT_DB_USERNAME=codepilot
+CODEPILOT_DB_PASSWORD=codepilot123
+CODEPILOT_REDIS_HOST=localhost
+CODEPILOT_RABBITMQ_HOST=localhost
+```
 
-更完整说明见 [docs/env.md](docs/env.md)。
+如果要真实调用 GitHub 和 LLM，再补：
 
-### 2. 启动本地依赖和应用
+```env
+CODEPILOT_GITHUB_TOKEN=
+CODEPILOT_LLM_API_KEY=
+CODEPILOT_EMBEDDING_API_KEY=
+CODEPILOT_GITHUB_WEBHOOK_SECRET=
+```
+
+完整配置说明见 [docs/env.md](docs/env.md)。
+
+### 2. 启动依赖
+
+```powershell
+docker compose up -d
+```
+
+本地依赖端口：
+
+- PostgreSQL: `localhost:15432`
+- Redis: `localhost:16379`
+- RabbitMQ AMQP: `localhost:5672`
+- RabbitMQ Management: `http://localhost:15672`
+
+### 3. 启动应用
+
+```powershell
+mvn spring-boot:run
+```
+
+也可以使用脚本一次性加载 `.env`、启动依赖、打包并运行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1
 ```
 
-脚本会：
+### 4. 运行本地 smoke 检查
 
-1. 检查 `.env` 是否存在；
-2. 加载 `.env` 到当前进程；
-3. 启动 Docker 依赖；
-4. 执行 `mvn -DskipTests package`；
-5. 启动应用 jar。
+应用启动后执行：
 
-### 3. 常用地址
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/smoke-local.ps1
+```
 
-- OpenAPI: `http://localhost:8080/doc.html`
-- Swagger UI: `http://localhost:8080/swagger-ui/index.html`
+这个脚本会检查：
 
-## API 使用示例
+- OpenAPI 是否可访问。
+- `/api/**` 无 API Key 是否被拒绝。
+- API Key 是否能访问受保护接口。
+- 规则文档能否创建和查询。
+- 限流响应头是否存在。
 
-### 创建审查任务
+详细演示流程见 [docs/demo.md](docs/demo.md)。
 
-```bash
+## 常用 API
+
+创建审查任务：
+
+```powershell
 curl -X POST http://localhost:8080/api/reviews ^
   -H "X-CodePilot-Api-Key: change-me-local-dev-key" ^
   -H "Content-Type: application/json" ^
   -d "{\"prUrl\":\"https://github.com/owner/repo/pull/123\"}"
 ```
 
-### 查询任务详情
+查询任务：
 
-```bash
+```powershell
 curl http://localhost:8080/api/reviews/123 ^
   -H "X-CodePilot-Api-Key: change-me-local-dev-key"
 ```
 
-### 查询审查问题
+查询审查问题：
 
-```bash
+```powershell
 curl http://localhost:8080/api/reviews/123/issues ^
   -H "X-CodePilot-Api-Key: change-me-local-dev-key"
 ```
 
-### 创建规则文档
+创建规则文档：
 
-```bash
+```powershell
 curl -X POST http://localhost:8080/api/rules ^
   -H "X-CodePilot-Api-Key: change-me-local-dev-key" ^
   -H "Content-Type: application/json" ^
-  -d "{\"title\":\"SQL 规范\",\"content\":\"...\"}"
+  -d "{\"title\":\"MySQL SQL 规范\",\"type\":\"SQL_RULE\",\"source\":\"manual\",\"content\":\"禁止字符串拼接 SQL。UPDATE 和 DELETE 必须带 WHERE。\"}"
 ```
 
-### GitHub Webhook
+完整 API 见 [docs/api.md](docs/api.md)。
 
-```bash
-curl -X POST http://localhost:8080/api/github/webhook ^
-  -H "X-GitHub-Event: pull_request" ^
-  -H "X-GitHub-Delivery: demo-1" ^
-  -H "X-Hub-Signature-256: sha256=..." ^
-  -H "Content-Type: application/json" ^
-  -d "{...}"
+## 测试与验证
+
+全量测试：
+
+```powershell
+mvn test
 ```
 
-## 工程与安全设计
+当前基线：
 
-- Webhook 使用 GitHub HMAC 签名校验。
-- 内部 REST API 通过 API Key 和限流保护。
-- GitHub 仓库有 allowlist，避免任意仓库触发审查成本。
-- prompt 输入会做不可信分隔符转义和敏感信息脱敏。
-- Summary Comment 使用 marker 幂等更新，避免重复刷屏。
-- inline comment 使用指纹 marker 去重。
-- `ReviewIssuePatchVerifier` 和 Location Guard 负责让评论尽量落在可解释、可定位的 diff 行上。
+- `509` 个自动化测试通过。
+- 离线 AI Review 评估覆盖 SQL 风险、Secret、prompt injection、测试缺失、API 契约变化、配置安全回归、非法 JSON 降级。
+- 当前离线评估：Precision `85.71%`，Recall `100%`，must-not-comment violation rate `0%`。
+
+关键专项：
+
+```powershell
+mvn "-Dtest=AiReviewPipelineEvalTest,DeterministicReviewEvalTest,PromptRegressionEvalTest" test
+powershell -ExecutionPolicy Bypass -File scripts/run-review-reliability-baseline.ps1
+```
+
+项目证据链和面试讲法见 [docs/resume-project-evidence.md](docs/resume-project-evidence.md)。
+
+## 代码地图
+
+- 任务入口：`src/main/java/com/codepilot/module/review/controller/ReviewController.java`
+- Webhook：`src/main/java/com/codepilot/module/github/webhook/`
+- RabbitMQ：`src/main/java/com/codepilot/task/`、`src/main/java/com/codepilot/common/config/RabbitMqConfig.java`
+- 审查 Runner：`src/main/java/com/codepilot/module/review/runner/ReviewTaskRunner.java`
+- 审查执行：`src/main/java/com/codepilot/module/review/processor/`
+- 审查规划：`src/main/java/com/codepilot/module/review/planner/`
+- 上下文构建：`src/main/java/com/codepilot/module/review/context/`
+- RAG：`src/main/java/com/codepilot/module/rag/`
+- LLM/Agent：`src/main/java/com/codepilot/module/agent/`
+- GitHub 客户端与鉴权：`src/main/java/com/codepilot/module/git/`
+- PR 命令和自动修复：`src/main/java/com/codepilot/module/command/`
+- 安全过滤器：`src/main/java/com/codepilot/common/security/`
+- 数据库迁移：`src/main/resources/db/migration/`
 
 ## 文档
 
-- 架构说明: [docs/architecture.md](docs/architecture.md)
-- GitHub Auth Modes: [docs/github-auth.md](docs/github-auth.md)
-- 环境变量: [docs/env.md](docs/env.md)
-- 深度调研报告: [docs/archive/codeAireview-深度调研报告.md](docs/archive/codeAireview-深度调研报告.md)
+- [架构说明](docs/architecture.md)
+- [API 文档](docs/api.md)
+- [本地演示流程](docs/demo.md)
+- [环境变量](docs/env.md)
+- [GitHub 鉴权模式](docs/github-auth.md)
+- [Docker 部署](docs/docker-deploy.md)
+- [GitHub sandbox E2E](docs/github-sandbox-e2e.md)
+- [简历证据链与面试讲法](docs/resume-project-evidence.md)
 
-## 适合简历的一句话
+## 一句话总结
 
-将 PR 审查从“单次 LLM 调用”升级为“Semantic Review Planner + 确定性规则 + Patch Verification + GitHub 证据回写”的工程化流水线。
-
-## 验证
-
-```bash
-mvn test
-mvn -DskipTests package
-```
-
-如果你只想先看效果，建议按下面顺序：
-
-1. 启动 PostgreSQL、Redis、RabbitMQ；
-2. 配置 `.env`；
-3. 启动应用；
-4. 创建规则；
-5. 发起 PR 审查；
-6. 在 PR 页面查看 CodePilot 评论。
+CodePilot AI 的核心价值是：把 AI Code Review 从“模型生成一段评论”升级成“可调度、可并发、可验证、可追踪、可回写 GitHub 的后端审查流水线”。

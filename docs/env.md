@@ -1,178 +1,181 @@
 # 环境变量
 
-## 内部 REST API 认证
+`.env.example` 是可提交模板，`.env` 是本地真实配置，不要提交真实密钥。
 
-- `CODEPILOT_API_AUTH_ENABLED`
-  - 是否启用内部 REST API Key 鉴权，默认 `true`。
-- `CODEPILOT_API_AUTH_API_KEY`
-  - 内部 REST API 访问密钥。默认保护 `/api/**`，未配置时受保护接口会返回 `401`，避免公网裸奔。生产环境必须替换为强随机值。
-- `CODEPILOT_API_AUTH_HEADER_NAME`
-  - API Key 请求头名称，默认 `X-CodePilot-Api-Key`。
-- `CODEPILOT_API_AUTH_PROTECTED_PATH_PATTERNS`
-  - 需要鉴权的路径模式，默认 `/api/**`。
-- `CODEPILOT_API_AUTH_EXCLUDE_PATH_PATTERNS`
-  - 鉴权排除路径，默认 `/api/github/webhook,/api/github/webhook/**`。GitHub Webhook 入口依赖 GitHub HMAC 签名，不使用内部 API Key。
+本地启动建议：
 
-## 内部 REST API 限流
+```powershell
+copy .env.example .env
+```
 
-- `CODEPILOT_API_RATE_LIMIT_ENABLED`
-  - 是否启用内部 REST API 固定窗口限流，默认 `true`。
-- `CODEPILOT_API_RATE_LIMIT_MAX_REQUESTS_PER_WINDOW`
-  - 每个 API Key / IP 在一个窗口内允许的最大请求数，默认 `60`。
-- `CODEPILOT_API_RATE_LIMIT_WINDOW`
-  - 限流窗口大小，默认 `60s`。
-- `CODEPILOT_API_RATE_LIMIT_PROTECTED_PATH_PATTERNS`
-  - 需要限流的路径模式，默认 `/api/**`。
-- `CODEPILOT_API_RATE_LIMIT_EXCLUDE_PATH_PATTERNS`
-  - 限流排除路径，默认空。生产环境如果要排除 GitHub Webhook，必须确认 Webhook Secret 和上游限流已经正确配置。
+## 内部 REST API
 
-触发限流时接口返回 `429`，并带 `Retry-After`、`X-RateLimit-Limit`、`X-RateLimit-Remaining`、`X-RateLimit-Reset` 响应头。该限流是单实例内存保护，适合防止 API Key 泄露或误用导致 LLM 成本暴涨；多实例生产环境仍建议在 Nginx / Caddy / API Gateway 层补充集中式限流。
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_API_AUTH_ENABLED` | `true` | 是否启用 API Key 鉴权。 |
+| `CODEPILOT_API_AUTH_API_KEY` | 空 | 内部 REST API 密钥；为空时受保护接口返回 `401`。 |
+| `CODEPILOT_API_AUTH_HEADER_NAME` | `X-CodePilot-Api-Key` | API Key header 名称。 |
+| `CODEPILOT_API_AUTH_PROTECTED_PATH_PATTERNS` | `/api/**` | 需要鉴权的路径。 |
+| `CODEPILOT_API_AUTH_EXCLUDE_PATH_PATTERNS` | `/api/github/webhook,/api/github/webhook/**` | 鉴权排除路径；Webhook 使用 GitHub HMAC 验签。 |
+
+## API 限流
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_API_RATE_LIMIT_ENABLED` | `true` | 是否启用固定窗口限流。 |
+| `CODEPILOT_API_RATE_LIMIT_MAX_REQUESTS_PER_WINDOW` | `60` | 每个 API Key/IP 的窗口请求数。 |
+| `CODEPILOT_API_RATE_LIMIT_WINDOW` | `60s` | 限流窗口。 |
+| `CODEPILOT_API_RATE_LIMIT_PROTECTED_PATH_PATTERNS` | `/api/**` | 限流路径。 |
+| `CODEPILOT_API_RATE_LIMIT_EXCLUDE_PATH_PATTERNS` | 空 | 限流排除路径。 |
+
+限流触发时返回 `429`，并带 `Retry-After`、`X-RateLimit-Limit`、`X-RateLimit-Remaining`、`X-RateLimit-Reset`。
 
 ## GitHub
 
-- `CODEPILOT_GITHUB_AUTH_MODE`
-  - GitHub 鉴权模式，取值 `auto`、`pat`、`app`。`auto` 会在存在 GitHub App 配置时优先使用 App installation token，否则回退 PAT。
-- `CODEPILOT_GITHUB_TOKEN`
-  - GitHub Token，用于拉取 PR 文件、查询/创建/更新 PR 评论。
-- `CODEPILOT_GITHUB_APP_ID`
-  - GitHub App ID。启用 `app` 或 `auto` 模式时使用。
-- `CODEPILOT_GITHUB_APP_PRIVATE_KEY`
-  - GitHub App 私钥原文，支持 PEM 或转义换行。
-- `CODEPILOT_GITHUB_APP_PRIVATE_KEY_BASE64`
-  - GitHub App 私钥的 base64 形式，适合 Docker、CI 和 `.env`。
-- `CODEPILOT_GITHUB_APP_INSTALLATION_ID`
-  - 可选的固定 installation id。留空时按仓库动态查询 installation。
-- `CODEPILOT_GITHUB_APP_TOKEN_CACHE_SKEW_SECONDS`
-  - installation token 失效前的提前刷新偏移，默认 `60` 秒。
-- `CODEPILOT_GITHUB_COMMENT_ENABLED`
-  - 是否开启 GitHub PR 评论回写，默认 `false`。
-- `CODEPILOT_GITHUB_COMMENT_MARKER`
-  - CodePilot PR 评论识别标记，默认 `<!-- codepilot-ai-review:liche719/codeAireview -->`。
-- `CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED`
-  - 是否开启 GitHub PR inline review comment，默认 `false`。关闭时仍可使用顶部 Summary Comment。
-- `CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK`
-  - 单个 ReviewTask 最多创建多少条 inline comment，默认 `10`。
-- `CODEPILOT_GITHUB_WEBHOOK_ENABLED`
-  - 是否开启 GitHub Webhook 入口，默认 `false`。
-- `CODEPILOT_GITHUB_WEBHOOK_SECRET`
-  - GitHub Webhook Secret，用于 `X-Hub-Signature-256` 验签。
-- `CODEPILOT_GITHUB_WEBHOOK_SKIP_SIGNATURE_WHEN_SECRET_EMPTY`
-  - 本地调试用开关。默认 `false`，仅在确认接口不会暴露给不可信来源时才可设为 `true`。
-- `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES`
-  - 允许处理的 GitHub 仓库列表，格式如 `owner/repo,org/service`。默认空表示不限制；生产环境建议显式配置，未在 allowlist 内的仓库会被拒绝创建审查任务，也不能通过 PR 评论命令触发 `review/fix/chat`。
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_GITHUB_AUTH_MODE` | `auto` | `auto`、`pat` 或 `app`。 |
+| `CODEPILOT_GITHUB_TOKEN` | 空 | PAT 模式 token。 |
+| `CODEPILOT_GITHUB_APP_ID` | 空 | GitHub App ID。 |
+| `CODEPILOT_GITHUB_APP_PRIVATE_KEY` | 空 | GitHub App PEM 私钥原文或转义换行。 |
+| `CODEPILOT_GITHUB_APP_PRIVATE_KEY_BASE64` | 空 | GitHub App 私钥 base64，推荐用于 Docker/CI。 |
+| `CODEPILOT_GITHUB_APP_INSTALLATION_ID` | 空 | 可选固定 installation id。为空时按仓库查询。 |
+| `CODEPILOT_GITHUB_APP_TOKEN_CACHE_SKEW_SECONDS` | `60` | installation token 过期前提前刷新秒数。 |
+| `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES` | 空 | 允许处理的仓库列表，如 `owner/repo,org/service`。生产建议必填。 |
+| `CODEPILOT_GITHUB_RATE_LIMIT_MAX_ATTEMPTS` | `3` | GitHub rate limit 或临时失败重试次数。 |
+| `CODEPILOT_GITHUB_RATE_LIMIT_INITIAL_DELAY_MILLIS` | `1000` | 初始退避时间。 |
+| `CODEPILOT_GITHUB_RATE_LIMIT_BACKOFF_MULTIPLIER` | `2.0` | 退避倍数。 |
+| `CODEPILOT_GITHUB_RATE_LIMIT_MAX_DELAY_MILLIS` | `10000` | 最大退避时间。 |
+
+推荐权限：
+
+- `Metadata: Read`
+- `Contents: Read`
+- `Pull requests: Read and write`
+- `Issues: Read and write`
+- 如果启用 fix：`Contents: Read and write`
+
+## GitHub 评论与命令
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_GITHUB_COMMENT_ENABLED` | `false` | 是否回写 PR Summary Comment。 |
+| `CODEPILOT_GITHUB_COMMENT_MARKER` | `<!-- codepilot-ai-review:liche719/codeAireview -->` | Summary Comment 幂等 marker。 |
+| `CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED` | `false` | 是否开启 inline review comment。 |
+| `CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK` | `10` | 单个任务最多发布 inline comment 数。 |
+| `CODEPILOT_GITHUB_BOT_MENTION_ALIASES` | `@x-pilotx,@X-PilotX` | PR 评论命令 bot mention。 |
+| `CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS` | `OWNER,MEMBER,COLLABORATOR` | 允许触发 PR 命令的 GitHub author association。 |
+
+支持命令：
+
+```text
+/review
+@x-pilotx review
+@x-pilotx fix dry-run
+@x-pilotx fix
+```
+
+## GitHub Webhook
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_GITHUB_WEBHOOK_ENABLED` | `false` | 是否启用 Webhook 入口。 |
+| `CODEPILOT_GITHUB_WEBHOOK_SECRET` | 空 | GitHub Webhook Secret，用于 HMAC 验签。 |
+| `CODEPILOT_GITHUB_WEBHOOK_SKIP_SIGNATURE_WHEN_SECRET_EMPTY` | `false` | 仅限可信本地调试。生产不要开启。 |
+
+## 自动修复与 patch validation
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_GITHUB_FIX_ENABLED` | `false` | 是否启用 `@x-pilotx fix`。 |
+| `CODEPILOT_GITHUB_FIX_MAX_FILES` | `3` | 单次 patch 最多修改文件数。 |
+| `CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES` | `120` | 单次 patch 最多新增/删除行数。 |
+| `CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND` | `git diff --check` | push 前校验命令。 |
+| `CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS` | `git diff --check` | 校验命令白名单，精确匹配规范化 argv。 |
+| `CODEPILOT_GITHUB_FIX_VALIDATION_ALLOW_BUILD_COMMANDS` | `false` | 是否允许 Maven/Gradle/npm 等构建类命令。 |
+| `CODEPILOT_GITHUB_FIX_VALIDATION_EXECUTION_MODE` | `local` | `local` 或 `docker`。构建类命令必须使用 `docker`。 |
+| `CODEPILOT_GITHUB_FIX_VALIDATION_DOCKER_IMAGE` | 空 | sandbox 镜像，如 `maven:3.9-eclipse-temurin-21`。 |
+| `CODEPILOT_GITHUB_FIX_VALIDATION_DOCKER_NETWORK` | `none` | sandbox 网络模式。生产建议保持 `none`。 |
+| `CODEPILOT_GITHUB_FIX_VALIDATION_INHERIT_ENVIRONMENT` | `false` | local 校验进程是否继承服务环境变量。 |
+| `CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS` | `300` | 校验超时。 |
 
 ## LLM
 
-- `CODEPILOT_LLM_API_KEY`
-  - LLM API Key。
-- `CODEPILOT_LLM_BASE_URL`
-  - OpenAI-compatible Chat Completions 接口地址。
-- `CODEPILOT_LLM_MODEL`
-  - Chat Model 名称。
-- `CODEPILOT_LLM_REVIEW_STRUCTURED_OUTPUT_ENABLED`
-  - 是否为 AI Review 专用模型启用 provider-native JSON schema 结构化输出，默认 `true`。如果使用的 OpenAI-compatible 服务不支持 JSON schema response format，可临时设置为 `false`，系统仍会保留后验 JSON parser/schema 校验。
-
-## 数据库 / 中间件
-
-- `CODEPILOT_DB_URL`
-  - PostgreSQL JDBC 地址，默认 `jdbc:postgresql://localhost:15432/codepilot`。
-- `CODEPILOT_DB_NAME`
-  - Docker Compose 初始化 PostgreSQL 数据库名，默认 `codepilot`。
-- `CODEPILOT_DB_USERNAME`
-  - PostgreSQL 用户名，默认 `codepilot`。
-- `CODEPILOT_DB_PASSWORD`
-  - PostgreSQL 密码，默认 `codepilot123`，仅建议本地开发使用。
-- `CODEPILOT_REDIS_HOST`
-  - Redis 主机，默认 `localhost`。
-- `CODEPILOT_REDIS_PORT`
-  - Redis 端口，默认 `16379`。
-- `CODEPILOT_REDIS_DATABASE`
-  - Redis database，默认 `0`。
-- `CODEPILOT_REDIS_TIMEOUT`
-  - Redis 连接超时，默认 `3s`。
-- `CODEPILOT_RABBITMQ_HOST`
-  - RabbitMQ 主机，默认 `localhost`。
-- `CODEPILOT_RABBITMQ_PORT`
-  - RabbitMQ AMQP 端口，默认 `5672`。
-- `CODEPILOT_RABBITMQ_USERNAME`
-  - RabbitMQ 用户名，默认 `codepilot`。
-- `CODEPILOT_RABBITMQ_PASSWORD`
-  - RabbitMQ 密码，默认 `codepilot123`，仅建议本地开发使用。
-- `CODEPILOT_RABBITMQ_VIRTUAL_HOST`
-  - RabbitMQ virtual host，默认 `/`。
-- `CODEPILOT_RABBITMQ_DEFAULT_REQUEUE_REJECTED`
-  - Listener 重试耗尽后是否重新入队，默认 `false`。审查任务队列和 PR 命令队列已配置 DLQ：`codepilot.review.task.dlq`、`codepilot.pr.command.task.dlq`。生产环境仍不建议设为 `true`，否则永久失败消息可能反复回到主队列，绕过死信排查流程并造成队列积压。
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_LLM_API_KEY` | 空 | Chat model API Key。 |
+| `CODEPILOT_LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible base URL。 |
+| `CODEPILOT_LLM_MODEL` | `gpt-4o-mini` | Chat model 名称。 |
+| `CODEPILOT_LLM_REVIEW_STRUCTURED_OUTPUT_ENABLED` | `true` | 是否启用 provider-native JSON schema。 |
+| `CODEPILOT_LLM_MAX_REVIEW_PATCH_CHARS` | `12000` | 单文件传给 LLM 的 patch 上限。 |
+| `CODEPILOT_LLM_MAX_REVIEW_RULES_CHARS` | `4000` | 规则上下文上限。 |
+| `CODEPILOT_LLM_MAX_REVIEW_CONTEXT_CHARS` | `8000` | 额外上下文上限。 |
+| `CODEPILOT_LLM_REVIEW_CACHE_ENABLED` | `true` | 是否启用 LLM 审查缓存。 |
+| `CODEPILOT_LLM_REVIEW_CACHE_TTL_DAYS` | `7` | LLM 缓存 TTL。 |
+| `CODEPILOT_LLM_REVIEW_CACHE_CLEANUP_ENABLED` | `true` | 是否启用 LLM 缓存清理任务。 |
+| `CODEPILOT_LLM_REVIEW_CACHE_CLEANUP_CRON` | `0 0 */6 * * *` | 缓存清理 cron。 |
+| `CODEPILOT_LLM_CALL_LOG_CLEANUP_ENABLED` | `true` | 是否清理 LLM 调用日志。 |
+| `CODEPILOT_LLM_CALL_LOG_RETENTION_DAYS` | `30` | 调用日志保留天数。 |
+| `CODEPILOT_LLM_CALL_LOG_CLEANUP_CRON` | `0 30 */6 * * *` | 调用日志清理 cron。 |
 
 ## Embedding
 
-- `CODEPILOT_EMBEDDING_API_KEY`
-  - Embedding API Key。
-- `CODEPILOT_EMBEDDING_BASE_URL`
-  - Embedding 接口地址。
-- `CODEPILOT_EMBEDDING_MODEL`
-  - Embedding 模型名。
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_EMBEDDING_API_KEY` | 继承 LLM Key | Embedding API Key。 |
+| `CODEPILOT_EMBEDDING_BASE_URL` | 继承 LLM base URL | Embedding base URL。 |
+| `CODEPILOT_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model。 |
+| `CODEPILOT_EMBEDDING_DIMENSION` | `0` | 向量维度。`0` 表示由模型解析。 |
 
-## 审查限制
+## RAG
 
-- `CODEPILOT_REVIEW_MAX_FILES_PER_TASK`
-  - 单个任务最多进入 AI Review 的文件数，默认 `30`。
-- `CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE`
-  - 单个文件 patch 最大字符数，默认 `12000`。
-- `CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS`
-  - 单个任务累计进入 AI Review 的 patch 最大字符数，默认 `80000`。
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_RAG_CACHE_ENABLED` | `true` | 是否启用 RAG 召回缓存。 |
+| `CODEPILOT_RAG_CACHE_MAX_SIZE` | `256` | RAG LRU 缓存最大条目数。 |
+| `CODEPILOT_RAG_CACHE_TTL_SECONDS` | `300` | RAG 缓存 TTL。 |
 
-## 说明
+## 审查限制与文件级并发
 
-- 没有配置任何可用 GitHub 凭证时，GitHub 评论回写会跳过。
-- PAT 模式的建议权限：`Contents: Read`、`Pull requests: Read and write`、`Issues: Read and write`、`Metadata: Read`；如果启用 `@x-pilotx fix`，还需要 `Contents: Read and write`。
-- GitHub App 模式建议授予 `Contents: Read`、`Pull requests: Read and write`、`Issues: Read and write`、`Metadata: Read`。
-- 生产环境建议优先使用 GitHub App 模式，PAT 仅作为本地或兼容回退。
-- 只使用顶部 Summary Comment 时主要依赖 Issues 评论权限；开启 inline comment 后需要 `Pull requests: Read and write`。
-- Webhook 默认关闭，开启时建议同时配置 `CODEPILOT_GITHUB_WEBHOOK_SECRET`。
-- 没有配置 `CODEPILOT_GITHUB_WEBHOOK_SECRET` 且未显式开启跳过验签时，Webhook 验签会失败。
-- 没有配置 LLM 或 Embedding Key 时，应用仍可启动，相关能力会降级为跳过。
-- `codepilot123` 是本地开发默认密码，生产或公开环境必须通过环境变量覆盖。
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_REVIEW_MAX_FILES_PER_TASK` | `30` | 单个任务最多进入 AI Review 的文件数。 |
+| `CODEPILOT_REVIEW_MAX_SUMMARY_FINDINGS` | `20` | Summary Comment 最多展示问题数。 |
+| `CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE` | `12000` | 单文件 patch 字符上限。 |
+| `CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS` | `80000` | 单任务 patch 总字符上限。 |
+| `CODEPILOT_REVIEW_MAX_PARALLEL_FILES` | `2` | 单个任务内文件级并发数。 |
+| `CODEPILOT_REVIEW_MAX_REPO_CONTEXT_FILES` | `6` | 最多召回相关仓库上下文文件数。 |
+| `CODEPILOT_REVIEW_MAX_REPO_CONTEXT_FILE_CHARS` | `20000` | 单个相关源文件最大读取字符数。 |
+| `CODEPILOT_REVIEW_MAX_REPO_CONTEXT_EXCERPT_CHARS` | `900` | 注入 prompt 的单片段上限。 |
 
-补充说明：
-- `.env` 不要提交，`.env.example` 是可提交的本地模板。
-- 本地推荐使用 `scripts/start-local.ps1` 启动，它会先加载 `.env`，再启动 Docker、打包和运行应用。
-- 如果只做可信本地调试，可以临时设置 `CODEPILOT_API_AUTH_ENABLED=false`；不要在公网或共享环境关闭。
+## 数据库和中间件
 
-## GitHub 命令代理
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_DB_NAME` | `codepilot` | Docker Compose 初始化数据库名。 |
+| `CODEPILOT_DB_URL` | `jdbc:postgresql://localhost:15432/codepilot` | JDBC URL。 |
+| `CODEPILOT_DB_USERNAME` | `codepilot` | PostgreSQL 用户。 |
+| `CODEPILOT_DB_PASSWORD` | `codepilot123` | PostgreSQL 密码，仅适合本地。 |
+| `CODEPILOT_REDIS_HOST` | `localhost` | Redis host。 |
+| `CODEPILOT_REDIS_PORT` | `16379` | Redis port。 |
+| `CODEPILOT_REDIS_DATABASE` | `0` | Redis database。 |
+| `CODEPILOT_REDIS_TIMEOUT` | `3s` | Redis 超时。 |
+| `CODEPILOT_RABBITMQ_HOST` | `localhost` | RabbitMQ host。 |
+| `CODEPILOT_RABBITMQ_PORT` | `5672` | RabbitMQ AMQP port。 |
+| `CODEPILOT_RABBITMQ_USERNAME` | `codepilot` | RabbitMQ 用户。 |
+| `CODEPILOT_RABBITMQ_PASSWORD` | `codepilot123` | RabbitMQ 密码。 |
+| `CODEPILOT_RABBITMQ_VIRTUAL_HOST` | `/` | RabbitMQ virtual host。 |
+| `CODEPILOT_RABBITMQ_DEFAULT_REQUEUE_REJECTED` | `false` | retry 耗尽后是否重新入队。生产建议保持 `false`。 |
+| `CODEPILOT_RABBITMQ_LISTENER_CONCURRENCY` | `2` | Rabbit listener 初始并发。 |
+| `CODEPILOT_RABBITMQ_LISTENER_MAX_CONCURRENCY` | `4` | Rabbit listener 最大并发。 |
+| `CODEPILOT_RABBITMQ_LISTENER_PREFETCH` | `1` | 每个 consumer 预取消息数。 |
 
-- `CODEPILOT_GITHUB_BOT_MENTION_ALIASES`
-  - PR 评论中的机器人 mention 别名，默认 `@x-pilotx,@X-PilotX`。
-- `CODEPILOT_GITHUB_FIX_ENABLED`
-  - 是否启用 `@x-pilotx fix` 和 `@x-pilotx fix dry-run`，默认 `false`。
-- `CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS`
-  - 允许触发 PR 评论命令的 GitHub author association，默认 `OWNER,MEMBER,COLLABORATOR`。
-- `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES`
-  - 同时限制手动审查、Webhook 自动审查和 PR 评论命令可处理的仓库。这里再次列出是因为它也会保护 `@x-pilotx review/fix/chat` 命令入口。
-- `CODEPILOT_GITHUB_FIX_MAX_FILES`
-  - 单个补丁最多可修改的文件数，默认 `3`。
-- `CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES`
-  - 单个补丁最多可包含的新增/删除行数，默认 `120`。
-- `CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND`
-  - 提交和推送前执行的校验命令，默认 `git diff --check`。默认值只做 diff 空白检查，不执行 PR 内构建脚本。命令会被解析为固定 argv，不通过 shell 执行。
-- `CODEPILOT_GITHUB_FIX_ALLOWED_VALIDATION_COMMANDS`
-  - 允许执行的校验命令白名单，默认只有 `git diff --check`。白名单精确匹配规范化后的 argv，不允许 shell、仓库内 wrapper（如 `./gradlew`）、任意路径可执行文件、管道、重定向或控制字符。
-- `CODEPILOT_GITHUB_FIX_VALIDATION_ALLOW_BUILD_COMMANDS`
-  - 是否允许 Maven、Gradle、npm、pytest、go、cargo 等可能执行 PR 代码的构建/测试命令，默认 `false`。即使设为 `true`，构建类命令仍必须运行在 Docker sandbox 模式下。
-- `CODEPILOT_GITHUB_FIX_VALIDATION_EXECUTION_MODE`
-  - 校验命令执行模式，默认 `local`。可选值：`local`、`docker`。`local` 只适合 `git diff --check` 这类不执行 PR 代码的命令；构建/测试类命令会被硬拒绝。
-- `CODEPILOT_GITHUB_FIX_VALIDATION_DOCKER_IMAGE`
-  - Docker sandbox 使用的镜像，仅在 `CODEPILOT_GITHUB_FIX_VALIDATION_EXECUTION_MODE=docker` 时必填，例如 `maven:3.9-eclipse-temurin-21`。镜像内需要预置校验命令所需工具和依赖。
-- `CODEPILOT_GITHUB_FIX_VALIDATION_DOCKER_NETWORK`
-  - Docker sandbox 网络模式，默认 `none`。生产环境建议保持 `none`，避免恶意 PR 代码出网。
-- `CODEPILOT_GITHUB_FIX_VALIDATION_INHERIT_ENVIRONMENT`
-  - local 校验进程是否继承服务进程环境变量，默认 `false`，避免 LLM/GitHub Token 等敏感变量暴露给 PR 代码。Docker sandbox 模式不会把服务环境变量注入校验容器。
-- `CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS`
-  - 修复补丁校验命令的最大等待时间，默认 `300` 秒。Docker sandbox 默认无网络，构建镜像应提前准备依赖，否则 Maven/npm 等命令可能因为无法下载依赖而失败。
+## 生产建议
 
-命令示例：
-- `/review`
-- `@x-pilotx review`
-- `@x-pilotx fix dry-run`
-- `@x-pilotx fix`
-
-修复模式只会推送到同仓库的当前 PR head 分支，且只会复用与当前 head sha 匹配的成功审查结果。Fork PR 不支持自动修复。PAT 模式下修复需要 `Contents: Read and write`、`Pull requests: Read and write`、`Issues: Read and write` 和 `Metadata: Read`；GitHub App 模式下需要给 App 同等权限。
+- 保持 `CODEPILOT_API_AUTH_ENABLED=true`。
+- 配置强随机 `CODEPILOT_API_AUTH_API_KEY`。
+- Webhook 开启时必须配置 `CODEPILOT_GITHUB_WEBHOOK_SECRET`。
+- 配置 `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES`，避免任意仓库消耗模型/GitHub 配额。
+- 优先使用 GitHub App，而不是长期 PAT。
+- 不要在公开环境关闭 API 鉴权或 Webhook 验签。
+- 不要把 `.env`、token、私钥、真实模型响应或私有仓库 diff 提交到 Git。
