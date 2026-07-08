@@ -18,7 +18,15 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,6 +35,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -137,6 +146,54 @@ class GitHubWebhookServiceTest {
         assertThat(response.isIgnored()).isTrue();
         assertThat(response.getReason()).isEqualTo("duplicate event");
         verify(context.reviewTaskService, never()).createTask(anyString(), any());
+    }
+
+    @Test
+    void shouldDeduplicateConcurrentPullRequestWebhookEvents() throws Exception {
+        TestContext context = new TestContext(true, true);
+        AtomicBoolean acquired = new AtomicBoolean(false);
+        when(context.valueOperations.setIfAbsent(anyString(), eq("1"), any(Duration.class)))
+                .thenAnswer(invocation -> !acquired.getAndSet(true));
+        when(context.reviewTaskService.createTask(
+                "https://github.com/liche719/codeAireview/pull/12",
+                "Add webhook support",
+                ReviewCommentMode.SUMMARY_ONLY,
+                "abc123"
+        )).thenReturn(new ReviewCreateResponse(777L, "PENDING"));
+
+        int concurrency = 12;
+        ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<GitHubWebhookResponse>> futures = new ArrayList<>();
+        try {
+            IntStream.range(0, concurrency).forEach(index -> futures.add(executor.submit(() -> {
+                start.await();
+                return context.service.handle(
+                        "pull_request",
+                        "delivery-concurrent-" + index,
+                        "sha256=valid",
+                        pullRequestPayload("synchronize")
+                );
+            })));
+            start.countDown();
+
+            List<GitHubWebhookResponse> responses = new ArrayList<>();
+            for (Future<GitHubWebhookResponse> future : futures) {
+                responses.add(future.get(3, TimeUnit.SECONDS));
+            }
+
+            assertThat(responses).filteredOn(response -> !response.isIgnored()).hasSize(1);
+            assertThat(responses).filteredOn(response -> "duplicate event".equals(response.getReason()))
+                    .hasSize(concurrency - 1);
+            verify(context.reviewTaskService, times(1)).createTask(
+                    "https://github.com/liche719/codeAireview/pull/12",
+                    "Add webhook support",
+                    ReviewCommentMode.SUMMARY_ONLY,
+                    "abc123"
+            );
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

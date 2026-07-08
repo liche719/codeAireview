@@ -120,6 +120,8 @@ CODEPILOT_REVIEW_MAX_FILES_PER_TASK=30
 
 这样做的目的不是无脑拉高吞吐，而是在 LLM、GitHub API、数据库和队列之间留出可控背压：任务间通过 RabbitMQ 排队，任务内通过文件级并发缩短大 PR 的审查时间。
 
+并发入口可以用 `scripts/concurrency-smoke.ps1` 演示：脚本并发发送同一个 PR/headSha 的 webhook，正常结果是 1 个请求创建或复用审查任务，其余请求被 Redis 去重识别为 `duplicate event`。
+
 ## 可靠性设计
 
 - Webhook 层使用 Redis 30 秒 TTL 去重，避免 GitHub 重试或重复 delivery 造成重复审查。

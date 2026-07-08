@@ -51,6 +51,41 @@ powershell -ExecutionPolicy Bypass -File scripts/smoke-local.ps1
 - Swagger UI：`http://localhost:8080/swagger-ui/index.html`。
 - 数据库里的 `review_task`、`review_file`、`review_issue` 或 `rule_document` 记录。
 
+### 5. 可选：并发 Webhook smoke
+
+适合回答“高并发处理在哪里”。先在 `.env` 开启 webhook：
+
+```env
+CODEPILOT_GITHUB_WEBHOOK_ENABLED=true
+CODEPILOT_GITHUB_WEBHOOK_SECRET=change-me-webhook-secret
+```
+
+如果设置了仓库白名单，确保包含脚本目标仓库：
+
+```env
+CODEPILOT_GITHUB_ALLOWED_REPOSITORIES=liche719/codeAireview
+```
+
+应用启动后运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/concurrency-smoke.ps1 -RequestCount 16
+```
+
+预期输出类似：
+
+```text
+CodePilot webhook concurrency smoke
+Requests: 16
+
+Concurrency smoke passed.
+Processed requests: 1
+Duplicate events ignored: 15
+Task id: 123
+```
+
+这证明同一个 PR/headSha 在并发 webhook 进入时只会有一个请求继续创建或复用任务，其余请求被 Redis 幂等键拦截，避免 GitHub 重试或重复 delivery 造成重复审查。
+
 ## 方案 B：离线审查质量评估
 
 适合证明不是“人工点一点”的 demo，而是有可回归的质量基线。

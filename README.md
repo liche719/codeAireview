@@ -184,6 +184,19 @@ powershell -ExecutionPolicy Bypass -File scripts/smoke-local.ps1
 - 规则文档能否创建和查询。
 - 限流响应头是否存在。
 
+如果要展示 Webhook 入站并发与 Redis 去重，可以启用 webhook 后运行：
+
+```env
+CODEPILOT_GITHUB_WEBHOOK_ENABLED=true
+CODEPILOT_GITHUB_WEBHOOK_SECRET=change-me-webhook-secret
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/concurrency-smoke.ps1 -RequestCount 16
+```
+
+该脚本会并发发送同一个 PR/headSha 的 `pull_request synchronize` webhook。期望结果是 1 个请求创建或复用审查任务，其余请求被识别为 `duplicate event`，用于证明入口层具备削峰前的幂等保护。
+
 详细演示流程见 [docs/demo.md](docs/demo.md)。
 
 ## 常用 API
