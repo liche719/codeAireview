@@ -135,6 +135,60 @@ class GitHubWebhookPayloadParserTest {
     }
 
     @Test
+    void shouldParseRepresentativeCommentTypesWithDeterministicRouting() {
+        GitHubPullRequestWebhookPayload legacyReviewPayload = parserWithoutClassifierButLlmAvailable()
+                .parse("issue_comment", issueCommentPayload("created", "/review", true));
+        assertThat(legacyReviewPayload.isIgnored()).isFalse();
+        assertThat(legacyReviewPayload.getCommandType()).isEqualTo(GithubCommandType.REVIEW.name());
+        assertThat(legacyReviewPayload.getMentionedBot()).isFalse();
+
+        GitHubPullRequestWebhookPayload explicitReviewPayload = parserWithoutClassifierButLlmAvailable()
+                .parse("issue_comment", issueCommentPayload("created", "@x-pilotx review this PR", true));
+        assertThat(explicitReviewPayload.isIgnored()).isFalse();
+        assertThat(explicitReviewPayload.getCommandType()).isEqualTo(GithubCommandType.REVIEW.name());
+        assertThat(explicitReviewPayload.getMentionedBot()).isTrue();
+
+        GitHubPullRequestWebhookPayload summaryPayload = parserWithoutClassifierButLlmAvailable()
+                .parse("issue_comment", issueCommentPayload("created", "@x-pilotx summarize the current review findings", true));
+        assertThat(summaryPayload.isIgnored()).isFalse();
+        assertThat(summaryPayload.getCommandType()).isEqualTo(GithubCommandType.CHAT.name());
+        assertThat(summaryPayload.getMentionedBot()).isTrue();
+    }
+
+    @Test
+    void shouldParseRepresentativeCommentTypesThroughClassifierWhenNeeded() {
+        GitHubWebhookPayloadParser fixParser = parserWithAiResponse("""
+                {
+                  "type": "FIX",
+                  "dryRun": false,
+                  "reason": "asks the bot to fix the above issues"
+                }
+                """);
+        GitHubPullRequestWebhookPayload fixPayload = fixParser.parse(
+                "issue_comment",
+                issueCommentPayload("created", "@x-pilotx please fix the above issues", true)
+        );
+        assertThat(fixPayload.isIgnored()).isFalse();
+        assertThat(fixPayload.getCommandType()).isEqualTo(GithubCommandType.FIX.name());
+        assertThat(fixPayload.getMentionedBot()).isTrue();
+
+        GitHubWebhookPayloadParser chatParser = parserWithAiResponse("""
+                {
+                  "type": "CHAT",
+                  "dryRun": false,
+                  "reason": "greeting"
+                }
+                """);
+        GitHubPullRequestWebhookPayload chatPayload = chatParser.parse(
+                "issue_comment",
+                issueCommentPayload("created", "@x-pilotx hi", true)
+        );
+        assertThat(chatPayload.isIgnored()).isFalse();
+        assertThat(chatPayload.getCommandType()).isEqualTo(GithubCommandType.CHAT.name());
+        assertThat(chatPayload.getMentionedBot()).isTrue();
+    }
+
+    @Test
     void shouldParseUnknownMentionAsCommand() {
         GitHubWebhookPayloadParser aiParser = parserWithAiResponse("""
                 {
