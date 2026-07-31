@@ -3,6 +3,7 @@ package com.codepilot.module.git.auth;
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.git.config.GithubProperties;
+import com.codepilot.module.git.config.GithubRestClientFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
@@ -46,11 +47,7 @@ public class GithubAuthTokenProvider {
     public GithubAuthTokenProvider(GithubProperties properties) {
         this(
                 properties == null ? new GithubProperties() : properties,
-                RestClient.builder()
-                        .baseUrl(properties == null ? "https://api.github.com" : properties.getApiBaseUrl())
-                        .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
-                        .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
-                        .build()
+                GithubRestClientFactory.create(properties)
         );
     }
 

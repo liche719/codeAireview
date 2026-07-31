@@ -15,6 +15,13 @@ CREATE TABLE IF NOT EXISTS review_task (
     total_issues INT DEFAULT 0,
     risk_level VARCHAR(32),
     error_message TEXT,
+    execution_token VARCHAR(64),
+    lease_until TIMESTAMP,
+    attempt_count INT NOT NULL DEFAULT 0,
+    publish_status VARCHAR(32) NOT NULL DEFAULT 'NOT_REQUESTED',
+    publish_attempt_count INT NOT NULL DEFAULT 0,
+    publish_error TEXT,
+    publish_next_attempt_at TIMESTAMP,
     started_at TIMESTAMP,
     finished_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -29,6 +36,27 @@ CREATE INDEX IF NOT EXISTS idx_review_task_repo_pr
 
 CREATE INDEX IF NOT EXISTS idx_review_task_repo_pr_head_sha
     ON review_task (repo_owner, repo_name, pr_number, head_sha);
+
+CREATE INDEX IF NOT EXISTS idx_review_task_execution_lease
+    ON review_task (status, lease_until);
+
+CREATE INDEX IF NOT EXISTS idx_review_task_publish_status
+    ON review_task (publish_status, updated_at);
+
+CREATE TABLE IF NOT EXISTS review_task_outbox (
+    id BIGSERIAL PRIMARY KEY,
+    task_id BIGINT NOT NULL UNIQUE REFERENCES review_task (id) ON DELETE CASCADE,
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    attempt_count INT NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    locked_at TIMESTAMP,
+    last_error TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_task_outbox_due
+    ON review_task_outbox (status, next_attempt_at, id);
 
 CREATE TABLE IF NOT EXISTS review_file (
     id BIGSERIAL PRIMARY KEY,

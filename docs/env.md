@@ -28,6 +28,14 @@ copy .env.example .env
 | `CODEPILOT_API_RATE_LIMIT_PROTECTED_PATH_PATTERNS` | `/api/**` | 限流路径。 |
 | `CODEPILOT_API_RATE_LIMIT_EXCLUDE_PATH_PATTERNS` | 空 | 限流排除路径。 |
 
+限流状态存储在 Redis，多实例共享同一窗口；Redis 暂时不可用时会降级到单实例内存限流，避免接口完全失去保护。
+
+## 后台任务
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_SCHEDULING_ENABLED` | `true` | 是否启动本地消息发布、执行租约恢复、GitHub 发布重试和缓存清理等后台任务。 |
+
 限流触发时返回 `429`，并带 `Retry-After`、`X-RateLimit-Limit`、`X-RateLimit-Remaining`、`X-RateLimit-Reset`。
 
 ## GitHub
@@ -46,6 +54,9 @@ copy .env.example .env
 | `CODEPILOT_GITHUB_RATE_LIMIT_INITIAL_DELAY_MILLIS` | `1000` | 初始退避时间。 |
 | `CODEPILOT_GITHUB_RATE_LIMIT_BACKOFF_MULTIPLIER` | `2.0` | 退避倍数。 |
 | `CODEPILOT_GITHUB_RATE_LIMIT_MAX_DELAY_MILLIS` | `10000` | 最大退避时间。 |
+| `CODEPILOT_GITHUB_CONNECT_TIMEOUT` | `5s` | GitHub HTTP 建连超时。 |
+| `CODEPILOT_GITHUB_READ_TIMEOUT` | `30s` | GitHub HTTP 响应读取超时。 |
+| `CODEPILOT_GITHUB_CALL_TIMEOUT` | `45s` | 包含限流重试在内的单次 GitHub 业务调用总时限。 |
 
 推荐权限：
 
@@ -147,6 +158,17 @@ copy .env.example .env
 | `CODEPILOT_REVIEW_MAX_REPO_CONTEXT_FILES` | `6` | 最多召回相关仓库上下文文件数。 |
 | `CODEPILOT_REVIEW_MAX_REPO_CONTEXT_FILE_CHARS` | `20000` | 单个相关源文件最大读取字符数。 |
 | `CODEPILOT_REVIEW_MAX_REPO_CONTEXT_EXCERPT_CHARS` | `900` | 注入 prompt 的单片段上限。 |
+| `CODEPILOT_REVIEW_EXECUTION_LEASE` | `15m` | 消费者执行租约；进程异常退出后，过期任务可重新领取。 |
+| `CODEPILOT_REVIEW_OUTBOX_BATCH_SIZE` | `20` | 本地消息和 GitHub 发布任务的单次领取数量。 |
+| `CODEPILOT_REVIEW_OUTBOX_LOCK_TIMEOUT` | `2m` | 本地消息发布锁的超时时间。 |
+| `CODEPILOT_REVIEW_OUTBOX_CONFIRM_TIMEOUT` | `5s` | RabbitMQ Publisher Confirm 等待时间。 |
+| `CODEPILOT_REVIEW_OUTBOX_RETRY_INITIAL_DELAY` | `1s` | 本地消息首次重试延迟。 |
+| `CODEPILOT_REVIEW_OUTBOX_RETRY_MAX_DELAY` | `1m` | 本地消息指数退避上限。 |
+| `CODEPILOT_REVIEW_OUTBOX_MAX_ATTEMPTS` | `10` | 本地消息发布最大尝试次数，耗尽后保留失败记录供人工补偿。 |
+| `CODEPILOT_REVIEW_PUBLICATION_MAX_ATTEMPTS` | `5` | GitHub 评论发布最大尝试次数。 |
+| `CODEPILOT_REVIEW_OUTBOX_POLL_INTERVAL_MILLIS` | `1000` | 本地消息发布轮询间隔。 |
+| `CODEPILOT_REVIEW_EXECUTION_RECOVERY_INTERVAL_MILLIS` | `30000` | 过期执行租约扫描间隔。 |
+| `CODEPILOT_REVIEW_PUBLICATION_POLL_INTERVAL_MILLIS` | `5000` | GitHub 评论发布重试扫描间隔。 |
 
 ## 数据库和中间件
 

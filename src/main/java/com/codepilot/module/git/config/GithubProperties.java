@@ -4,6 +4,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+
 @Data
 @Component
 @ConfigurationProperties(prefix = "codepilot.github")
@@ -32,6 +34,12 @@ public class GithubProperties {
     private double rateLimitBackoffMultiplier = 2.0D;
 
     private long rateLimitMaxDelayMillis = 10000L;
+
+    private Duration connectTimeout = Duration.ofSeconds(5);
+
+    private Duration readTimeout = Duration.ofSeconds(30);
+
+    private Duration callTimeout = Duration.ofSeconds(45);
 
     public enum AuthMode {
         AUTO,

@@ -145,7 +145,8 @@ CodePilot 的设计目标是把 AI 审查做成可调度、可验证、可回写
 
 ## 验证结果
 
-- 全量自动化测试：`509 tests, 0 failures, 0 errors, 2 skipped`。
+- 全量自动化测试：`523 tests, 0 failures, 0 errors, 2 skipped`；Testcontainers 使用真实 PostgreSQL/pgvector、Redis、RabbitMQ 验证并发抢占、本地消息、发布确认、死信和事务回滚。
+- 真实中间件测试额外覆盖 RabbitMQ 死信路由、发布锁超时恢复，以及审查结果替换失败时的 PostgreSQL 事务回滚。
 - 离线 AI Review 评估：6 个 PR-like 场景，Precision `85.71%`，Recall `100%`，must-not-comment violation rate `0%`。
 - 评估覆盖：SQL 风险、硬编码密钥、prompt injection、缺少测试、API 契约变化、配置安全回归、非法 JSON 降级。
 - 本地 smoke：覆盖 OpenAPI、API Key 鉴权、规则文档创建/查询、限流 header。
@@ -159,7 +160,7 @@ CodePilot 的设计目标是把 AI 审查做成可调度、可验证、可回写
 
 CodePilot AI 智能代码审查系统
 
-面向 GitHub Pull Request 的 AI Review 后端系统，负责审查任务编排、异步执行、规则召回、模型审查、结果落库和 GitHub 评论回写。通过 Redis + headSha 去重避免重复审查，使用 RabbitMQ 解耦 Webhook 触发和耗时审查流程；在 LLM 前强制执行 SQL 风险、敏感信息、测试缺失等确定性规则，并通过 patch verification / location guard 过滤无法绑定变更证据的问题。完成 509 个自动化测试，离线评估 Precision 85.71%、Recall 100%。
+面向 GitHub Pull Request 的 AI Review 后端系统，负责审查任务编排、异步执行、规则召回、模型审查、结果落库和 GitHub 评论回写。通过 Redis + headSha 去重避免重复审查，使用本地消息表、RabbitMQ 发布确认、执行租约和原子抢占保证异步任务可恢复且不重复执行；在 LLM 前强制执行 SQL 风险、敏感信息、测试缺失等确定性规则，并通过 patch verification / location guard 过滤无法绑定变更证据的问题。完成 523 个自动化测试，离线评估 Precision 85.71%、Recall 100%。
 
 ### 条目版
 
@@ -167,7 +168,7 @@ CodePilot AI 智能代码审查系统
 - 基于 RabbitMQ 拆分触发与审查执行，消费端串联 changed files 拉取、审查规划、上下文构建、规则检测、LLM 审查、问题落库和评论发布。
 - 构建 planner + deterministic rules + RAG + LLM 审查流程，按文件类型和风险面生成审查 focus，前置 SQL/Secret/Test 等确定性规则，减少纯 LLM 审查的空泛建议。
 - 实现 patch verification、location guard 和评论 fallback，优先将问题绑定 changed line / patch token / review plan evidence，并通过 marker 幂等更新 PR Summary Comment。
-- 建立离线评估和运行验证基线，覆盖 SQL 风险、硬编码密钥、prompt injection、缺少测试、API 契约变化、非法 JSON 降级等场景；509 个自动化用例通过。
+- 建立离线评估和运行验证基线，覆盖 SQL 风险、硬编码密钥、prompt injection、缺少测试、API 契约变化、非法 JSON 降级及真实中间件并发场景；523 个自动化用例通过。
 
 ## 面试讲法
 
@@ -189,7 +190,7 @@ CodePilot AI 智能代码审查系统
 
 ### 5. 怎么证明不是 demo
 
-有三类证据：第一，项目接入了 GitHub Webhook、API Key 鉴权、RabbitMQ、PostgreSQL/pgvector、Redis 和 GitHub 评论回写这些真实后端组件；第二，自动化测试有 509 个，覆盖 Webhook、任务状态、评论、规则、RAG、LLM parser、fix 命令等模块；第三，有离线评估和 smoke 脚本，可以在不依赖真实 LLM 的情况下回归审查质量和基础运行链路。
+有三类证据：第一，项目接入了 GitHub Webhook、API Key 鉴权、RabbitMQ、PostgreSQL/pgvector、Redis 和 GitHub 评论回写这些真实后端组件；第二，自动化测试有 523 个，覆盖 Webhook、任务状态、可靠消息、评论发布、规则、RAG、LLM parser、fix 命令和真实中间件；第三，有离线评估和 smoke 脚本，可以在不依赖真实 LLM 的情况下回归审查质量和基础运行链路。
 
 ## 后续可增强点
 

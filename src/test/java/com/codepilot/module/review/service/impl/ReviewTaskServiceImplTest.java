@@ -15,6 +15,8 @@ import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
+import com.codepilot.module.review.metrics.ReviewMetrics;
+import com.codepilot.module.review.mapper.ReviewTaskOutboxMapper;
 import com.codepilot.module.review.assembler.ReviewIssueAssembler;
 import com.codepilot.module.review.context.ReviewContextBuilder;
 import com.codepilot.module.review.context.ReviewContextRelationshipExtractor;
@@ -29,13 +31,14 @@ import com.codepilot.module.review.processor.ReviewIssueLocationGuard;
 import com.codepilot.module.review.processor.ReviewIssuePatchVerifier;
 import com.codepilot.module.review.processor.ReviewTaskProcessor;
 import com.codepilot.module.review.publisher.ReviewCommentPublisher;
+import com.codepilot.module.review.publisher.ReviewTaskPublicationService;
+import com.codepilot.module.review.persistence.ReviewTaskResultStore;
 import com.codepilot.module.review.queue.ReviewTaskMessageDispatcher;
 import com.codepilot.module.review.runner.ReviewTaskRunner;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import com.codepilot.module.review.state.ReviewTaskStateManager;
 import com.codepilot.module.review.sync.ReviewTaskHeadShaRefresher;
-import com.codepilot.task.ReviewTaskProducer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
@@ -131,7 +134,7 @@ class ReviewTaskServiceImplTest {
         assertThat(response.getTaskId()).isEqualTo(99L);
         assertThat(response.getStatus()).isEqualTo("SUCCESS");
         verify(context.reviewTaskMapper, never()).insert(any(ReviewTask.class));
-        verify(context.reviewTaskProducer, never()).send(anyLong());
+        verify(context.reviewTaskOutboxMapper, never()).enqueue(anyLong(), any());
     }
 
     @Test
@@ -180,7 +183,7 @@ class ReviewTaskServiceImplTest {
 
         assertThat(response.getTaskId()).isEqualTo(99L);
         assertThat(response.getStatus()).isEqualTo("PENDING");
-        verify(context.reviewTaskProducer, never()).send(anyLong());
+        verify(context.reviewTaskOutboxMapper, never()).enqueue(anyLong(), any());
     }
 
     @Test
@@ -197,7 +200,7 @@ class ReviewTaskServiceImplTest {
                 .hasMessage("GitHub repository is not allowed: evil/repo");
 
         verify(context.reviewTaskMapper, never()).insert(any(ReviewTask.class));
-        verify(context.reviewTaskProducer, never()).send(anyLong());
+        verify(context.reviewTaskOutboxMapper, never()).enqueue(anyLong(), any());
     }
 
     @Test
@@ -208,10 +211,7 @@ class ReviewTaskServiceImplTest {
 
         context.service.processTask(1L);
 
-        verify(context.reviewCommentPublisher).publish(context.publishTaskCaptor.capture());
-        ReviewTask publishedTask = context.publishTaskCaptor.getValue();
-        assertThat(publishedTask.getId()).isEqualTo(1L);
-        assertThat(publishedTask.getStatus()).isEqualTo("SUCCESS");
+        verify(context.reviewTaskPublicationService).publish(1L);
     }
 
     @Test
@@ -225,7 +225,7 @@ class ReviewTaskServiceImplTest {
         context.service.processTask(1L);
 
         verify(context.reviewTaskMapper, never()).updateById(any(ReviewTask.class));
-        verify(context.reviewCommentPublisher, never()).publish(any(ReviewTask.class));
+        verify(context.reviewTaskPublicationService, never()).publish(anyLong());
         verify(context.reviewFileService, never()).saveBatch(anyList());
     }
 
@@ -244,13 +244,9 @@ class ReviewTaskServiceImplTest {
                 .hasMessageContaining("review task failed, taskId=1")
                 .hasMessageContaining("errorType=IllegalStateException");
 
-        verify(context.reviewTaskMapper, org.mockito.Mockito.atLeastOnce()).updateById(context.taskCaptor.capture());
-        ReviewTask lastTaskUpdate = context.taskCaptor.getAllValues().getLast();
-        assertThat(lastTaskUpdate.getStatus()).isEqualTo("FAILED");
-        assertThat(lastTaskUpdate.getErrorMessage()).contains("AI review failed for all reviewable files");
-        assertThat(lastTaskUpdate.getErrorMessage()).contains("bad ai json");
-        assertThat(lastTaskUpdate.getHeadSha()).isEqualTo("head-sha");
-        verify(context.reviewCommentPublisher, never()).publish(any(ReviewTask.class));
+        verify(context.reviewTaskMapper).failExecution(eq(1L), any(),
+                org.mockito.ArgumentMatchers.contains("AI review failed for all reviewable files"), any());
+        verify(context.reviewTaskPublicationService, never()).publish(anyLong());
         verify(context.reviewIssueService, never()).saveBatch(anyList());
     }
 
@@ -268,13 +264,10 @@ class ReviewTaskServiceImplTest {
                 .hasMessageContaining("review task failed, taskId=1");
         assertThat(thrown.getCause()).isNull();
 
-        verify(context.reviewTaskMapper, org.mockito.Mockito.atLeastOnce()).updateById(context.taskCaptor.capture());
-        ReviewTask lastTaskUpdate = context.taskCaptor.getAllValues().getLast();
-        assertThat(lastTaskUpdate.getStatus()).isEqualTo("FAILED");
-        assertThat(lastTaskUpdate.getErrorMessage())
-                .contains("[REDACTED]")
-                .doesNotContain("ghp_123456789012345678901234567890123456");
-        verify(context.reviewCommentPublisher, never()).publish(any(ReviewTask.class));
+        verify(context.reviewTaskMapper).failExecution(eq(1L), any(),
+                org.mockito.ArgumentMatchers.argThat(message -> message.contains("[REDACTED]")
+                        && !message.contains("ghp_123456789012345678901234567890123456")), any());
+        verify(context.reviewTaskPublicationService, never()).publish(anyLong());
     }
 
     @Test
@@ -291,11 +284,8 @@ class ReviewTaskServiceImplTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("review task failed, taskId=1");
 
-        verify(context.reviewTaskMapper, org.mockito.Mockito.atLeastOnce()).updateById(context.taskCaptor.capture());
-        ReviewTask lastTaskUpdate = context.taskCaptor.getAllValues().getLast();
-        assertThat(lastTaskUpdate.getStatus()).isEqualTo("RUNNING");
-        assertThat(lastTaskUpdate.getErrorMessage()).contains("github temporary error");
-        assertThat(lastTaskUpdate.getFinishedAt()).isNull();
+        verify(context.reviewTaskMapper).releaseForRetry(eq(1L), any(),
+                org.mockito.ArgumentMatchers.contains("github temporary error"), any());
     }
 
     @Test
@@ -312,11 +302,8 @@ class ReviewTaskServiceImplTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("review task failed, taskId=1");
 
-        verify(context.reviewTaskMapper, org.mockito.Mockito.atLeastOnce()).updateById(context.taskCaptor.capture());
-        ReviewTask lastTaskUpdate = context.taskCaptor.getAllValues().getLast();
-        assertThat(lastTaskUpdate.getStatus()).isEqualTo("FAILED");
-        assertThat(lastTaskUpdate.getErrorMessage()).contains("github final error");
-        assertThat(lastTaskUpdate.getFinishedAt()).isNotNull();
+        verify(context.reviewTaskMapper).failExecution(eq(1L), any(),
+                org.mockito.ArgumentMatchers.contains("github final error"), any());
     }
 
     private void registerRetryContext(int retryCount) {
@@ -341,10 +328,10 @@ class ReviewTaskServiceImplTest {
 
         private final AiReviewService aiReviewService = mock(AiReviewService.class);
 
-        private final ReviewTaskProducer reviewTaskProducer = mock(ReviewTaskProducer.class);
+        private final ReviewTaskOutboxMapper reviewTaskOutboxMapper = mock(ReviewTaskOutboxMapper.class);
 
         private final ReviewTaskMessageDispatcher reviewTaskMessageDispatcher =
-                new ReviewTaskMessageDispatcher(reviewTaskProducer);
+                new ReviewTaskMessageDispatcher(reviewTaskOutboxMapper);
 
         private final ReviewProperties reviewProperties = new ReviewProperties();
 
@@ -365,17 +352,24 @@ class ReviewTaskServiceImplTest {
         private final ReviewTaskProcessor reviewTaskProcessor = new ReviewTaskProcessor(
                 githubClient,
                 reviewFilePlanner,
-                reviewFileService,
-                reviewIssueService,
                 reviewIssueAssembler,
                 reviewFileReviewer
         );
 
         private final ReviewCommentPublisher reviewCommentPublisher = mock(ReviewCommentPublisher.class);
 
+        private final ReviewTaskPublicationService reviewTaskPublicationService = mock(ReviewTaskPublicationService.class);
+
         private final GithubRepositoryPolicy githubRepositoryPolicy = mock(GithubRepositoryPolicy.class);
 
-        private final ReviewTaskStateManager reviewTaskStateManager = new ReviewTaskStateManager(reviewTaskMapper);
+        private final ReviewTaskStateManager reviewTaskStateManager =
+                new ReviewTaskStateManager(reviewTaskMapper, reviewProperties);
+
+        private final ReviewMetrics reviewMetrics =
+                new ReviewMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+
+        private final ReviewTaskResultStore reviewTaskResultStore =
+                new ReviewTaskResultStore(reviewFileService, reviewIssueService, reviewTaskStateManager);
 
         private final RabbitRetryAttemptResolver retryAttemptResolver = new RabbitRetryAttemptResolver();
 
@@ -395,14 +389,13 @@ class ReviewTaskServiceImplTest {
                 reviewTaskFailureHandler,
                 reviewTaskHeadShaRefresher,
                 reviewTaskProcessor,
-                reviewCommentPublisher,
-                reviewTaskStateManager
+                reviewTaskResultStore,
+                reviewTaskPublicationService,
+                reviewTaskStateManager,
+                reviewMetrics
         );
 
         private final org.mockito.ArgumentCaptor<ReviewTask> taskCaptor =
-                org.mockito.ArgumentCaptor.forClass(ReviewTask.class);
-
-        private final org.mockito.ArgumentCaptor<ReviewTask> publishTaskCaptor =
                 org.mockito.ArgumentCaptor.forClass(ReviewTask.class);
 
         private final ReviewTaskServiceImpl service;
@@ -411,7 +404,8 @@ class ReviewTaskServiceImplTest {
             service = new ReviewTaskServiceImpl(
                     reviewTaskCreator,
                     reviewTaskMessageDispatcher,
-                    reviewTaskRunner
+                    reviewTaskRunner,
+                    reviewMetrics
             );
             ReflectionTestUtils.setField(service, "baseMapper", reviewTaskMapper);
         }
@@ -424,6 +418,15 @@ class ReviewTaskServiceImplTest {
             task.setPrNumber(123);
             task.setReviewCommentMode(reviewCommentMode.name());
             when(reviewTaskMapper.selectById(1L)).thenReturn(task);
+            when(reviewTaskMapper.claimForExecution(eq(1L), any(), any(), any())).thenAnswer(invocation -> {
+                task.setExecutionToken(invocation.getArgument(1));
+                task.setStatus("RUNNING");
+                return 1;
+            });
+            when(reviewTaskMapper.completeExecution(eq(1L), any(), any(Integer.class), any(Integer.class), any(), any()))
+                    .thenReturn(1);
+            when(reviewTaskMapper.releaseForRetry(eq(1L), any(), any(), any())).thenReturn(1);
+            when(reviewTaskMapper.failExecution(eq(1L), any(), any(), any())).thenReturn(1);
             when(githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
             when(githubClient.listPullRequestFiles("liche719", "codeAireview", 123)).thenReturn(List.of());
         }

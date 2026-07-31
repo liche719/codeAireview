@@ -9,6 +9,7 @@ import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.report.ReviewReportFormatter;
 import com.codepilot.module.review.service.GitHubCommentService;
+import com.codepilot.module.review.service.GitHubCommentResult;
 import com.codepilot.module.review.service.ReviewIssueService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -52,21 +53,21 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
     }
 
     @Override
-    public void commentReviewResult(Long taskId) {
+    public GitHubCommentResult commentReviewResult(Long taskId) {
         try {
             if (!commentEnabled) {
                 log.info("Skip GitHub PR comment because comment is disabled, taskId={}", taskId);
-                return;
+                return GitHubCommentResult.skippedResult();
             }
 
             ReviewTask task = reviewTaskMapper.selectById(taskId);
             if (task == null) {
                 log.warn("Skip GitHub PR comment because review task was not found, taskId={}", taskId);
-                return;
+                return GitHubCommentResult.failedResult("review task was not found");
             }
             if (!githubAuthTokenProvider.canAuthenticate(task.getRepoOwner(), task.getRepoName())) {
                 log.warn("Skip GitHub PR comment because GitHub auth is missing, taskId={}", taskId);
-                return;
+                return GitHubCommentResult.skippedResult();
             }
 
             List<ReviewIssue> issues = reviewIssueService.list(new LambdaQueryWrapper<ReviewIssue>()
@@ -77,14 +78,17 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
                 githubClient.updateIssueComment(task.getRepoOwner(), task.getRepoName(), existingCommentId.get(), body);
                 log.info("Updated CodePilot GitHub PR comment, taskId={}, owner={}, repo={}, pullNumber={}, commentId={}",
                         task.getId(), task.getRepoOwner(), task.getRepoName(), task.getPrNumber(), existingCommentId.get());
-                return;
+                return GitHubCommentResult.publishedResult();
             }
             githubClient.createPullRequestComment(task.getRepoOwner(), task.getRepoName(), task.getPrNumber(), body);
             log.info("Created CodePilot GitHub PR comment, taskId={}, owner={}, repo={}, pullNumber={}",
                     task.getId(), task.getRepoOwner(), task.getRepoName(), task.getPrNumber());
+            return GitHubCommentResult.publishedResult();
         } catch (Exception exception) {
+            String errorMessage = SensitiveDataSanitizer.redactAndTruncate(exception.getMessage(), 2000);
             log.warn("GitHub PR comment failed but ignored, taskId={}, errorType={}, message={}",
-                    taskId, exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
+                    taskId, exception.getClass().getSimpleName(), errorMessage);
+            return GitHubCommentResult.failedResult(errorMessage);
         }
     }
 

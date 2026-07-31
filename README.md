@@ -16,13 +16,14 @@ CodePilot AI 是一个面向 Java / Spring Boot 团队的智能 PR 审查系统�
 ## 为什么不是普通 prompt wrapper
 
 - 多入口触发：支持 `POST /api/reviews`、GitHub PR Webhook、PR 评论 `/review` 和 `@x-pilotx review/fix/chat` 命令。
-- 异步执行：Webhook/API 只创建任务并投递 RabbitMQ，耗时审查由消费者执行，避免请求线程阻塞。
+- 可靠异步执行：Webhook/API 在同一事务创建任务和本地消息，后台通过 RabbitMQ Publisher Confirm 投递；消费者以执行令牌和租约原子抢占，避免重复执行并支持宕机恢复。
+- 结果与发布解耦：审查结果在短事务内原子替换，GitHub 评论使用独立状态、超时恢复和有限重试，评论失败不会污染审查状态。
 - 并发审查：任务内按文件规划审查顺序，并通过 `reviewFileExecutor` 控制文件级并行度。
 - 规则优先：SQL 风险、敏感信息、测试缺失等确定性规则在 LLM 前执行，不依赖模型“主动想起”。
 - RAG 约束：团队规范进入 pgvector 规则库，按 PR 上下文召回后注入 prompt。
 - 证据过滤：LLM 输出必须尽量绑定 changed line、patch token 或 review plan risk，降低空泛评论。
 - GitHub 落地：结果会入库，并回写 PR Summary Comment 或 inline comment，评论带 marker/指纹去重。
-- 安全边界：API Key、固定窗口限流、Webhook HMAC、仓库 allowlist、GitHub App/PAT 双鉴权、fix 命令白名单和 Docker sandbox 都有实现。
+- 安全边界：API Key、Redis 分布式固定窗口限流、Webhook HMAC、仓库 allowlist、GitHub App/PAT 双鉴权、fix 命令白名单和 Docker sandbox 都有实现。
 
 ## 核心架构
 
@@ -245,7 +246,7 @@ mvn test
 
 当前基线：
 
-- `509` 个自动化测试通过。
+- `523` 个自动化测试通过，其中真实容器测试覆盖 PostgreSQL/pgvector、Redis、RabbitMQ 和可靠任务链路。
 - 离线 AI Review 评估覆盖 SQL 风险、Secret、prompt injection、测试缺失、API 契约变化、配置安全回归、非法 JSON 降级。
 - 当前离线评估：Precision `85.71%`，Recall `100%`，must-not-comment violation rate `0%`。
 

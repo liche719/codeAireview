@@ -18,8 +18,6 @@ import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.planner.ReviewFilePlanner;
-import com.codepilot.module.review.service.ReviewFileService;
-import com.codepilot.module.review.service.ReviewIssueService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -47,8 +45,6 @@ class ReviewTaskProcessorTest {
                                 """),
                         changedFile("package-lock.json", "+lock")
                 ));
-        when(context.reviewFileService.saveBatch(anyList())).thenReturn(true);
-        when(context.reviewIssueService.saveBatch(anyList())).thenReturn(true);
         when(context.githubClient.getFileContent(
                 "liche719",
                 "codeAireview",
@@ -91,12 +87,10 @@ class ReviewTaskProcessorTest {
                     assertThat(skippedFile.filePath()).isEqualTo("package-lock.json");
                     assertThat(skippedFile.reason()).isEqualTo("file type or generated path skipped");
                 });
-        verify(context.reviewFileService).saveBatch(context.reviewFilesCaptor.capture());
-        assertThat(context.reviewFilesCaptor.getValue())
+        assertThat(result.reviewFiles())
                 .extracting(ReviewFile::getSkipped)
                 .containsExactly(false, true);
-        verify(context.reviewIssueService).saveBatch(context.reviewIssuesCaptor.capture());
-        assertThat(context.reviewIssuesCaptor.getValue())
+        assertThat(result.reviewIssues())
                 .singleElement()
                 .satisfies(issue -> {
                     assertThat(issue.getTaskId()).isEqualTo(7L);
@@ -144,17 +138,11 @@ class ReviewTaskProcessorTest {
 
         private final GithubClient githubClient = mock(GithubClient.class);
 
-        private final ReviewFileService reviewFileService = mock(ReviewFileService.class);
-
-        private final ReviewIssueService reviewIssueService = mock(ReviewIssueService.class);
-
         private final AiReviewService aiReviewService = mock(AiReviewService.class);
 
         private final ReviewTaskProcessor processor = new ReviewTaskProcessor(
                 githubClient,
                 new ReviewFilePlanner(new ReviewProperties()),
-                reviewFileService,
-                reviewIssueService,
                 new ReviewIssueAssembler(),
                 new ReviewFileReviewer(
                         aiReviewService,
@@ -178,11 +166,5 @@ class ReviewTaskProcessorTest {
 
         private final ArgumentCaptor<AiReviewRequest> aiReviewRequestCaptor =
                 ArgumentCaptor.forClass(AiReviewRequest.class);
-
-        @SuppressWarnings("unchecked")
-        private final ArgumentCaptor<Collection<ReviewFile>> reviewFilesCaptor = ArgumentCaptor.forClass(Collection.class);
-
-        @SuppressWarnings("unchecked")
-        private final ArgumentCaptor<Collection<ReviewIssue>> reviewIssuesCaptor = ArgumentCaptor.forClass(Collection.class);
     }
 }

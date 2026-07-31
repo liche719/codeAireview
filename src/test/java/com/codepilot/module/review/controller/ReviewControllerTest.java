@@ -4,6 +4,7 @@ import com.codepilot.common.exception.BusinessException;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubLinkedIssue;
 import com.codepilot.module.review.entity.ReviewTask;
+import com.codepilot.module.review.query.ReviewQueryService;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import com.codepilot.module.review.service.ReviewTaskService;
@@ -74,11 +75,16 @@ class ReviewControllerTest {
 
         private final GithubClient githubClient = mock(GithubClient.class);
 
-        private final ReviewController controller = new ReviewController(
+        private final ReviewQueryService reviewQueryService = new ReviewQueryService(
                 reviewTaskService,
                 reviewFileService,
                 reviewIssueService,
                 githubClient
+        );
+
+        private final ReviewController controller = new ReviewController(
+                reviewTaskService,
+                reviewQueryService
         );
     }
 }

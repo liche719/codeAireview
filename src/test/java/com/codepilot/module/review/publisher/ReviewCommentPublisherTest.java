@@ -3,6 +3,7 @@ package com.codepilot.module.review.publisher;
 import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.service.GitHubCommentService;
+import com.codepilot.module.review.service.GitHubCommentResult;
 import com.codepilot.module.review.service.GitHubInlineCommentResult;
 import com.codepilot.module.review.service.GitHubInlineCommentService;
 import org.junit.jupiter.api.Test;
@@ -19,9 +20,12 @@ class ReviewCommentPublisherTest {
     @Test
     void shouldPublishSummaryForSummaryOnlyTask() {
         TestContext context = new TestContext();
+        when(context.githubCommentService.commentReviewResult(1L))
+                .thenReturn(GitHubCommentResult.publishedResult());
 
-        context.publisher.publish(task(ReviewCommentMode.SUMMARY_ONLY));
+        ReviewCommentPublishResult result = context.publisher.publish(task(ReviewCommentMode.SUMMARY_ONLY));
 
+        org.assertj.core.api.Assertions.assertThat(result.published()).isTrue();
         verify(context.githubCommentService).commentReviewResult(1L);
         verify(context.gitHubInlineCommentService, never()).commentInlineIssues(anyLong());
     }
@@ -64,15 +68,17 @@ class ReviewCommentPublisherTest {
     }
 
     @Test
-    void shouldSwallowSummaryException() {
+    void shouldReportSummaryException() {
         TestContext context = new TestContext();
         doThrow(new RuntimeException("summary error"))
                 .when(context.githubCommentService)
                 .commentReviewResult(1L);
 
-        context.publisher.publish(task(ReviewCommentMode.SUMMARY_ONLY));
+        ReviewCommentPublishResult result = context.publisher.publish(task(ReviewCommentMode.SUMMARY_ONLY));
 
         verify(context.githubCommentService).commentReviewResult(1L);
+        org.assertj.core.api.Assertions.assertThat(result.published()).isFalse();
+        org.assertj.core.api.Assertions.assertThat(result.errorMessage()).contains("summary error");
     }
 
     private ReviewTask task(ReviewCommentMode reviewCommentMode) {

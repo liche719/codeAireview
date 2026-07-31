@@ -24,7 +24,10 @@ class GithubPropertiesTest {
                 Map.entry("codepilot.github.rate-limit-max-attempts", "5"),
                 Map.entry("codepilot.github.rate-limit-initial-delay-millis", "250"),
                 Map.entry("codepilot.github.rate-limit-backoff-multiplier", "1.5"),
-                Map.entry("codepilot.github.rate-limit-max-delay-millis", "3000")
+                Map.entry("codepilot.github.rate-limit-max-delay-millis", "3000"),
+                Map.entry("codepilot.github.connect-timeout", "2s"),
+                Map.entry("codepilot.github.read-timeout", "8s"),
+                Map.entry("codepilot.github.call-timeout", "10s")
         ));
 
         GithubProperties properties = new Binder(source)
@@ -42,5 +45,8 @@ class GithubPropertiesTest {
         assertThat(properties.getRateLimitInitialDelayMillis()).isEqualTo(250L);
         assertThat(properties.getRateLimitBackoffMultiplier()).isEqualTo(1.5D);
         assertThat(properties.getRateLimitMaxDelayMillis()).isEqualTo(3000L);
+        assertThat(properties.getConnectTimeout()).isEqualTo(java.time.Duration.ofSeconds(2));
+        assertThat(properties.getReadTimeout()).isEqualTo(java.time.Duration.ofSeconds(8));
+        assertThat(properties.getCallTimeout()).isEqualTo(java.time.Duration.ofSeconds(10));
     }
 }

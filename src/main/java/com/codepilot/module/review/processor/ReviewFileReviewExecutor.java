@@ -5,6 +5,8 @@ import com.codepilot.module.review.config.ReviewFileExecutorConfig;
 import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.context.ReviewContext;
 import com.codepilot.module.review.entity.ReviewFile;
+import com.codepilot.module.review.metrics.ReviewMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -26,17 +28,21 @@ public class ReviewFileReviewExecutor {
 
     private final Executor reviewFileExecutor;
 
+    private final ReviewMetrics reviewMetrics;
+
     @Autowired
     public ReviewFileReviewExecutor(
             ReviewSingleFileReviewer singleFileReviewer,
             ReviewFileFailureIssueFactory failureIssueFactory,
             ReviewProperties reviewProperties,
-            @Qualifier("reviewFileExecutor") Executor reviewFileExecutor
+            @Qualifier("reviewFileExecutor") Executor reviewFileExecutor,
+            ReviewMetrics reviewMetrics
     ) {
         this.singleFileReviewer = singleFileReviewer;
         this.failureIssueFactory = failureIssueFactory;
         this.reviewProperties = reviewProperties;
         this.reviewFileExecutor = reviewFileExecutor;
+        this.reviewMetrics = reviewMetrics;
     }
 
     public ReviewFileReviewExecutor(
@@ -48,7 +54,8 @@ public class ReviewFileReviewExecutor {
                 singleFileReviewer,
                 failureIssueFactory,
                 reviewProperties,
-                ReviewFileExecutorConfig.newReviewFileExecutor(reviewProperties)
+                ReviewFileExecutorConfig.newReviewFileExecutor(reviewProperties),
+                new ReviewMetrics(new SimpleMeterRegistry())
         );
     }
 
@@ -77,8 +84,13 @@ public class ReviewFileReviewExecutor {
 
     private ReviewFileOutcome reviewFileSafely(Long taskId, ReviewFile reviewFile, ReviewContext reviewContext) {
         try {
-            return new ReviewFileOutcome(singleFileReviewer.review(taskId, reviewFile, reviewContext), null);
+            ReviewFileOutcome outcome = new ReviewFileOutcome(
+                    singleFileReviewer.review(taskId, reviewFile, reviewContext), null
+            );
+            reviewMetrics.recordModelFileReview(true);
+            return outcome;
         } catch (Exception exception) {
+            reviewMetrics.recordModelFileReview(false);
             log.warn("AI review failed for file but review task will continue, taskId={}, filePath={}, errorType={}, message={}",
                     taskId,
                     reviewFile.getFilePath(),

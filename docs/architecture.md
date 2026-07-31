@@ -126,7 +126,12 @@ CODEPILOT_REVIEW_MAX_FILES_PER_TASK=30
 
 - Webhook 层使用 Redis 30 秒 TTL 去重，避免 GitHub 重试或重复 delivery 造成重复审查。
 - 任务创建层按 repo/pr/headSha/commentMode 复用已有任务，降低重复 LLM 调用成本。
-- RabbitMQ retry + DLQ 保存最终失败任务，便于排查。
+- 创建审查任务时在同一数据库事务写入 `review_task_outbox`，后台发布器通过 RabbitMQ Publisher Confirm 确认投递；失败按指数退避重试，发布锁超时后可再次领取。
+- 消费者通过条件更新原子领取任务并写入执行令牌和租约，重复消息只能有一个执行者；实例宕机后，过期租约会恢复为待执行并重新投递。
+- RabbitMQ retry + DLQ 保存最终消费失败消息，便于排查。
+- 文件与问题先在内存完成规划，成功后在短事务内原子替换旧结果并将任务置为成功，避免失败重试留下半套结果。
+- GitHub 评论发布使用独立状态机和有限重试，发布失败不会把已经完成的审查改成失败。
+- GitHub 评论发布中的 `PUBLISHING` 状态带超时恢复，进程中断后可以重新领取；达到最大尝试次数后进入终态，避免无限重试。
 - 单文件审查失败不会直接拖垮整次 PR 审查。
 - GitHub Summary Comment 使用 marker 幂等更新，避免 PR Conversation 被重复刷屏。
 - GitHub inline comment 使用 fingerprint 去重。
@@ -149,6 +154,7 @@ CODEPILOT_REVIEW_MAX_FILES_PER_TASK=30
 核心表：
 
 - `review_task`：一次 PR 审查任务，包含 repo、prNumber、headSha、状态、风险等级和统计信息。
+- `review_task_outbox`：审查任务的本地可靠消息，记录发布状态、尝试次数、下次重试时间和发布锁。
 - `review_file`：一次审查中的 changed file 记录。
 - `review_issue`：最终审查问题，包含 severity、issueType、filePath、lineNumber、source、ruleCode、evidence 等。
 - `rule_document`：规则文档原文。
@@ -174,4 +180,14 @@ CODEPILOT_REVIEW_MAX_FILES_PER_TASK=30
 - patch verification、location guard、finding ranking。
 - 自动修复 patch 应用、命令白名单和 sandbox 约束。
 
-当前全量测试基线：`509 tests, 0 failures, 0 errors, 2 skipped`。
+当前全量测试基线：`523 tests, 0 failures, 0 errors, 2 skipped`。其中 Testcontainers 使用真实 PostgreSQL/pgvector、Redis 和 RabbitMQ 验证 Flyway、并发原子抢占、本地消息领取、分布式限流、Publisher Confirm、死信路由与事务回滚。
+
+Actuator `metrics` 端点提供以下低基数业务指标：
+
+- `codepilot.review.task.creation`：新建与复用任务数。
+- `codepilot.review.task.queue.wait`：任务从创建到消费者领取的排队时间。
+- `codepilot.review.task.duration`：成功、重试和最终失败任务耗时。
+- `codepilot.review.task.execution`：执行结果与重复投递跳过次数。
+- `codepilot.review.model.file`：文件级模型审查成功数和失败数，可计算模型失败率。
+- `codepilot.review.outbox.publish`：本地消息发布成功、重试和最终失败数。
+- `codepilot.review.github.publish`：GitHub 评论成功、跳过、重试和最终失败数。

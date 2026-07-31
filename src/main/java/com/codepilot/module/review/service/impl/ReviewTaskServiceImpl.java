@@ -9,6 +9,7 @@ import com.codepilot.module.review.creator.ReviewTaskCreator;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
+import com.codepilot.module.review.metrics.ReviewMetrics;
 import com.codepilot.module.review.queue.ReviewTaskMessageDispatcher;
 import com.codepilot.module.review.runner.ReviewTaskRunner;
 import com.codepilot.module.review.service.ReviewTaskService;
@@ -27,6 +28,8 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     private final ReviewTaskMessageDispatcher reviewTaskMessageDispatcher;
 
     private final ReviewTaskRunner reviewTaskRunner;
+
+    private final ReviewMetrics reviewMetrics;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -50,22 +53,27 @@ public class ReviewTaskServiceImpl extends ServiceImpl<ReviewTaskMapper, ReviewT
     @Transactional(rollbackFor = Exception.class)
     public ReviewCreateResponse createTask(String prUrl, String title, ReviewCommentMode reviewCommentMode, String headSha) {
         ReviewTaskCreationResult creationResult = reviewTaskCreator.create(prUrl, title, reviewCommentMode, headSha);
+        reviewMetrics.recordTaskCreation(creationResult.created());
         if (creationResult.created()) {
-            reviewTaskMessageDispatcher.sendAfterCommit(creationResult.taskId());
+            reviewTaskMessageDispatcher.enqueue(creationResult.taskId());
         }
         return new ReviewCreateResponse(creationResult.taskId(), creationResult.status());
     }
 
     @Override
     public void processTask(Long taskId) {
-        ReviewTask task = getById(taskId);
-        if (task == null) {
+        ReviewTask existingTask = getById(taskId);
+        if (existingTask == null) {
             throw new BusinessException("review task not found, taskId=" + taskId);
         }
-        if (ReviewTaskStatus.SUCCESS.name().equals(task.getStatus())) {
-            log.info("Review task skipped because it is already successful, taskId={}", taskId);
+        ReviewTask task = reviewTaskRunner.claim(taskId);
+        if (task == null) {
+            reviewMetrics.recordDuplicateDelivery();
+            log.info("Review task message skipped because execution was not claimable, taskId={}, status={}",
+                    taskId, existingTask.getStatus());
             return;
         }
+        reviewMetrics.recordQueueWait(task.getCreatedAt());
         reviewTaskRunner.run(task);
     }
 }

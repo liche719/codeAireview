@@ -40,6 +40,20 @@ public class ReviewTask {
 
     private String errorMessage;
 
+    private String executionToken;
+
+    private LocalDateTime leaseUntil;
+
+    private Integer attemptCount;
+
+    private String publishStatus;
+
+    private Integer publishAttemptCount;
+
+    private String publishError;
+
+    private LocalDateTime publishNextAttemptAt;
+
     private LocalDateTime startedAt;
 
     private LocalDateTime finishedAt;

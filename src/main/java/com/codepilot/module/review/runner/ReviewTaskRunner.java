@@ -5,7 +5,9 @@ import com.codepilot.module.review.failure.ReviewTaskFailureHandler;
 import com.codepilot.module.review.failure.ReviewTaskFailureResult;
 import com.codepilot.module.review.processor.ReviewTaskProcessingResult;
 import com.codepilot.module.review.processor.ReviewTaskProcessor;
-import com.codepilot.module.review.publisher.ReviewCommentPublisher;
+import com.codepilot.module.review.persistence.ReviewTaskResultStore;
+import com.codepilot.module.review.metrics.ReviewMetrics;
+import com.codepilot.module.review.publisher.ReviewTaskPublicationService;
 import com.codepilot.module.review.state.ReviewTaskStateManager;
 import com.codepilot.module.review.sync.ReviewTaskHeadShaRefresher;
 import lombok.RequiredArgsConstructor;
@@ -23,31 +25,35 @@ public class ReviewTaskRunner {
 
     private final ReviewTaskProcessor reviewTaskProcessor;
 
-    private final ReviewCommentPublisher reviewCommentPublisher;
+    private final ReviewTaskResultStore reviewTaskResultStore;
+
+    private final ReviewTaskPublicationService reviewTaskPublicationService;
 
     private final ReviewTaskStateManager reviewTaskStateManager;
 
+    private final ReviewMetrics reviewMetrics;
+
+    public ReviewTask claim(Long taskId) {
+        return reviewTaskStateManager.claim(taskId);
+    }
+
     public void run(ReviewTask task) {
         Long taskId = task.getId();
-        reviewTaskStateManager.markRunning(task);
-
+        long startNanos = System.nanoTime();
         try {
             reviewTaskHeadShaRefresher.refresh(task);
             ReviewTaskProcessingResult processingResult = reviewTaskProcessor.process(task);
 
-            reviewTaskStateManager.markSuccess(
-                    task,
-                    processingResult.totalFiles(),
-                    processingResult.totalIssues(),
-                    processingResult.riskLevel()
-            );
+            reviewTaskResultStore.replaceAndComplete(task, processingResult);
             log.info("Review task processed successfully, taskId={}, totalFiles={}, totalIssues={}",
                     taskId, processingResult.totalFiles(), processingResult.totalIssues());
-            reviewCommentPublisher.publish(task);
+            reviewMetrics.recordTaskExecution(startNanos, "success");
         } catch (Exception exception) {
             ReviewTaskFailureResult failureResult = reviewTaskFailureHandler.handle(task, exception);
+            reviewMetrics.recordTaskExecution(startNanos, failureResult.finalAttempt() ? "failed" : "retry");
             throw new IllegalStateException("review task failed, taskId=" + taskId
                     + ", errorType=" + failureResult.errorType());
         }
+        reviewTaskPublicationService.publish(taskId);
     }
 }

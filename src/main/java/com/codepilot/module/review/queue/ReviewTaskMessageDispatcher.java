@@ -1,28 +1,18 @@
 package com.codepilot.module.review.queue;
 
-import com.codepilot.task.ReviewTaskProducer;
+import com.codepilot.module.review.mapper.ReviewTaskOutboxMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import java.time.LocalDateTime;
 
 @Component
 @RequiredArgsConstructor
 public class ReviewTaskMessageDispatcher {
 
-    private final ReviewTaskProducer reviewTaskProducer;
+    private final ReviewTaskOutboxMapper reviewTaskOutboxMapper;
 
-    public void sendAfterCommit(Long taskId) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            reviewTaskProducer.send(taskId);
-            return;
-        }
-
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                reviewTaskProducer.send(taskId);
-            }
-        });
+    public void enqueue(Long taskId) {
+        reviewTaskOutboxMapper.enqueue(taskId, LocalDateTime.now());
     }
 }

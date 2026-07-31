@@ -28,6 +28,8 @@ spring:
     username: ${CODEPILOT_RABBITMQ_USERNAME:codepilot}
     password: ${CODEPILOT_RABBITMQ_PASSWORD:codepilot123}
     virtual-host: ${CODEPILOT_RABBITMQ_VIRTUAL_HOST:/}
+    publisher-confirm-type: correlated
+    publisher-returns: true
     listener:
       simple:
         acknowledge-mode: auto
@@ -59,7 +61,18 @@ logging:
   level:
     com.codepilot: info
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+
 codepilot:
+  scheduling:
+    enabled: ${CODEPILOT_SCHEDULING_ENABLED:true}
   api-auth:
     enabled: ${CODEPILOT_API_AUTH_ENABLED:true}
     api-key: ${CODEPILOT_API_AUTH_API_KEY:}
@@ -94,6 +107,9 @@ codepilot:
     rate-limit-initial-delay-millis: ${CODEPILOT_GITHUB_RATE_LIMIT_INITIAL_DELAY_MILLIS:1000}
     rate-limit-backoff-multiplier: ${CODEPILOT_GITHUB_RATE_LIMIT_BACKOFF_MULTIPLIER:2.0}
     rate-limit-max-delay-millis: ${CODEPILOT_GITHUB_RATE_LIMIT_MAX_DELAY_MILLIS:10000}
+    connect-timeout: ${CODEPILOT_GITHUB_CONNECT_TIMEOUT:5s}
+    read-timeout: ${CODEPILOT_GITHUB_READ_TIMEOUT:30s}
+    call-timeout: ${CODEPILOT_GITHUB_CALL_TIMEOUT:45s}
     allowed-comment-author-associations: ${CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS:OWNER,MEMBER,COLLABORATOR}
     fix-enabled: ${CODEPILOT_GITHUB_FIX_ENABLED:false}
     fix-max-files: ${CODEPILOT_GITHUB_FIX_MAX_FILES:3}
@@ -115,6 +131,17 @@ codepilot:
     max-repo-context-files: ${CODEPILOT_REVIEW_MAX_REPO_CONTEXT_FILES:6}
     max-repo-context-file-chars: ${CODEPILOT_REVIEW_MAX_REPO_CONTEXT_FILE_CHARS:20000}
     max-repo-context-excerpt-chars: ${CODEPILOT_REVIEW_MAX_REPO_CONTEXT_EXCERPT_CHARS:900}
+    execution-lease: ${CODEPILOT_REVIEW_EXECUTION_LEASE:15m}
+    outbox-batch-size: ${CODEPILOT_REVIEW_OUTBOX_BATCH_SIZE:20}
+    outbox-lock-timeout: ${CODEPILOT_REVIEW_OUTBOX_LOCK_TIMEOUT:2m}
+    outbox-confirm-timeout: ${CODEPILOT_REVIEW_OUTBOX_CONFIRM_TIMEOUT:5s}
+    outbox-retry-initial-delay: ${CODEPILOT_REVIEW_OUTBOX_RETRY_INITIAL_DELAY:1s}
+    outbox-retry-max-delay: ${CODEPILOT_REVIEW_OUTBOX_RETRY_MAX_DELAY:1m}
+    outbox-max-attempts: ${CODEPILOT_REVIEW_OUTBOX_MAX_ATTEMPTS:10}
+    publication-max-attempts: ${CODEPILOT_REVIEW_PUBLICATION_MAX_ATTEMPTS:5}
+    outbox-poll-interval-millis: ${CODEPILOT_REVIEW_OUTBOX_POLL_INTERVAL_MILLIS:1000}
+    execution-recovery-interval-millis: ${CODEPILOT_REVIEW_EXECUTION_RECOVERY_INTERVAL_MILLIS:30000}
+    publication-poll-interval-millis: ${CODEPILOT_REVIEW_PUBLICATION_POLL_INTERVAL_MILLIS:5000}
   llm:
     enabled: true
     provider: openai-compatible

@@ -16,12 +16,20 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Locale;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.LongConsumer;
 
 @Slf4j
 class GithubRequestExecutor {
 
     static final int MAX_RESPONSE_BODY_SUMMARY_LENGTH = 240;
+
+    private static final ExecutorService REQUEST_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
 
     private final GithubProperties githubProperties;
 
@@ -33,6 +41,31 @@ class GithubRequestExecutor {
     }
 
     <T> T execute(String operation, GithubRequestSupplier<T> supplier) {
+        Duration timeout = githubProperties.getCallTimeout();
+        long timeoutMillis = timeout == null ? 0L : timeout.toMillis();
+        if (timeoutMillis <= 0L) {
+            return executeWithRetry(operation, supplier);
+        }
+        Future<T> future = REQUEST_EXECUTOR.submit(() -> executeWithRetry(operation, supplier));
+        try {
+            return future.get(timeoutMillis, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException exception) {
+            future.cancel(true);
+            throw new BusinessException(operation + ": GitHub API call timed out after " + timeoutMillis + "ms");
+        } catch (InterruptedException exception) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new BusinessException(operation + ": GitHub API call interrupted");
+        } catch (ExecutionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new BusinessException(operation + ": GitHub API request failed");
+        }
+    }
+
+    private <T> T executeWithRetry(String operation, GithubRequestSupplier<T> supplier) {
         int maxAttempts = Math.max(1, githubProperties.getRateLimitMaxAttempts());
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {

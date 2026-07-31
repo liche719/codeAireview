@@ -1,18 +1,14 @@
 package com.codepilot.module.review.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.codepilot.common.exception.BusinessException;
+import com.codepilot.common.response.PageView;
 import com.codepilot.common.response.Result;
-import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubLinkedIssue;
+import com.codepilot.module.review.dto.ReviewFileView;
+import com.codepilot.module.review.dto.ReviewIssueView;
+import com.codepilot.module.review.dto.ReviewTaskView;
 import com.codepilot.module.review.dto.ReviewCreateRequest;
 import com.codepilot.module.review.dto.ReviewCreateResponse;
-import com.codepilot.module.review.entity.ReviewFile;
-import com.codepilot.module.review.entity.ReviewIssue;
-import com.codepilot.module.review.entity.ReviewTask;
-import com.codepilot.module.review.service.ReviewFileService;
-import com.codepilot.module.review.service.ReviewIssueService;
+import com.codepilot.module.review.query.ReviewQueryService;
 import com.codepilot.module.review.service.ReviewTaskService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,11 +29,7 @@ public class ReviewController {
 
     private final ReviewTaskService reviewTaskService;
 
-    private final ReviewFileService reviewFileService;
-
-    private final ReviewIssueService reviewIssueService;
-
-    private final GithubClient githubClient;
+    private final ReviewQueryService reviewQueryService;
 
     @PostMapping
     public Result<ReviewCreateResponse> createReview(@Valid @RequestBody ReviewCreateRequest request) {
@@ -45,52 +37,30 @@ public class ReviewController {
     }
 
     @GetMapping("/{taskId}")
-    public Result<ReviewTask> getReviewTask(@PathVariable Long taskId) {
-        ReviewTask task = reviewTaskService.getById(taskId);
-        if (task == null) {
-            throw new BusinessException("review task not found");
-        }
-        return Result.success(task);
+    public Result<ReviewTaskView> getReviewTask(@PathVariable Long taskId) {
+        return Result.success(reviewQueryService.getTask(taskId));
     }
 
     @GetMapping("/{taskId}/files")
-    public Result<List<ReviewFile>> listReviewFiles(@PathVariable Long taskId) {
-        List<ReviewFile> files = reviewFileService.list(new LambdaQueryWrapper<ReviewFile>()
-                .eq(ReviewFile::getTaskId, taskId)
-                .orderByAsc(ReviewFile::getId));
-        return Result.success(files);
+    public Result<List<ReviewFileView>> listReviewFiles(@PathVariable Long taskId) {
+        return Result.success(reviewQueryService.listFiles(taskId));
     }
 
     @GetMapping("/{taskId}/issues")
-    public Result<List<ReviewIssue>> listReviewIssues(@PathVariable Long taskId) {
-        List<ReviewIssue> issues = reviewIssueService.list(new LambdaQueryWrapper<ReviewIssue>()
-                .eq(ReviewIssue::getTaskId, taskId)
-                .orderByDesc(ReviewIssue::getId));
-        return Result.success(issues);
+    public Result<List<ReviewIssueView>> listReviewIssues(@PathVariable Long taskId) {
+        return Result.success(reviewQueryService.listIssues(taskId));
     }
 
     @GetMapping("/{taskId}/linked-issues")
     public Result<List<GithubLinkedIssue>> listLinkedIssues(@PathVariable Long taskId) {
-        ReviewTask task = reviewTaskService.getById(taskId);
-        if (task == null) {
-            throw new BusinessException("review task not found");
-        }
-        return Result.success(githubClient.listPullRequestLinkedIssues(
-                task.getRepoOwner(),
-                task.getRepoName(),
-                task.getPrNumber()
-        ));
+        return Result.success(reviewQueryService.listLinkedIssues(taskId));
     }
 
     @GetMapping
-    public Result<Page<ReviewTask>> pageReviewTasks(
+    public Result<PageView<ReviewTaskView>> pageReviewTasks(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "10") long size
     ) {
-        Page<ReviewTask> page = reviewTaskService.page(
-                Page.of(current, size),
-                new LambdaQueryWrapper<ReviewTask>().orderByDesc(ReviewTask::getId)
-        );
-        return Result.success(page);
+        return Result.success(reviewQueryService.pageTasks(current, size));
     }
 }

@@ -2,46 +2,56 @@ package com.codepilot.module.review.state;
 
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
+import com.codepilot.module.review.config.ReviewProperties;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class ReviewTaskStateManagerTest {
 
     @Test
     void shouldMarkTaskSuccessWithReviewSummary() {
         ReviewTaskMapper mapper = mock(ReviewTaskMapper.class);
-        ReviewTaskStateManager stateManager = new ReviewTaskStateManager(mapper);
+        ReviewTaskStateManager stateManager = new ReviewTaskStateManager(mapper, new ReviewProperties());
         ReviewTask task = task();
-        ArgumentCaptor<ReviewTask> taskCaptor = ArgumentCaptor.forClass(ReviewTask.class);
+        task.setExecutionToken("execution-1");
+        when(mapper.completeExecution(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any())).thenReturn(1);
 
         stateManager.markSuccess(task, 3, 2, "HIGH");
 
-        verify(mapper).updateById(taskCaptor.capture());
-        assertThat(taskCaptor.getValue().getStatus()).isEqualTo("SUCCESS");
-        assertThat(taskCaptor.getValue().getTotalFiles()).isEqualTo(3);
-        assertThat(taskCaptor.getValue().getTotalIssues()).isEqualTo(2);
-        assertThat(taskCaptor.getValue().getRiskLevel()).isEqualTo("HIGH");
-        assertThat(taskCaptor.getValue().getErrorMessage()).isNull();
-        assertThat(taskCaptor.getValue().getFinishedAt()).isNotNull();
+        verify(mapper).completeExecution(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq("execution-1"),
+                org.mockito.ArgumentMatchers.eq(3),
+                org.mockito.ArgumentMatchers.eq(2),
+                org.mockito.ArgumentMatchers.eq("HIGH"),
+                org.mockito.ArgumentMatchers.any()
+        );
     }
 
     @Test
     void shouldMarkTaskRetryingWithoutFinishingIt() {
         ReviewTaskMapper mapper = mock(ReviewTaskMapper.class);
-        ReviewTaskStateManager stateManager = new ReviewTaskStateManager(mapper);
+        ReviewTaskStateManager stateManager = new ReviewTaskStateManager(mapper, new ReviewProperties());
         ReviewTask task = task();
-        ArgumentCaptor<ReviewTask> taskCaptor = ArgumentCaptor.forClass(ReviewTask.class);
+        task.setExecutionToken("execution-1");
+        when(mapper.releaseForRetry(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any())).thenReturn(1);
 
         stateManager.markRetrying(task, "temporary error");
 
-        verify(mapper).updateById(taskCaptor.capture());
-        assertThat(taskCaptor.getValue().getStatus()).isEqualTo("RUNNING");
-        assertThat(taskCaptor.getValue().getErrorMessage()).isEqualTo("temporary error");
-        assertThat(taskCaptor.getValue().getFinishedAt()).isNull();
+        verify(mapper).releaseForRetry(
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq("execution-1"),
+                org.mockito.ArgumentMatchers.eq("temporary error"),
+                org.mockito.ArgumentMatchers.any()
+        );
     }
 
     private static ReviewTask task() {

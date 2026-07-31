@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
-public class FixedWindowRateLimiter {
+public class FixedWindowRateLimiter implements ApiRateLimiter {
 
     private static final int CLEANUP_INTERVAL_REQUESTS = 1000;
 
@@ -27,6 +27,7 @@ public class FixedWindowRateLimiter {
         this.clock = clock;
     }
 
+    @Override
     public RateLimitDecision tryConsume(String key, int maxRequests, Duration window) {
         int safeMaxRequests = Math.max(1, maxRequests);
         long windowMillis = Math.max(1000L, window == null ? 0L : window.toMillis());

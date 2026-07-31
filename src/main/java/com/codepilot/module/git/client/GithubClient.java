@@ -4,6 +4,7 @@ import com.codepilot.common.exception.BusinessException;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.config.GithubProperties;
+import com.codepilot.module.git.config.GithubRestClientFactory;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubLinkedIssue;
@@ -41,11 +42,7 @@ public class GithubClient {
     @Autowired
     public GithubClient(GithubProperties githubProperties, GithubAuthTokenProvider githubAuthTokenProvider) {
         GithubProperties safeProperties = githubProperties == null ? new GithubProperties() : githubProperties;
-        RestClient restClient = RestClient.builder()
-                .baseUrl(safeProperties.getApiBaseUrl())
-                .defaultHeader(HttpHeaders.ACCEPT, "application/vnd.github+json")
-                .defaultHeader("X-GitHub-Api-Version", "2022-11-28")
-                .build();
+        RestClient restClient = GithubRestClientFactory.create(safeProperties);
         this.githubAuthTokenProvider = githubAuthTokenProvider == null
                 ? new GithubAuthTokenProvider(safeProperties, restClient)
                 : githubAuthTokenProvider;

@@ -4,6 +4,7 @@ import com.codepilot.common.enums.ReviewCommentMode;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.service.GitHubCommentService;
+import com.codepilot.module.review.service.GitHubCommentResult;
 import com.codepilot.module.review.service.GitHubInlineCommentResult;
 import com.codepilot.module.review.service.GitHubInlineCommentService;
 import lombok.RequiredArgsConstructor;
@@ -19,16 +20,15 @@ public class ReviewCommentPublisher {
 
     private final GitHubInlineCommentService gitHubInlineCommentService;
 
-    public void publish(ReviewTask task) {
+    public ReviewCommentPublishResult publish(ReviewTask task) {
         ReviewCommentMode reviewCommentMode = ReviewCommentMode.fromValue(task.getReviewCommentMode());
         if (reviewCommentMode.isInlineOnly()) {
-            publishInlineOrFallbackToSummary(task);
-            return;
+            return publishInlineOrFallbackToSummary(task);
         }
-        publishSummary(task);
+        return publishSummary(task);
     }
 
-    private void publishInlineOrFallbackToSummary(ReviewTask task) {
+    private ReviewCommentPublishResult publishInlineOrFallbackToSummary(ReviewTask task) {
         GitHubInlineCommentResult result = null;
         try {
             result = gitHubInlineCommentService.commentInlineIssues(task.getId());
@@ -36,17 +36,30 @@ public class ReviewCommentPublisher {
             log.warn("GitHub PR inline comment failed unexpectedly, taskId={}, errorType={}, message={}",
                     task.getId(), exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
         }
-        if (result == null || !result.hasSuccess()) {
-            publishSummary(task);
+        if (result != null && result.hasSuccess()) {
+            return ReviewCommentPublishResult.publishedResult();
         }
+        return publishSummary(task);
     }
 
-    private void publishSummary(ReviewTask task) {
+    private ReviewCommentPublishResult publishSummary(ReviewTask task) {
         try {
-            githubCommentService.commentReviewResult(task.getId());
+            GitHubCommentResult result = githubCommentService.commentReviewResult(task.getId());
+            if (result == null) {
+                return ReviewCommentPublishResult.failedResult("GitHub summary comment returned no result");
+            }
+            if (result.published()) {
+                return ReviewCommentPublishResult.publishedResult();
+            }
+            if (result.skipped()) {
+                return ReviewCommentPublishResult.skippedResult();
+            }
+            return ReviewCommentPublishResult.failedResult(result.errorMessage());
         } catch (Exception exception) {
+            String errorMessage = SensitiveDataSanitizer.redactAndTruncate(exception.getMessage(), 2000);
             log.warn("GitHub PR summary comment failed unexpectedly, taskId={}, errorType={}, message={}",
-                    task.getId(), exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
+                    task.getId(), exception.getClass().getSimpleName(), errorMessage);
+            return ReviewCommentPublishResult.failedResult(errorMessage);
         }
     }
 }

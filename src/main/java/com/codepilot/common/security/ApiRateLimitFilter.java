@@ -35,7 +35,7 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private final ApiAuthProperties apiAuthProperties;
 
-    private final FixedWindowRateLimiter rateLimiter;
+    private final ApiRateLimiter rateLimiter;
 
     private final ObjectMapper objectMapper;
 

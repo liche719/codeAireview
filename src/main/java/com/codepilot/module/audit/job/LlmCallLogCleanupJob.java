@@ -5,11 +5,13 @@ import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.module.audit.service.LlmCallLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "codepilot.scheduling.enabled", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 public class LlmCallLogCleanupJob {
 
