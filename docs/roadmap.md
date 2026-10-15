@@ -1,0 +1,764 @@
+# CodePilot 改进路线图
+
+> 输入：`docs/scenarios.md`（142 场景已核实）+ `docs/benchmark-ai-review-tools.md`（业界机制对标）
+> **本文件只做设计，不含实现。** 每项都给出：问题 / 方案 / 替代方案与不选理由 / 数据模型与迁移 / 配置开关与默认值 / 测试计划 / 回滚 / 风险。
+>
+> **写操作一律默认关闭**，并按现有 `fix-*` 开关的风格命名。
+>
+> 状态图例：**P0** 正确性缺陷（必修）· **P1** 高价值能力 · **P2** 工程完善 · **待决** 本轮不实现
+
+---
+
+## 0. 总览与实施顺序
+
+| 编号 | 改进项 | 优先级 | 覆盖场景 | 依赖 | 预估 |
+|---|---|---|---|---|---|
+| **R1** | 评论身份分离（修 S1 覆盖缺陷） | **P0** | C7/S1 | 无 | S |
+| **R2** | 审查覆盖度透明化（修 S2 假"没问题"） | **P0** | B2/B3/C11/C12/S2 | 无 | S |
+| **R3** | DLQ 可运维化（修 S3） | **P0** | I9/S3 | 无 | S |
+| **R4** | 多行区间评论 | P1 | C4 | 无 | S |
+| **R5** | `suggestion` 块 + 不可应用降级 | P1 | C5 | **R4** | M |
+| **R6** | 跨 headSha 记忆与去重 | P1 | E2/E3/A2/A7/C14 | R1 | L |
+| **R7** | 误报抑制（resolved thread → DISMISSED） | P1 | E7/E10/G2/G7 | R6 | M |
+| **R8** | Agent 限额的用户可见语义 | P2 | F10/F11 | 无 | S |
+| **R9** | 对话上下文结构化截断 | P2 | E15/F8 | 无 | S |
+| **R10** | 指标补全 + Agent 指标入文档 | P2 | H1–H8 | 无 | S |
+| **R11** | 内容分类补全（i18n / vendored / generated） | P2 | B13/B14/B15 | 无 | M |
+| **R12** | 配置交叉校验 + 路径级审查指令 | P2 | D4 + 配置体系缺失 | 无 | M |
+| **R13** | CI / workflow 变更安全规则 | P2 | B17 | 无 | M |
+| **R14** | `pull_request_review_comment` 里的 @mention | P2 | F14 | 无 | M |
+| **R15** | 评论生命周期（outdated 检测 + 编辑而非新建） | P2 | C14/C15 | R6 | M |
+| **R16** | 修正误导性文案与分类错位 | P2 | B14/B18/C12 | 无 | S |
+| **D1** | 增量审查 | **待决** | A2/A17/H2 | R1/R6 | XL |
+| **D2** | 离线评估集扩充 | **待决（已确认要做）** | 指标可信度 | 无 | M |
+
+**建议实施顺序**：`R1 → R2 → R3 →（P0 收口，可独立发布）→ R4 → R5 → R6 → R7 →（P1 收口）→ R16 → R8/R9/R10 → R11/R12/R13/R14/R15`
+
+**理由**：R1/R2/R3 是正确性缺陷且互不依赖，可作为一个独立小版本立刻交付；R4 是 R5 的硬前置（suggestion 必须有行区间）；R6 是 R7 的前置（没有 finding 记忆就无所谓抑制）。
+
+---
+
+# P0 正确性缺陷
+
+## R1 评论身份分离
+
+### 问题
+
+`ReviewReportFormatter.DEFAULT_COMMENT_MARKER`(`ReviewReportFormatter.java:18`) 与 `application.yml:117` 的 `comment-marker` 默认值是**同一个字符串**。`AgentChatTaskRunner.publishAndComplete`(:159-161) 用这个 marker 给 Agent 回复加前缀，而 `GitHubCommentServiceImpl.findExistingCommentId`(:95-105) 找旧摘要评论时**只按 marker 过滤 + 取 `updatedAt` 最大**，没有任何作者或类型判定。
+
+结果：一旦 `CODEPILOT_GITHUB_COMMENT_ENABLED=true`，**Agent 回复与审查摘要会互相覆盖**，静默丢失用户可见内容。`UnavailableCommandHandler:38` 使用同一 marker，问题范围更大。
+
+### 方案
+
+1. **按用途分配独立身份标记**，在 `comment_identity` 层面显式区分：
+   - `REVIEW_SUMMARY`：审查摘要，**可更新**
+   - `AGENT_REPLY`：Agent 回复，**只追加，永不更新**
+   - `COMMAND_NOTICE`：命令拒绝/不可用提示（`UnavailableCommandHandler`）
+   - `FIX_RESULT`：修复结果通知（`FixResultCommenter`）
+2. `findExistingCommentId` 增加两道过滤：**只匹配指定身份标记** + **只匹配当前认证 bot 作者**（复用 `GithubClient.getAuthenticatedUserLogin()`，该方法已存在并被 `GitHubWebhookService.isBotAuthoredIssueComment` 使用）。
+3. 身份标记匹配沿用 PR-Agent 的经验——**只在正文头部 N 行内匹配**，避免正文里引用到标记造成误判（PR-Agent 用 5 行，`comment_identity.py:115-125`）。
+4. 保留向后兼容：读旧 marker 时同时接受 `DEFAULT_COMMENT_MARKER`，写新评论时写新标记。
+
+### 替代方案与不选理由
+
+| 方案 | 不选理由 |
+|---|---|
+| **给 Agent 回复不加任何 marker** | `GitHubWebhookPayloadParser:88` 依赖 marker 过滤 bot 自己的评论以防自循环（`ignored("bot response")`）。去掉 marker 会让 bot 回复触发新的 webhook → 需要另建一套自循环防护 |
+| **靠作者判定即可，不加类型标记** | 摘要与 Agent 回复**都是同一个 bot 作者**，仅靠作者无法区分 → 覆盖问题依旧 |
+| **把 Agent 回复改成更新同一条评论** | 与产品语义冲突：Agent 多轮对话需要保留历史；且会与 PR-Agent 的 `persistent_comment` 一样把历史压掉 |
+| **引入新的 GitHub 账号区分身份** | 运维成本高，需要第二套凭据与 App 安装，收益不成比例 |
+
+### 数据模型与迁移
+
+**无数据库变更。** 仅新增常量与配置默认值。`codepilot.github.comment-marker` 语义收窄为"审查摘要的身份标记"。
+
+### 配置开关与默认值
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `codepilot.github.comment-marker` | 保持现有值 | 审查摘要身份标记（向后兼容） |
+| `codepilot.github.agent-reply-marker` | `<!-- codepilot-agent-reply -->` | **新增**，Agent 回复身份标记 |
+| `codepilot.github.command-notice-marker` | `<!-- codepilot-command-notice -->` | **新增** |
+| `codepilot.github.comment-identity-header-lines` | `5` | **新增**，身份标记只在正文前 N 行内匹配 |
+
+### 测试计划
+
+- `GitHubCommentServiceImplTest` 新增：**同 PR 同时存在 Agent 回复与摘要时，更新摘要不会命中 Agent 回复**（这是当前缺陷的直接回归测试）
+- 新增：不同 bot 作者的同 marker 评论不被命中
+- 新增：正文中间出现 marker 字符串不被误判为身份标记（只匹配头部 N 行）
+- 新增：旧 `DEFAULT_COMMENT_MARKER` 评论仍能被识别并更新（向后兼容）
+- 沙箱 E2E：真实 PR 上先 `@x-pilotx` 再触发审查，断言两条评论**都存在且内容正确**
+
+### 回滚
+
+纯代码改动 + 新配置项。回滚 = revert 该提交；已发出的旧标记评论仍可被兼容逻辑识别，无数据损坏残留。
+
+### 风险
+
+- **中**：身份标记匹配收紧后，若历史评论的标记位置不在前 5 行（例如有人在正文前插入了引用），会识别不到而新建评论 → 表现为"摘要评论变多"。缓解：`comment-identity-header-lines` 可调，且默认 5 与 PR-Agent 一致。
+- **低**：忘记给某个新评论路径分配身份 → 该路径的评论可能再次被覆盖。缓解：把身份标记改为**枚举 + 编译期强制**，而不是散落的字符串常量。
+
+---
+
+## R2 审查覆盖度透明化
+
+### 问题
+
+`ReviewReportFormatter.formatMarkdown`(:44-76) 只渲染 issue 列表：
+- **从不提及被跳过的文件**——尽管 `review_file.skipped` / `skip_reason` 与 `review_task.total_files` 都已持久化
+- `:51-54` 在 `visibleIssues.isEmpty()` 时直接输出**「未发现问题。」**
+
+后果：一个 200 文件的 PR 只审了 5 个，摘要读起来像全审过；更严重的——若规划器跳过了**全部**文件（例如所有 patch 都超过 `max-patch-chars-per-file`），摘要会输出**「未发现问题。」**，等于给出一张**假的体检合格报告**。
+
+对标结论：PR-Agent `enable_review_coverage_footer` **默认开启**，明确输出 "The following files were not included in this review because of the token budget"；Graphite 超限时直接 `Not running: ...` 并说明原因；Graphite 还专门为抓不到内容的文件插占位说明，**避免"跳过"被误当成"干净"**。我们是这三个里唯一会输出假"没问题"的。
+
+### 方案
+
+重构 `ReviewReportFormatter`，在摘要中固定输出一个**覆盖度区块**（而非只在没有 issue 时输出"未发现问题"）：
+
+```
+## 审查覆盖
+- 本次审查 X / Y 个变更文件（跳过 Z 个）
+- 未审查文件及原因（按原因分组，超过 20 条折叠进 <details>）：
+  - 预算超限（N 个）：a.java, b.java …
+  - 单文件 patch 超限（N 个）：c.java …
+  - 生成物 / 锁文件 / 空 patch（N 个）
+  - 无法读取内容（N 个）：< 需人工审查 >
+- 被抑制的问题：M 条（原因分布）
+- 本 PR 第 K 次审查，本次审查 commit：<short sha>
+```
+
+同时修正空结果语义：
+- 有变更文件但**一个都没审** → 输出 **「⚠️ 未能审查任何文件」+ 原因**，绝不输出"未发现问题"
+- 确实全部审过且无问题 → 才输出"未发现问题"
+
+`review_file.skip_reason` 目前是自由文本，需要归类成**结构化枚举**才能分组展示（见数据模型）。
+
+### 替代方案与不选理由
+
+| 方案 | 不选理由 |
+|---|---|
+| **只在"有跳过"时输出一行汇总数字** | 用户无法知道**哪些**文件没审，无法判断风险是否落在未审范围内。Graphite 的教训是必须点名 |
+| **把未审文件做成 inline 评论** | 未审文件往往没有可评论的 diff 行；且会消耗 inline 预算、加剧刷屏 |
+| **单独发第二条"覆盖度"评论** | 违反"Summary marker 幂等"设计，且用户要在两条评论间来回看。PR-Agent 也是放在同一条 review 正文里 |
+| **超限时直接拒绝审查整个 PR**（Graphite 做法） | 我们的预算截断是**按文件优先级**做的，部分审查仍有价值；全拒绝会让大 PR 完全得不到反馈。应保留部分审查 + 明确上报 |
+
+### 数据模型与迁移
+
+新增迁移 **V18**：
+
+```sql
+ALTER TABLE review_file ADD COLUMN IF NOT EXISTS skip_category VARCHAR(32);
+CREATE INDEX IF NOT EXISTS idx_review_file_task_skip
+    ON review_file (task_id, skipped, skip_category);
+```
+
+`skip_category` 取值（枚举，与 `skip_reason` 并存以保留人类可读文本）：
+`EMPTY_PATCH` / `PATH_EXCLUDED` / `PATCH_TOO_LARGE` / `FILE_COUNT_BUDGET` / `TOTAL_PATCH_BUDGET` / `UNREADABLE` / `BINARY`
+
+`ReviewFilePlanner` 的每个 `markSkipped` 调用点补齐 category；`ReviewTask` 已有 `total_files`，无需新增列。
+
+### 配置开关与默认值
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `codepilot.review.coverage-report-enabled` | **`true`** | 是否输出覆盖度区块。**默认开**（对标 PR-Agent） |
+| `codepilot.review.coverage-max-listed-files` | `20` | 超过则折叠进 `<details>` |
+| `codepilot.review.fail-on-zero-coverage` | `false` | 若为 true，一个文件都没审时把任务标为需要人工关注（而非 SUCCESS） |
+
+### 测试计划
+
+- `ReviewReportFormatterTest` 新增：**全部文件被跳过时，摘要必须包含"未能审查任何文件"且不得包含"未发现问题"**（S2 的直接回归测试）
+- 新增：部分跳过时，覆盖度区块列出正确文件数与分类
+- 新增：跳过文件超过 `coverage-max-listed-files` 时折叠
+- 新增：无跳过且无 issue 时仍输出"未发现问题"
+- `ReviewFilePlannerTest` 新增：每个跳过路径写入正确的 `skip_category`
+- 集成测试：`review_file.skip_category` 正确落库（真实 PostgreSQL）
+
+### 回滚
+
+开关可即时关闭（`coverage-report-enabled=false` 回到旧行为）。迁移为纯新增列，向后兼容，无需回滚脚本。
+
+### 风险
+
+- **低**：摘要变长。缓解：分类分组 + `<details>` 折叠 + 可配置上限。
+- **低**：`skip_category` 归类不准会让用户误解原因。缓解：category 与 reason 文本同时保留，UI 优先展示 reason。
+
+---
+
+## R3 DLQ 可运维化
+
+### 问题
+
+死信队列已配置（`RabbitMqConfig:39,82`，`default-requeue-rejected=false`），但全仓库**只有 2 个 `@RabbitListener`，都指向主队列**——DLQ 没有任何消费者。最终失败的消息进入 DLQ 后**永久滞留，无告警、无重放、无可见性**（除 RabbitMQ 管理台）。
+
+`docs/architecture.md` 却写着"RabbitMQ retry + DLQ 保存最终消费失败消息，便于排查"——**文档承诺了代码没有提供的能力**。
+
+### 方案
+
+1. **持久化死信记录**：DLQ 消费者把消息落库到 `dead_letter_message`（保留原始 payload、失败类、错误摘要、attempt 次数、首次/末次时间），消息在 DLQ 中被 ack 掉。
+2. **运维接口**（`/api/admin/dead-letters`，受 API Key 保护）：
+   - `GET` 分页查询 + 按队列/时间/错误类型过滤
+   - `POST /{id}/replay` 重新投递（复用原 message，重置幂等状态后入队）
+   - `POST /{id}/discard` 标记为已处理
+3. **告警**：新增指标 `codepilot.dlq.messages`（按队列打 tag），并提供 `codepilot.dlq.backlog` gauge；文档说明如何基于 `/actuator/metrics` 告警。
+
+**重放的安全性**：重放必须走既有的幂等入口（`ReviewTaskServiceImpl.processTask` 会 claim + token 校验；`PrCommandTaskServiceImpl.processCommandTask` 同理），因此重复重放不会导致重复执行——这是现有设计的自然收益，不需要新机制。
+
+### 替代方案与不选理由
+
+| 方案 | 不选理由 |
+|---|---|
+| **只在文档里删掉"便于排查"的承诺** | 治标不治本：消息仍然不可恢复，运维事故依然无法处理 |
+| **用 RabbitMQ 管理台手工重放** | 无法审计（谁在什么时候重放了什么）、无法批量、无法记录原因 |
+| **让 DLQ 消费者直接自动重投 N 次** | 会与 `max-attempts=3` + DLQ 的设计意图冲突。进 DLQ 意味着**已经判定为需要人工介入**，自动重投会把毒消息变成无限循环 |
+| **引入外部死信服务（如 SQS DLQ）** | 与"不引入不必要外部依赖"的项目取向冲突，且 PostgreSQL 已足够 |
+
+### 数据模型与迁移
+
+新增迁移 **V19**：
+
+```sql
+CREATE TABLE IF NOT EXISTS dead_letter_message (
+    id BIGSERIAL PRIMARY KEY,
+    source_queue VARCHAR(128) NOT NULL,
+    message_type VARCHAR(64) NOT NULL,      -- REVIEW_TASK / PR_COMMAND_TASK
+    payload TEXT NOT NULL,
+    payload_digest VARCHAR(64) NOT NULL,     -- sha256，用于识别同一消息反复死亡
+    error_type VARCHAR(128),
+    error_message TEXT,
+    attempt_count INT NOT NULL DEFAULT 0,
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',  -- PENDING / REPLAYED / DISCARDED
+    replayed_at TIMESTAMP,
+    replayed_by VARCHAR(128),
+    first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_dead_letter_status ON dead_letter_message (status, last_seen_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_dead_letter_digest_status
+    ON dead_letter_message (payload_digest, status);
+```
+
+`payload_digest + status` 唯一索引让同一条消息反复进 DLQ 时只累加 `attempt_count`，不产生重复行。
+
+### 配置开关与默认值
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `codepilot.dlq.consumer-enabled` | `true` | 是否消费 DLQ 落库（落库本身无副作用，默认开） |
+| `codepilot.dlq.replay-enabled` | **`false`** | 是否开放重放接口。**默认关**（属写操作） |
+| `codepilot.dlq.retention-days` | `30` | 死信记录保留天数，配合清理任务 |
+
+### 测试计划
+
+- 单元：DLQ 消费者落库正确、同一消息重复死亡只累加不新增
+- 新增 Testcontainers 测试：**真实 RabbitMQ 上投递毒消息 → 断言消息进入 `codepilot.review.task.dlq` → 断言落库到 `dead_letter_message`**（现有 `ReliableReviewInfrastructureIntegrationTest` 已验证死信路由，这里补断言的落库环节）
+- 重放：`replay-enabled=true` 时重放成功入队；`false` 时接口返回 403/404
+- 重放幂等：对同一死信重放两次，任务只执行一次（复用既有 claim 机制）
+
+### 回滚
+
+`dlq.consumer-enabled=false` 即停止消费（消息留在 DLQ 不丢）。表为纯新增。回滚无需数据迁移。
+
+### 风险
+
+- **中**：DLQ 消费者把消息 ack 后落库失败 → **消息丢失**。缓解：必须先落库成功再 ack；落库失败则不 ack 让消息留在 DLQ（宁可重复也不丢）。
+- **低**：`payload` 可能含敏感信息（PR 标题、评论正文）。缓解：落库前走 `SensitiveDataSanitizer.redactAndTruncate`，并在 `SECURITY.md` 补充说明。
+
+---
+
+# P1 高价值能力
+
+## R4 多行区间评论
+
+### 问题
+
+`GithubClient.createPullRequestInlineComment`(:349-385) 的请求体只写 `line` + `side`(:376-377)，**无 `start_line` / `start_side`** → 所有 inline 评论被压成单行，一个跨多行的 finding 只能锚在其中一行。
+
+这也是 **R5 的硬前置**：CodeRabbit 明确要求 suggestion 必须"anchored to real lines on the **new** side of the diff, with a **valid start-to-end range**"。
+
+### 方案
+
+1. `ReviewIssue` 增加 `startLine` / `endLine` 语义（复用现有 `lineNumber` 作为落点，新增可选区间）。
+2. `DiffLineMapper` 增加**区间映射**能力：给定 (startLine, endLine) 判断是否**整体**落在同一 hunk 的可评论行内；只有整体可评论才发区间评论，否则降级为单行（使用 `lineNumber`）。
+3. `GithubClient.createPullRequestInlineComment` 增加重载，支持 `startLine` + `startSide`；两者同时存在时才写入请求体（`start_line` 必须与 `line` 在**同一侧**，GitHub 的约束）。
+
+### 替代方案与不选理由
+
+| 方案 | 不选理由 |
+|---|---|
+| **继续只用单行** | suggestion 无法实现，且跨行 finding 的表达力受限 |
+| **把区间信息写进评论正文（"第 10-15 行"）** | 无法获得 GitHub 的原生高亮与建议应用能力，等于放弃了 R5 的价值 |
+| **总是尝试区间，失败就整条丢弃** | 会因定位问题丢失有效 finding。应降级为单行而不是丢弃（与 PR-Agent 的降级哲学一致） |
+
+### 数据模型与迁移
+
+新增迁移 **V20**：
+
+```sql
+ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS start_line INT;
+ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS end_line INT;
+ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS line_side VARCHAR(8);
+```
+
+`line_side` 显式持久化 LEFT/RIGHT，避免重复计算 `DiffLineMapper`（也顺带解决 C12 里"文案与实际判定范围不符"的问题）。
+
+### 配置开关与默认值
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `codepilot.review.multiline-comment-enabled` | `true` | 是否尝试区间评论。读侧能力，默认开 |
+
+### 测试计划
+
+- `DiffLineMapperTest` 新增：区间整体落在 hunk 内 → 可评论；跨 hunk → 降级单行；跨 side → 降级单行
+- `GithubClientTest` 新增：请求体在区间模式下包含 `start_line`/`start_side`；单行模式不包含
+- `GitHubInlineCommentServiceImplTest` 新增：多行 finding 生成多行评论；降级路径生成单行评论
+
+### 回滚
+
+开关关闭即回到单行行为。新增列为 nullable，无数据迁移。
+
+### 风险
+
+- **中**：GitHub 对 `start_line` 与 `line` 必须同侧、且都在 diff 内的约束较严，越界会 422。缓解：`DiffLineMapper` 先在本地校验，且保留 422 时的单行降级重试（PR-Agent 的 fallback 思路）。
+
+---
+
+## R5 `suggestion` 块 + 不可应用降级
+
+### 问题
+
+`GitHubInlineCommentBodyBuilder` 不生成 ` ```suggestion ` 围栏，全仓库无 `suggestion` 关键字 → **无法一键应用修复**，这是 AI review 最高价值的交互，也是所有对标系统的标配。
+
+### 方案
+
+1. `AiReviewIssue` / `ReviewIssue` 增加 `suggestedCode`（可选）字段，由 LLM 在结构化输出中提供**替换后的完整代码块**（而非 diff）。
+2. **可应用性校验（核心）**：`ReviewSuggestionValidator` 在发布前校验
+   - `startLine..endLine` 必须整体落在 diff **新侧**的可评论行内
+   - `suggestedCode` 的行数与区间行数**不要求相等**（GitHub 允许），但**必须非空**
+   - 区间内**不得包含被删除的行**（CodeRabbit 明确"对已删除行拒绝生成"）
+3. **降级策略（抄 PR-Agent）**：校验失败时，把 ` ```suggestion ` 块**改写为 ` ```diff ` 块**，保留多行展示但明确不可一键应用（PR-Agent 注释原文："make the suggestion non-committable, yet multi line"）。
+4. 422 兜底：发布失败时剥掉 suggestion 部分、只锚第一行重试（PR-Agent 的 `_publish_inline_comments_fallback_with_verification` 思路）。
+
+### 替代方案与不选理由
+
+| 方案 | 不选理由 |
+|---|---|
+| **不做校验，直接发 suggestion** | 会发出**应用不了**的建议，用户点一下报错，比没有 suggestion 更伤信任 |
+| **只发 `diff` 块（永不做 suggestion）** | 放弃了最高价值交互。应"能应用就给 suggestion，不能就给 diff" |
+| **让 LLM 直接输出 unified diff 并自己应用** | diff 的行号对齐极易出错，且 GitHub 的 suggestion 语法要求的是**替换后的内容**而不是 diff |
+| **在服务端本地应用 patch 校验后再发**（PR-Agent 的 fix 路径做法） | 成本高（需要 clone 仓库）、且与"审查不发写操作"的边界冲突（我们已有 fix 链路做这件事，但那是独立审批流程） |
+
+### 数据模型与迁移
+
+新增迁移 **V21**：
+
+```sql
+ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS suggested_code TEXT;
+ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS suggestion_applicable BOOLEAN DEFAULT FALSE;
+```
+
+### 配置开关与默认值
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `codepilot.review.suggestion-enabled` | **`false`** | 是否生成 `suggestion` 块。**默认关**（属 GitHub 写侧交互能力，需先沙箱验证） |
+| `codepilot.review.suggestion-max-lines` | `20` | 单个 suggestion 的最大行数，超限降级为 diff 块 |
+| `codepilot.review.suggestion-fallback-to-diff` | `true` | 校验失败时降级为 diff 块而不是丢弃 |
+
+### 测试计划
+
+- `ReviewSuggestionValidatorTest`：区间含删除行 → 拒绝；区间越界 → 拒绝；区间在新侧且非删除行 → 通过
+- `GitHubInlineCommentBodyBuilderTest`：通过时生成 ` ```suggestion `；失败且 `fallback-to-diff=true` 时生成 ` ```diff `
+- 沙箱 E2E：在测试仓库真实 PR 上发出 suggestion，**并用 GitHub API 验证其可被应用**（这是"保证可应用"的唯一可信证据）
+- 422 兜底：mock 422 响应，断言降级重试只锚第一行
+
+### 回滚
+
+`suggestion-enabled=false` 即完全关闭（默认就是关）。新增列 nullable。
+
+### 风险
+
+- **高**：suggestion 应用错误会**直接改坏用户代码**（即使需要用户点击确认）。缓解：默认关闭 + 严格校验 + 只在完全确定的区间生成；`SECURITY.md` 需补充这一风险的说明。
+- **中**：LLM 输出的替换代码可能与实际文件上下文不匹配（我们只给了 patch，没有给完整文件）。缓解：`suggestion-max-lines` 限制在 patch 可见范围内，超出即降级。
+
+---
+
+## R6 跨 headSha 记忆与去重
+
+### 问题
+
+新 headSha = 全新任务、全新问题集。系统**不知道上一次审查提过什么**（E2/E3）。而 `synchronize` 是全量重审（A2），因此每次 push 都会把同一批问题**再评论一遍**。
+
+现有 `GitHubInlineCommentFingerprintExtractor` 只能在同一任务内去重（C13），跨任务无效。
+
+### 方案
+
+在 PostgreSQL 中维护**PR 级 finding 记忆**，跨 headSha 比对：
+
+1. 新增表 `review_finding_memory`，键为 `(repo_owner, repo_name, pr_number, finding_fingerprint)`。
+2. **指纹算法**（借鉴 PR-Agent，但适配我们的模型）：
+   - `finding_fingerprint = sha256(filePath | normalizedTitle | normalizedIssueType)[:16]`
+   - **绝不包含行号**——行号会随 commit 漂移（PR-Agent 明确因 position 漂移而只用 file+正文）
+   - 另存 `code_fingerprint = sha256(filePath | normalizedSnippet)[:16]`，两者 **OR 匹配**，以覆盖"同问题换了措辞"与"同代码换了描述"两种 LLM 复述方式
+3. **生命周期状态**（抄 PR-Agent 的状态机）：
+   `ACTIVE` → 本次仍存在
+   `RESOLVED` → 本次未出现，且**满足解决条件**
+   `DISMISSED` → 人工 resolve 了我们的 thread（见 R7）
+   `reopened_count` → 再次出现的次数
+4. **解决条件（关键设计，直接抄 PR-Agent 的 `allow_resolution`）**：只有同时满足才允许标 RESOLVED——
+   - `previousHeadSha != currentHeadSha`
+   - 本次审查是**完整**的：没有文件因预算被跳过、没有 LLM 失败的文件、没有超限被丢弃的 finding
+   
+   **理由**：如果这次没看全，某个问题"没出现"可能只是因为它所在文件没被审到——把它标成"已修复"是错误结论。
+5. **发布策略**：
+   - `ACTIVE` 且**上次已提过** → **不在 GitHub 重复评论**（这是去重的核心收益）
+   - `ACTIVE` 且**位置或代码已变** → 允许重发（`code_fingerprint` 不同）
+   - `reopened_count > 0` → 在摘要中标注"该问题第 N 次出现"
+   - `RESOLVED` → 在摘要的折叠区块中列出
+
+### 替代方案与不选理由
+
+| 方案 | 不选理由 |
+|---|---|
+| **PR-Agent 做法：状态序列化成隐藏标记藏在评论正文里** | PR-Agent 这么做是因为它**是无服务端的 CLI/GitHub App，没有数据库**。**我们有 PostgreSQL 且已有完整的 task/issue 模型**，用 DB 更合适：可查询（"这个仓库最常被提的问题"）、不怕人删评论、可跨 PR 聚合、可做指标。**这是本项目与 PR-Agent 架构差异导致取舍反转的典型例子** |
+| **直接编辑上一条 inline 评论而不是发新的** | inline 评论锚在 diff position 上，新 commit 后旧位置失效，编辑会得到错位的评论（PR-Agent 也因这个原因不敢用 position） |
+| **只靠 GitHub 的 "outdated" 状态判断** | outdated 只能说明行变了，不能说明问题是否已修复；且不解决"同一问题换了行号"的情况 |
+| **用 LLM 判断"上次的问题这次修了吗"** | 成本高、不确定；而"完整审查 + 未再出现"是**可确定**的判据 |
+
+### 数据模型与迁移
+
+新增迁移 **V22**：
+
+```sql
+CREATE TABLE IF NOT EXISTS review_finding_memory (
+    id BIGSERIAL PRIMARY KEY,
+    repo_owner VARCHAR(128) NOT NULL,
+    repo_name VARCHAR(128) NOT NULL,
+    pr_number INT NOT NULL,
+    finding_fingerprint VARCHAR(64) NOT NULL,
+    code_fingerprint VARCHAR(64),
+    issue_type VARCHAR(64),
+    file_path VARCHAR(512),
+    severity VARCHAR(32),
+    state VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',   -- ACTIVE / RESOLVED / DISMISSED
+    reopened_count INT NOT NULL DEFAULT 0,
+    first_task_id BIGINT,
+    last_task_id BIGINT,
+    first_seen_head_sha VARCHAR(128),
+    last_seen_head_sha VARCHAR(128),
+    resolved_at_head_sha VARCHAR(128),
+    suppressed_reason VARCHAR(255),
+    first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_finding_memory_key
+    ON review_finding_memory (repo_owner, repo_name, pr_number, finding_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_finding_memory_state
+    ON review_finding_memory (repo_owner, repo_name, pr_number, state);
+```
+
+配套新增 `review_task_result_store` 的写入步骤：在 `replaceAndComplete` 的**同一事务**内做记忆的 upsert + reconcile，保证记忆与结果集原子一致。
+
+### 配置开关与默认值
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `codepilot.review.finding-memory-enabled` | **`false`** | 是否启用跨评审记忆。**默认关**（涉及新表与发布行为变化，先灰度） |
+| `codepilot.review.suppress-repeated-findings` | `true` | 记忆启用时，是否跳过重复评论（仅当记忆开启才生效） |
+| `codepilot.review.allow-resolution` | `true` | 是否允许把未再现的 finding 标为 RESOLVED（需满足完整审查条件） |
+
+### 测试计划
+
+- 指纹稳定性：同 finding 在两个不同 headSha 上算出相同指纹；行号变化不影响指纹
+- OR 匹配：仅正文措辞变化 → 命中；仅建议代码变化 → 命中；两者都变 → 不命中
+- **解决条件**：不完整审查（有跳过文件）时，未再现的 finding **不得**被标 RESOLVED（这是最重要的回归测试）
+- 去重：同一 finding 在第二次审查中不再重复发评论
+- `reopened_count` 递增，摘要正确标注"第 N 次出现"
+- 真实 PostgreSQL 集成测试：记忆 upsert 与结果替换在同一事务内，回滚时记忆不变
+
+### 回滚
+
+`finding-memory-enabled=false` 立即回到旧行为（不再读写记忆表）。表为纯新增，可保留。若需彻底回滚，drop 表即可——**因为记忆是可重建的派生数据，不承载唯一事实**（这一点是刻意的：避免记忆表成为单点真相）。
+
+### 风险
+
+- **高**：指纹设计不当会导致**漏报**——两个不同问题算出同一指纹，第二个被当成重复而**不评论**。这比重复评论更危险。缓解：指纹只用 file + issueType + 归一化标题，**不掺入模糊语义**；并新增"指纹碰撞率"指标；提供 `suppress-repeated-findings=false` 的逃生舱
+- **中**：记忆表与 GitHub 实际评论状态可能不一致（人能删评论）。缓解：记忆只用于**抑制重复**，不作为"评论存在"的权威依据；发布前仍查一次 GitHub 实际评论
+- **中**：RESOLVED 判定错误会让用户以为问题已修。缓解：严格遵循"完整审查才允许 resolve"，且在摘要中区分"已修复（未再现）"与"未再现（可能未覆盖）"
+
+---
+
+## R7 误报抑制
+
+### 问题
+
+**整个 G 维度（协作与反馈）为零**：无 dismiss、无 resolve、无 reaction 处理。人标记过"这是误报"的问题，下次审查照样提。
+
+### 方案
+
+**采用 PR-Agent 的方案：把"人 resolve 了我们开的 thread"作为抑制信号**，而不是监听 👍/👎 reaction。
+
+1. 发布 inline 评论后记录其 `comment_id` 与 `finding_fingerprint`。
+2. 审查开始前，通过 **GitHub GraphQL** 读取本 PR 的 review threads 状态（`reviewThreads { isResolved, comments { author, body } }`），筛选：
+   - `isResolved == true`
+   - 该 thread 的**首条评论作者是本 bot**
+3. 命中的 thread 对应的 finding → 在 `review_finding_memory` 中标 `DISMISSED`，并在**下一次 LLM 调用的 prompt 中注入**"以下问题已被维护者判定为无需处理，请勿再提"（借鉴 PR-Agent 的 `render_previous_findings(..., dismissed)`）。
+4. 摘要中把 DISMISSED 的问题收进折叠区块，标注"已被维护者关闭"。
+5. **人类手动 resolve 的线程不释放抑制**（PR-Agent 的 `store.release()` 只对"过期线程清扫"释放）——即人的 resolve 是**持续有效**的。
+
+### 替代方案与不选理由
+
+| 方案 | 不选理由 |
+|---|---|
+| **监听 👍/👎 reaction**（Greptile 做法） | 需要额外订阅 `reaction` webhook；reaction 语义模糊（"这评论有用"≠"这是误报"）；且人在看代码时更自然的动作是 **resolve thread** 而不是去点 emoji |
+| **让用户回复 `@x-pilotx 忽略这个问题`** | 依赖自然语言解析，不如 GitHub 原生状态确定；可以作为**补充**入口，但不应作为唯一机制 |
+| **仓库级 suppression 配置文件**（Semgrep 的 `nosemgrep` 风格） | 对"规则类"误报有效，对我们大量由 LLM 产生的语义类 finding 不适用（无法用规则表达） |
+| **PR-Agent 的 key-issue 标记门槛** | 它要求 thread 带 key-issue 标记，是因为它只对 key issues 做生命周期管理。我们有完整的 `review_issue` 表，可以覆盖全部 finding，不需要这个门槛 |
+
+### 数据模型与迁移
+
+复用 **R6 的 `review_finding_memory`**（新增 `DISMISSED` 状态，字段已预留 `suppressed_reason`）。另外新增一张轻表记录我们发布的评论身份：
+
+新增迁移 **V23**：
+
+```sql
+CREATE TABLE IF NOT EXISTS review_published_comment (
+    id BIGSERIAL PRIMARY KEY,
+    task_id BIGINT NOT NULL,
+    github_comment_id BIGINT NOT NULL,
+    finding_fingerprint VARCHAR(64),
+    channel VARCHAR(16) NOT NULL,          -- INLINE / SUMMARY
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_published_comment_github_id
+    ON review_published_comment (github_comment_id);
+CREATE INDEX IF NOT EXISTS idx_published_comment_task
+    ON review_published_comment (task_id);
+```
+
+**这张表还顺带解决了 I8（部分发布成功无法精确记录）**：现在可以知道"哪几条 inline 评论已经发出去了"。
+
+### 配置开关与默认值
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `codepilot.review.dismissal-sync-enabled` | **`false`** | 是否读取 thread resolution 做抑制。**默认关**（需要 GraphQL 权限） |
+| `codepilot.review.dismissal-prompt-injection` | `true` | 是否把 DISMISSED 列表注入 prompt |
+| `codepilot.review.dismissal-max-prompt-chars` | `4000` | 注入上限（PR-Agent 用 8000） |
+
+### 测试计划
+
+- GraphQL 客户端：mock 响应，正确解析 `reviewThreads.isResolved`
+- **只认自己开的 thread**：人类开的且已 resolved 的 thread **不得**触发抑制
+- 抑制生效：被 DISMISSED 的 finding 不再出现在新一轮评论中
+- prompt 注入：DISMISSED 列表出现在下一次 LLM 输入里，且被标记为不可信内容块
+- 上限生效：超过 `dismissal-max-prompt-chars` 时截断（按条截断而非字符盲截）
+- 权限降级：GraphQL 不可用（token 无权限）时**不得让审查失败**，只记录 warn 并按无抑制处理
+
+### 回滚
+
+`dismissal-sync-enabled=false` 即停止读取（已写入的 DISMISSED 状态保留但不再影响发布——需在代码中确认抑制判定同时受开关控制）。
+
+### 风险
+
+- **中**：误把"用户顺手 resolve 了所有 thread 以便看清 diff"当成"全部是误报" → 导致大面积漏报。缓解：摘要中明确展示"本次因维护者关闭而跳过 N 条"，让人能发现异常；且提供开关
+- **中**：GraphQL 权限不足或 rate limit 会阻塞审查。缓解：**抑制同步必须是旁路**——失败只降级，绝不阻塞主流程（这是硬性设计约束）
+- **低**：`review_published_comment` 与 GitHub 实际状态不一致（评论被删）。缓解：该表只用于**辅助**，不作为发布决策的唯一依据
+
+---
+
+# P2 工程完善
+
+## R8 Agent 限额的用户可见语义
+
+**问题**：模型轮次 / 工具调用 / continuation / 截止时间超限，全部抛 `IllegalStateException`（`AgentRunService:60,73,90,135`），被 `AgentChatTaskRunner:132-151` 捕获后用户只看到通用文案「暂时无法完成本次 Agent 请求，请稍后重试」，**不说明真实原因**；且这类错误被当作可重试处理，重试仍会撞同一上限。
+
+**方案**：定义 `AgentLimitExceededException`（携带 `limitType` 与 `currentValue`/`limitValue`），在 `AgentChatTaskRunner` 中单独 catch，输出**明确且可行动**的回复，例如"本次请求已达到工具调用上限（12 次），请把问题拆小后重试"；并把该异常标记为**不可重试**（`PrCommandTaskFailureHandler` 需增加终态判定）。
+
+**替代方案**：直接提高限额——不选，限额是成本与失控保护；只改文案而不区分可重试性——不选，会浪费重试配额并延迟用户得到真实反馈。
+
+**数据模型**：无。
+**配置**：复用现有 `codepilot.agent-runtime.*`，无新增。
+**测试**：分别触发 4 种限额，断言（a）用户收到含具体限额类型的回复（b）任务进入终态不再重试（c）`agent_run` 状态正确。
+**回滚**：纯代码改动，revert 即可。
+**风险**：低。需注意不要因为区分异常类型而误把真正的可重试故障（如 LLM 超时）标成终态——因此只对四个明确的上限异常做终态处理。
+
+## R9 对话上下文结构化截断
+
+**问题**：`AgentConversationContextBuilder:57` 用 `result.substring(result.length() - maxChars)` **盲截尾部字符**，会把一条消息切成半句；无摘要、无消息边界感知。
+
+**方案**：改为**按 turn 边界**裁剪——从最近往前累加整条 turn，直到超出预算；**最后一条**若单独超预算，才对它做截断并加显式 `…[truncated]` 标记。预算不足时在开头标注 `conversationContextStatus: PARTIAL (N of M turns)`。
+
+**替代方案**：用 LLM 做摘要——不选，引入额外调用与延迟，且对话上下文本身价值有限；直接丢弃全部历史——不选，会丢失多轮追问的连续性。
+
+**数据模型**：无。**配置**：复用 `conversation-max-turns` / `conversation-max-chars`；新增 `conversation-truncation-mode`（`turn` 默认 / `chars` 兼容旧行为）。
+**测试**：断言不会出现半句；turn 数不足时状态标记为 PARTIAL；单条超预算时有截断标记。
+**回滚**：`conversation-truncation-mode=chars` 回到旧行为。
+**风险**：低。turn 边界裁剪可能比字符裁剪保留更少内容，需在文档中说明这是有意的取舍（完整性优先于信息量）。
+
+## R10 指标补全
+
+**问题**：无缓存命中率（H3）、无队列积压（H6）、无 token 成本（H2/H8）；`AgentMetrics` 的三个指标（`codepilot.agent.model.turns` / `.tool.calls` / `.run.transitions`）**未出现在 `docs/architecture.md` 的指标清单里**。
+
+**方案**：
+1. 补指标：`codepilot.review.llm.cache`（hit/miss）、`codepilot.rag.cache`（hit/miss）、`codepilot.review.queue.backlog`（gauge，从 RabbitMQ `QueueDeclarePassive` 读 message count）、`codepilot.review.llm.tokens`（Counter，按 prompt/completion 分别打 tag）
+2. 把 `codepilot.agent.*` 三个指标补进 `docs/architecture.md` 指标清单
+3. 新增 `docs/observability.md`：列出全部指标、类型、含义、以及"没有 Prometheus 时的查询方式"
+
+**替代方案**：直接引入 Prometheus + Grafana——**本轮不选**，属于部署栈变更，应与"是否做生产化"一起决策；先补齐指标本身，暴露方式后置。
+
+**数据模型**：无。**配置**：无新增（沿用 Actuator）。
+**测试**：`SimpleMeterRegistry` 断言各计数器在对应路径被触发。
+**回滚**：纯增量。
+**风险**：低。RabbitMQ backlog gauge 需要管理连接，失败时必须降级为不暴露而不是让应用启动失败。
+
+## R11 内容分类补全
+
+**问题**：i18n/资源包无分类（B13）；生成代码只靠 `dist/`/`target/`/`build/` 目录名（B14）；`vendor/`、`third_party/`、`node_modules/` **完全不在跳过列表**（B15）。
+
+**方案**：
+1. `ReviewFileClassifier` 新增 `isI18nPath`（`/i18n/`、`/locale/`、`/locales/`、`messages*.properties`、`/lang/`），**归为低优先级而非跳过**（翻译错误也是真问题）
+2. `shouldSkipPath` 补 `vendor/`、`third_party/`、`node_modules/`、`.git/`、`*.pb.go`、`*_pb2.py`、`*.g.dart`、`*.designer.cs`、`*.generated.*`
+3. **借鉴 Graphite**：读取 GitHub 的 `linguist-generated` 标注来识别生成物，而不是自维护路径规则。需确认 REST `pulls/{n}/files` 是否返回该字段（**实现前必须核实**；若不返回则需要额外请求）
+
+**替代方案**：只加路径规则——选为**首期**（零依赖），`linguist-generated` 作为后续增强。
+**数据模型**：`skip_category` 复用 R2 的枚举，新增 `I18N_LOW_PRIORITY` 与 `GENERATED`。
+**配置**：`codepilot.review.extra-skip-patterns`（逗号分隔，默认空）让用户追加自定义跳过。
+**测试**：各新分类的路径分类断言；`vendor/` 与 `node_modules/` 下的文件被跳过。
+**回滚**：配置可覆盖；代码 revert 即可。
+**风险**：低。过度跳过会漏审——因此 vendor/node_modules 跳过是安全的，但**i18n 只降优先级不跳过**。
+
+## R12 配置交叉校验 + 路径级审查指令
+
+**问题（两部分）**：
+1. `module/tool` 下无配置交叉校验规则（D4）——"配置项新增但未使用"/"使用但未定义"完全查不出
+2. **整个项目没有路径级审查指令能力**：对标系统都有（CodeRabbit `.coderabbit.yaml` 的 `path_instructions`、Greptile 的目录级联 `.greptile/`、PR-Agent 的 per-directory `.pr_agent.toml`），我们只有全局 `application.yml`
+
+**方案**：
+1. **新确定性规则 `ConfigConsistencyTool`**：解析同一 PR 中变更的配置文件（`*.yml`/`*.properties`/`.env*`）与代码中的配置引用（`@Value("${...}")`、`@ConfigurationProperties`、`environment.getProperty`），报告"新定义未引用"与"新引用未定义"。这是**确定性规则先于 LLM** 架构的自然延伸，与 `SqlRiskTool` 同级。
+2. **路径级指令**：新增 `.codepilot/rules.md`（仓库内，随 PR 变更）+ `codepilot.review.path-instructions`（服务端配置），按 glob 匹配文件并把指令注入该文件的 prompt。**安全约束（借鉴 Greptile）**：指令从 **PR 的 base 分支**读取，使"一个 PR 无法通过修改自己的规则文件来放宽对自己的审查"。
+
+**替代方案**：
+- 配置校验：用 LLM 语义判断——不选，这正是"确定性规则优先"要避免的
+- 路径指令：放数据库由管理员维护——可作为后续，但仓库内文件（随代码 review）更符合"规范即代码"
+
+**数据模型**：路径指令首期放仓库文件，不改库；若要支持服务端覆盖再新增表。
+**配置**：`codepilot.review.path-instructions-enabled`（默认 `false`）、`codepilot.tools.config-consistency-enabled`（默认 `true`）。
+**测试**：配置校验的正反例（新增未引用 / 引用未定义 / 一致）；路径指令的 glob 匹配；**base 分支读取的断言**（PR 修改 `.codepilot/rules.md` 时本 PR 不生效）。
+**回滚**：两个开关分别可关。
+**风险**：**中**——路径指令本质是**把用户输入注入 prompt**，是新的 prompt injection 面。缓解：指令走不可信内容包装（`PromptInputSanitizer.escapeUntrustedBlockDelimiters`）、限制长度、从 base 分支读取、默认关闭。
+
+## R13 CI / workflow 变更安全规则
+
+**问题**：`.github/workflows/` 被归为配置(+700)，但**没有任何 CI 专用安全规则**（B17）。`pull_request_target` 注入、权限提升、`secrets` 外泄到 fork PR 都是真实高危。
+
+**方案**：新增确定性规则 `CiWorkflowRiskTool`，在 workflow YAML 变更时检查：
+- 使用 `pull_request_target` 的同时 checkout PR head → 高危（经典注入向量）
+- `permissions: write-all` 或未显式限制 `permissions`
+- 在 `pull_request` 触发的 workflow 中直接引用 `secrets.*`
+- `run:` 中拼接 `github.event.*` 用户可控输入（`${{ github.event.pull_request.title }}` 等）
+- 新增的第三方 action 未固定到 commit SHA（供应链风险）
+
+**替代方案**：交给 LLM 判断——不选，这些是可枚举的确定性模式，符合"规则优先"；引入 actionlint/zizmor 等外部工具——可作后续增强，但首期自研规则更可控且无新依赖。
+**数据模型**：无（复用 `review_issue`，`rule_code` 区分）。
+**配置**：`codepilot.tools.ci-workflow-risk-enabled`（默认 `true`）。
+**测试**：每个危险模式各一个正例 + 一个安全反例（避免误报）；`pull_request_target` 但未 checkout head → 不报。
+**回滚**：开关关闭。
+**风险**：**中**——误报会让用户不信任安全规则。缓解：只报可枚举的高置信模式，措辞避免绝对化，并在证据中给出触发片段。
+
+## R14 `pull_request_review_comment` 里的 @mention
+
+**问题**：`GitHubWebhookPayloadParser` 只认 `pull_request`(:18) 与 `issue_comment`(:20)，`pull_request_review_comment` 落入 `ignored("unsupported event")`(:40)。**用户在 diff 行上直接 @bot 没有任何反应**——而这恰恰是最自然的提问位置（就在问题代码旁边）。
+
+**方案**：新增 `pull_request_review_comment` 事件分支：
+1. 解析 `comment.body` / `comment.id` / `pull_request.number` / `comment.path` / `comment.line` / `comment.in_reply_to_id`
+2. 复用 `GithubCommandParser` 的 mention 解析
+3. 去重 key 沿用 comment id（`buildDedupKey` 已有该分支）
+4. **上下文增强**：把 `path` + `line` + 该行附近的 diff 上下文注入 Agent 请求，让模型知道"用户在说哪一行"
+5. 回复方式：**作为该 thread 的回复**（`in_reply_to_id`），而不是新建顶层评论——这需要为 `GithubClient` 增加回复能力（顺带解决 C8）
+
+**替代方案**：只在 PR 会话流支持——不选，这是对标系统的标配能力，缺失会让"在代码行上提问"这一最自然的交互完全不可用。
+**数据模型**：`pr_command_task` 增加 `anchor_path` / `anchor_line` / `reply_to_comment_id`（V24）。
+**配置**：`codepilot.github.review-comment-mention-enabled`（默认 `true`，读侧能力）。
+**测试**：事件解析；mention 识别；去重；回复发到正确 thread；非 PR 的 review comment 被忽略。
+**回滚**：开关关闭即回到 `unsupported event` 行为。
+**风险**：低。注意 `pull_request_review_comment` 的 payload 结构与 `issue_comment` 不同（`comment.line` 而非 `issue.number`），需要独立解析测试。
+
+## R15 评论生命周期
+
+**问题**：不检测已发评论是否 outdated（C14）；inline 评论只新建不编辑（C15）；I8 无法精确知道哪几条发出去了。
+
+**方案**：基于 **R7 的 `review_published_comment`** 表：
+1. 发布成功即落库 `(task_id, github_comment_id, finding_fingerprint, channel)` → 解决 I8
+2. 新一轮审查时，对已落库的 inline 评论判断其 finding 是否已消失：消失且满足 R6 的解决条件 → 通过 GraphQL **resolve 该 thread**（而不是删评论，保留审计痕迹）
+3. 摘要评论继续走 marker 更新（不变）
+
+**替代方案**：删除旧评论——不选，破坏审计与讨论历史；编辑旧 inline 评论——不选，position 漂移会导致错位（同 R6 的理由）。
+**数据模型**：复用 V23 的表（新增 `thread_resolved_at`）。
+**配置**：`codepilot.review.auto-resolve-threads`（默认 **`false`**，属写操作）。
+**测试**：发布后落库；finding 消失且条件满足时 resolve；条件不满足时不 resolve；不可能 resolve 时不失败（降级）。
+**回滚**：开关关闭。
+**风险**：**中**——自动 resolve 人的讨论线程会冒犯用户。缓解：**只 resolve 首条评论是本 bot 的 thread**（与 R7 同一判据），默认关闭。
+
+## R16 修正误导性文案与分类错位
+
+**问题**（三处已核实的不一致）：
+1. `ReviewFilePlanner:138` 的 skip_reason 写 `"file type or generated path skipped"`，但**代码中不存在生成物判定**
+2. `pnpm-lock.yaml` 因以 `.yaml` 结尾而**不被 `.lock` 命中、因此不被跳过**，却已被 `isDependencyManifestPath` 分类为依赖清单
+3. `ReviewIssueLocationGuard:46-55` 置空行号时写 `"line is not a commentable added diff line"`，但 `DiffLineMapper` 实际也接受 LEFT 与 context 行
+
+**方案**：修正文案使其与实现一致；`shouldSkipPath` 补 `pnpm-lock.yaml`（与 R11 合并实施）；把位置判定的 reason 改为准确描述（"line is not commentable on either side of the diff"）。
+**替代方案**：保留现状——不选，误导性文案正是 Phase 0 里最容易让人（和面试官）判断错误的来源。
+**数据模型**：无（`skip_reason` 文本变化，配合 R2 的 `skip_category` 后其重要性下降）。
+**配置**：无。**测试**：断言 reason 文案与 `skip_category` 语义一致；`pnpm-lock.yaml` 被跳过。
+**回滚**：纯文本。**风险**：极低。
+
+---
+
+# 待决项（本轮不实现）
+
+## D1 增量审查
+
+**现状**：每次 `synchronize` 按新 headSha 建新任务并**全量重审整个 PR diff**。
+
+**为什么挂起**：
+1. 对标结论显示**这不是落后**——PR-Agent **默认就是全量重审**，增量是 opt-in（`-i`）且要求能找到上一次 review 评论；只有 CodeRabbit 默认增量
+2. PR-Agent 的增量基线是"上一次 review 时间之前的最后一个 commit"，**依赖持久评论身份（R1）与跨评审状态（R6）**——这两项还没做，现在做增量等于建在空中
+3. 改变 `synchronize` 语义会影响现有测试与文档承诺，属于**行为契约变更**，应与用户单独确认
+
+**将来实施的取舍**（供决策参考）：
+
+| 方案 | 优点 | 缺点 |
+|---|---|---|
+| 全量重审 + R6 跨评审去重（**推荐次序**） | 不改变语义；去重收益已经能覆盖大部分噪音；审查始终完整（保证 R6 的 resolve 判据成立） | token 成本仍随 PR 大小增长 |
+| 真增量（只审 delta） | 省 token、省时间 | **破坏"完整审查"前提** → 无法安全地判定旧问题已修复；需要维护 per-commit 基线；PR-Agent 的实践说明它复杂度高 |
+| 混合：增量审查 + 定期全量 | 兼顾 | 状态机最复杂 |
+
+**建议**：先做 R6（去重），用**指标**量化"全量重审到底浪费了多少"（token/时间/重复 finding 数），再决定是否值得引入增量。**用数据决策，而不是凭直觉。**
+
+## D2 离线评估集扩充
+
+**现状**：`AiReviewPipelineEvalTest` 只要求 `hasSizeGreaterThanOrEqualTo(6)`，当前 **6 个 PR-like 场景**；Precision `85.71%`（= 6/7，在 issueType 级别按 case 拼 key 计算）、Recall `100%`。**这是项目指标可信度的最大短板**——100% recall 建立在 6 个样本上经不起追问。
+
+**用户已确认要做**，但不在本轮（本轮只出设计文档）。
+
+**扩充方案**：
+1. 目标 **25–30 个场景**，并按 `scenarioTags` 分组统计，而不只报一个总 precision/recall
+2. 覆盖维度（补充现有 6 个之外）：大 PR 预算截断后**未覆盖文件不产生假阴性**、多行 finding、suggestion 可应用性、跨 headSha 重复抑制、误报抑制生效、配置交叉校验、CI workflow 风险、i18n、vendored
+3. **新增指标**：per-tag precision/recall、覆盖度上报准确率、重复评论抑制率
+4. 在 `docs/ai-review-eval-baseline.md` 中明确写清**口径与局限**（现在是"Non-Goals"写得不错，但缺少"样本量与置信区间"的说明）
+
+---
+
+## 附：本文档与既有文档的关系
+
+| 文档 | 内容 |
+|---|---|
+| `docs/scenarios.md` | **事实层**：142 场景的现状核实（Phase 0） |
+| `docs/benchmark-ai-review-tools.md` | **参考层**：业界 4 个系统的 10 机制对标 |
+| `docs/research/*.md` | **原始调研**：PR-Agent 源码深读、CodeRabbit/Greptile/Graphite 官方文档调研 |
+| **本文件** | **设计层**：改进项方案与取舍 |
+| `docs/code-map.md` | **代码导航**：现有实现的入口到实现映射（实现后需同步更新） |
+| `docs/architecture.md` | **架构说明**：现有架构（实现后需同步更新） |
