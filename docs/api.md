@@ -229,6 +229,38 @@ curl -X POST http://localhost:8080/api/rules/search ^
   -d "{\"query\":\"代码中通过字符串拼接 SQL 查询用户信息\",\"topK\":3,\"type\":\"SQL_RULE\"}"
 ```
 
+## 死信运维 API
+
+最终消费失败的消息会被死信消费者落库到 `dead_letter_message`，可通过以下接口查询与处理。
+这些接口同样需要 API Key（路径匹配 `/api/**`）。详见 [环境变量](env.md) 的「死信队列运维」一节。
+
+### `GET /api/admin/dead-letters`
+
+分页查询死信。Query 参数：`status`（`PENDING` / `REPLAYED` / `DISCARDED`）、`sourceQueue`、`current`、`size`。
+
+返回体除分页记录外还带 `pendingCount`，可直接用于告警。
+
+```powershell
+curl "http://localhost:8080/api/admin/dead-letters?status=PENDING&current=1&size=20" ^
+  -H "X-CodePilot-Api-Key: change-me-local-dev-key"
+```
+
+### `GET /api/admin/dead-letters/{id}`
+
+查看单条死信详情（含脱敏后的 payload 与 digest）。不存在时返回 `404`。
+
+### `POST /api/admin/dead-letters/{id}/replay`
+
+把死信重新投回主链路。**默认关闭**，需设置 `CODEPILOT_DLQ_REPLAY_ENABLED=true`；关闭时返回 `403`。
+
+重放是幂等的：目标任务走既有的 claim + execution token 入口，重复投递不会重复执行。
+
+无法从 payload 解析出任务 id 时返回 `422`。
+
+### `POST /api/admin/dead-letters/{id}/discard`
+
+把死信标记为已处理（`DISCARDED`）。不存在时返回 `404`。
+
 ## GitHub 工具 API
 
 这两个接口是运维/调试用的只读工具，不参与审查主链路。
