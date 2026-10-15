@@ -78,11 +78,11 @@
 | B11 | 配置/密钥文件 | ✅ | `isConfigurationPath`(:59) → +700；`isSecuritySensitivePath`(:49) → +1000 |
 | B12 | 仅文档 | ✅ | `isDocumentationPath`(:111) → −250 |
 | B13 | i18n / 资源包 | ❌ | `ReviewFileClassifier` **无 i18n/资源包判定**；`ReviewFilePlanner.shouldSkipPath` 也不含。`.properties` 会被 `isConfigurationPath` 误判为配置（+700），`.json` 语言包得不到任何分类 → 优先级 0 |
-| B14 | 生成代码（protobuf/openapi） | ⚠️ | 只靠目录名跳过：`ReviewFilePlanner.shouldSkipPath` 仅含 `dist/`、`target/`、`build/`。`src/main/java/**/generated/` 下的 protobuf 产物**不会被跳过**；`.proto` 本身被 `isPublicApiPath`(:106) 归为公共 API(+800) |
+| B14 | 生成代码（protobuf/openapi） | ⚠️ | 只靠目录名跳过：`ReviewFilePlanner.shouldSkipPath` 仅含 `dist/`、`target/`、`build/`。`src/main/java/**/generated/` 下的 protobuf 产物**不会被跳过**；`.proto` 本身被 `isPublicApiPath`(:106) 归为公共 API(+800)。**注**：该分支的 skip_reason 文案写作 `"file type or generated path skipped"`(:138)，但代码里**并不存在生成物判定**（检索 `generated|\.pb\.` 无匹配）——文案与实现不符 |
 | B15 | vendored 第三方 | ❌ | 跳过列表（`shouldSkipPath`）**不含 `vendor/`、`third_party/`、`node_modules/`** → 若被提交会全量进入审查并消耗预算 |
 | B16 | submodule 变更 | ⚠️ | submodule 指针变更的 patch 为空 → 恰好被 B4 规则跳过；但无显式识别，且 `.gitmodules` 会按普通文件处理 |
 | B17 | CI / workflow 文件变更 | ⚠️ | `.github/workflows/` 被 `isConfigurationPath`(:70) 归为配置(+700)，**但没有任何 CI 专用安全规则**（如 `pull_request_target` 注入、权限提升、secret 外泄） |
-| B18 | 锁文件 | ✅ | `shouldSkipPath` 含 `.lock`、`package-lock.json`、`yarn.lock`、`.min.js` |
+| B18 | 锁文件 | ⚠️ | `shouldSkipPath` 含 `.lock`、`package-lock.json`、`yarn.lock`、`.min.js`。**但有错位**：`pnpm-lock.yaml` 因以 `.yaml` 结尾而**不被 `.lock` 命中、因此不被跳过**，尽管它被 `isDependencyManifestPath`(:87) 分类为依赖清单 |
 | B19 | 混合内容 | ✅ | 按 `reviewPriority` 降序贪心分配预算（`ReviewFilePlanner.applyReviewLimits`） |
 | B20 | 空 diff | ✅ | `ReviewFileReviewer.review` 对空列表直接返回 `List.of()` |
 
@@ -103,7 +103,7 @@
 | C9 | resolve / unresolve thread | ❌ | 无 GraphQL `resolveReviewThread` 调用 |
 | C10 | **正式 Review verdict** | ❌ | 全仓库无 `APPROVE`/`REQUEST_CHANGES` review event（搜到的 `approve*` 全部属于 Fix 审批链路 `FixApprovalService`） |
 | C11 | inline 预算超限（10） | ⚠️ | `ReviewCommentBudgetAllocator` 存在并有测试；Summary 会追加「另外还有 N 条问题未展示。」(`ReviewReportFormatter:61-64`)，但**不指出被丢弃的是哪些、为什么** |
-| C12 | location guard 拒绝 | ⚠️ | 被拒绝的问题不落 inline，仍进 Summary 列表；`ReviewIssue.commentChannel`(:45) 记录渠道。但用户不会知道"这条本想在 X 行说但定位失败" |
+| C12 | location guard 拒绝 | ⚠️ | 被拒绝的问题不落 inline，仍进 Summary 列表；`ReviewIssue.commentChannel`(:45) 记录渠道。但用户不会知道"这条本想在 X 行说但定位失败"。**注**：置空行号时写的 reason 是 `"line is not a commentable added diff line"`（`ReviewIssueLocationGuard:46-55`），而 `DiffLineMapper` 实际也接受 LEFT 与 context 行 → **文案与实际判定范围不符** |
 | C13 | fingerprint 重复 | ✅ | `GitHubInlineCommentFingerprintBuilder`/`Extractor`；测试 `shouldSkipIssueWhenExistingInlineFingerprintWasAlreadyPosted` |
 | C14 | 行已过期（outdated） | ❌ | 不检测已发评论是否 outdated，也不清理/收敛 |
 | C15 | 编辑/更新已发评论 | ⚠️ | Summary 走 update；inline 只新建，无编辑 |
