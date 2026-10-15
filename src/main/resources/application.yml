@@ -154,6 +154,12 @@ codepilot:
   review:
     max-files-per-task: ${CODEPILOT_REVIEW_MAX_FILES_PER_TASK:30}
     max-summary-findings: ${CODEPILOT_REVIEW_MAX_SUMMARY_FINDINGS:20}
+    # 审查覆盖度上报：说明哪些文件没有被审查以及原因。
+    # 关闭它会让"只审了 5 / 200 个文件"的摘要看起来像完整结论，因此默认开启。
+    coverage-report-enabled: ${CODEPILOT_REVIEW_COVERAGE_REPORT_ENABLED:true}
+    coverage-max-listed-files: ${CODEPILOT_REVIEW_COVERAGE_MAX_LISTED_FILES:20}
+    # 已审文件数 / 变更文件数 低于该比例时，摘要顶部给出醒目告警。0 表示关闭告警。
+    min-coverage-ratio: ${CODEPILOT_REVIEW_MIN_COVERAGE_RATIO:0.5}
     max-patch-chars-per-file: ${CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE:12000}
     max-total-patch-chars: ${CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS:80000}
     max-parallel-files: ${CODEPILOT_REVIEW_MAX_PARALLEL_FILES:2}

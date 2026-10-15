@@ -206,6 +206,11 @@ copy .env.example .env
 | --- | --- | --- |
 | `CODEPILOT_REVIEW_MAX_FILES_PER_TASK` | `30` | 单个任务最多进入 AI Review 的文件数。 |
 | `CODEPILOT_REVIEW_MAX_SUMMARY_FINDINGS` | `20` | Summary Comment 最多展示问题数。 |
+| `CODEPILOT_REVIEW_COVERAGE_REPORT_ENABLED` | `true` | 是否在摘要中输出「审查覆盖」区块，说明哪些文件未被审查及原因。**默认开启**：关闭会让"只审了 5 / 200 个文件"的摘要看起来像完整结论。 |
+| `CODEPILOT_REVIEW_COVERAGE_MAX_LISTED_FILES` | `20` | 覆盖度区块中逐个列出的未审查文件上限，超出部分折叠进 `<details>`。 |
+| `CODEPILOT_REVIEW_MIN_COVERAGE_RATIO` | `0.5` | 已审文件数 / 变更文件数低于此比例时，摘要顶部给出醒目告警。`0` 表示关闭告警。 |
+
+**关于审查覆盖度**：只要还有变更文件未被审查，摘要就**不会**输出"未发现问题"，而是明确说明"本次没有可报告的问题，但有 N 个文件未被审查"。这条约束不受 `CODEPILOT_REVIEW_COVERAGE_REPORT_ENABLED` 影响——即使关闭覆盖度区块，"未能审查任何变更文件"的告警依然会输出。
 | `CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE` | `12000` | 单文件 patch 字符上限。 |
 | `CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS` | `80000` | 单任务 patch 总字符上限。 |
 | `CODEPILOT_REVIEW_MAX_PARALLEL_FILES` | `2` | 单个任务内文件级并发数。 |

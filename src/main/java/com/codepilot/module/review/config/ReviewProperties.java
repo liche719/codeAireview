@@ -15,6 +15,23 @@ public class ReviewProperties {
 
     private int maxSummaryFindings = 20;
 
+    /**
+     * 是否在 Summary Comment 中输出「审查覆盖」区块，说明哪些文件没有被审查以及原因。
+     *
+     * <p>默认开启：不报告覆盖度会让用户把"只审了 5 / 200 个文件"的摘要误读成完整结论。</p>
+     */
+    private boolean coverageReportEnabled = true;
+
+    /** 覆盖度区块中最多逐个列出多少个未审查文件，超出部分折叠。 */
+    private int coverageMaxListedFiles = 20;
+
+    /**
+     * 最低覆盖比例（已审文件数 / 变更文件数）。低于该比例时在摘要顶部给出醒目告警。
+     *
+     * <p>取 0 到 1；&lt;=0 表示关闭该告警。</p>
+     */
+    private double minCoverageRatio = 0.5;
+
     private int maxPatchCharsPerFile = 12000;
 
     private int maxTotalPatchChars = 80000;

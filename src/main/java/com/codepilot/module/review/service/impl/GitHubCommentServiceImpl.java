@@ -5,6 +5,7 @@ import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubIssueComment;
+import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
@@ -12,6 +13,7 @@ import com.codepilot.module.review.report.CommentMarkers;
 import com.codepilot.module.review.report.ReviewReportFormatter;
 import com.codepilot.module.review.service.GitHubCommentService;
 import com.codepilot.module.review.service.GitHubCommentResult;
+import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +32,8 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
 
     private final ReviewIssueService reviewIssueService;
 
+    private final ReviewFileService reviewFileService;
+
     private final GithubClient githubClient;
 
     private final ReviewReportFormatter reviewReportFormatter;
@@ -46,6 +50,7 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
     public GitHubCommentServiceImpl(
             ReviewTaskMapper reviewTaskMapper,
             ReviewIssueService reviewIssueService,
+            ReviewFileService reviewFileService,
             GithubClient githubClient,
             ReviewReportFormatter reviewReportFormatter,
             GithubAuthTokenProvider githubAuthTokenProvider,
@@ -54,6 +59,7 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
     ) {
         this.reviewTaskMapper = reviewTaskMapper;
         this.reviewIssueService = reviewIssueService;
+        this.reviewFileService = reviewFileService;
         this.githubClient = githubClient;
         this.reviewReportFormatter = reviewReportFormatter;
         this.githubAuthTokenProvider = githubAuthTokenProvider;
@@ -83,7 +89,10 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
 
             List<ReviewIssue> issues = reviewIssueService.list(new LambdaQueryWrapper<ReviewIssue>()
                     .eq(ReviewIssue::getTaskId, taskId));
-            String body = reviewReportFormatter.formatMarkdown(task, issues);
+            // 覆盖度信息：哪些文件没被审查、为什么。缺失它会让摘要看起来像"整个 PR 都审过了"。
+            List<ReviewFile> reviewFiles = reviewFileService.list(new LambdaQueryWrapper<ReviewFile>()
+                    .eq(ReviewFile::getTaskId, taskId));
+            String body = reviewReportFormatter.formatMarkdown(task, issues, reviewFiles);
             Optional<Long> existingCommentId = findExistingCommentId(task);
             if (existingCommentId.isPresent()) {
                 githubClient.updateIssueComment(task.getRepoOwner(), task.getRepoName(), existingCommentId.get(), body);

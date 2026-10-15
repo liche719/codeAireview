@@ -114,22 +114,27 @@
 
 ## R2 审查覆盖度透明化
 
-> **状态：基础层已完成，用户可见的修复尚未实现。**
+> **状态：已完成**（实现分两个提交：基础层 + 渲染层）。
 >
-> 已完成（本轮）：`ReviewFileSkipCategory` 枚举、迁移 **V18**（`review_file.skip_category` + 索引）、
-> `ReviewFile` 实体字段、`ReviewFilePlanner` 在每个跳过点写入分类。跳过原因现在是**机器可读**的，
-> 可以按原因分组统计——这是摘要「审查覆盖」区块的前提。
+> 已实现：
+> - `ReviewFileSkipCategory` 枚举（8 类）+ 迁移 **V18**（`review_file.skip_category` + 索引）
+> - `ReviewFilePlanner` 在每个跳过点写入机器可读分类
+> - `ReviewReportFormatter` 渲染「审查覆盖」区块：`X / Y` 已审文件数、按原因分组的未审查文件列表、
+>   超过 `coverage-max-listed-files` 时折叠进 `<details>`
+> - **S2 的核心已修**：只要还有文件未被审查，就**不再输出"未发现问题"**，改为
+>   "本次没有可报告的问题" + "有 N 个变更文件未被审查"
+> - 覆盖比例低于 `min-coverage-ratio` 时，摘要**最前面**给出醒目告警
+> - `GitHubCommentServiceImpl` 加载 `review_file` 并传入 formatter
+> - 三个配置项：`coverage-report-enabled`(true) / `coverage-max-listed-files`(20) / `min-coverage-ratio`(0.5)
 >
-> **仍未实现（R2 的核心）**：
-> 1. `ReviewReportFormatter` 渲染覆盖度区块（当前仍不提被跳过的文件）
-> 2. **修正"未发现问题。"的假体检合格**（全部文件被跳过时仍会输出该文案）
-> 3. `GitHubCommentServiceImpl` 加载 `review_file` 并传给 formatter
-> 4. 三个配置项：`coverage-report-enabled` / `coverage-max-listed-files` / `min-coverage-ratio`
-> 5. 回归测试：**全部文件被跳过时摘要不得包含"未发现问题"**
+> 实现过程中修掉两个自身缺陷：
+> 1. `getBasicSkipReason` 的"已跳过"分支会把 `toReviewFile` 写好的精确分类覆盖成 `ALREADY_SKIPPED`，
+>    导致摘要里具体原因退化（由单测发现）。
+> 2. **`ReviewReportFormatter` 新增第二个构造器后未标注 `@Autowired`，Spring 启动时抛
+>    "No default constructor found"**（由 Testcontainers 集成测试发现——单元测试直接 `new`，永远覆盖不到）。
 >
-> 实现过程中由测试发现并修掉一个自身缺陷：`getBasicSkipReason` 的"已跳过"分支会把
-> `toReviewFile` 写好的精确分类（如 `EMPTY_PATCH`）覆盖成 `ALREADY_SKIPPED`，
-> 导致摘要里具体原因退化。现已保留既有分类。
+> 仍未实现（从原方案移出，见 R6）：「本 PR 第 K 次审查 + 本次审查 commit」需要新增按 repo/PR 计数的
+> mapper 查询，价值低于正确性修复，留待 R6 一起做。
 
 ### 问题
 
