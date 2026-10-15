@@ -1,0 +1,52 @@
+package com.codepilot.common.enums;
+
+/**
+ * 文件未进入审查的原因分类。
+ *
+ * <p>{@code review_file.skip_reason} 是人读的自由文本，本枚举是它的机器可读版本——
+ * 摘要里的「审查覆盖」区块需要按原因<b>分组</b>展示"哪些文件没看、为什么"，
+ * 靠自由文本无法分组统计。</p>
+ *
+ * <p>两者并存是刻意的：分类用于聚合与告警，reason 用于向用户解释具体原因。</p>
+ */
+public enum ReviewFileSkipCategory {
+
+    /** patch 为空/null（二进制文件、超大文件，或该文件类型 GitHub 不返回 patch）。 */
+    EMPTY_PATCH("空 patch（二进制或超大文件）"),
+
+    /** 文件路径为空，无法定位。 */
+    INVALID_PATH("文件路径缺失"),
+
+    /** 生成物 / 锁文件 / 构建产物等按路径排除。 */
+    PATH_EXCLUDED("生成物或锁文件路径"),
+
+    /** 单文件 patch 超过 max-patch-chars-per-file。 */
+    PATCH_TOO_LARGE("单文件 patch 超过上限"),
+
+    /** 任务文件数超过 max-files-per-task。 */
+    FILE_COUNT_BUDGET("文件数预算已用尽"),
+
+    /** 任务总 patch 字符数超过 max-total-patch-chars。 */
+    TOTAL_PATCH_BUDGET("总 patch 预算已用尽"),
+
+    /** 预算被更高优先级的文件占用（通过优先级排序后未入选）。 */
+    BUDGET_PRIORITY("预算分配给了更高优先级的文件"),
+
+    /** 该文件在进入规划前已被标记为跳过。 */
+    ALREADY_SKIPPED("进入规划前已标记跳过");
+
+    private final String description;
+
+    ReviewFileSkipCategory(String description) {
+        this.description = description;
+    }
+
+    public String description() {
+        return description;
+    }
+
+    /** 是否为「预算类」跳过——这类跳过意味着覆盖度下降，需要在摘要里显著提示。 */
+    public boolean isBudgetRelated() {
+        return this == FILE_COUNT_BUDGET || this == TOTAL_PATCH_BUDGET || this == BUDGET_PRIORITY;
+    }
+}

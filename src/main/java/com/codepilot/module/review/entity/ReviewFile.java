@@ -30,5 +30,11 @@ public class ReviewFile {
 
     private String skipReason;
 
+    /**
+     * {@link com.codepilot.common.enums.ReviewFileSkipCategory} 的名字。
+     * skipReason 给人读，本字段用于按原因分组统计（摘要的审查覆盖区块）。
+     */
+    private String skipCategory;
+
     private LocalDateTime createdAt;
 }

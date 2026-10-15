@@ -1,5 +1,6 @@
 package com.codepilot.module.review.planner;
 
+import com.codepilot.common.enums.ReviewFileSkipCategory;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.review.classifier.ReviewFileClassifier;
 import com.codepilot.module.review.config.ReviewProperties;
@@ -25,6 +26,14 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class ReviewFilePlanner {
 
+    /**
+     * 优先级排序后未入选时的默认原因：预算被更高优先级的文件占用了。
+     */
+    private static final SkipDecision PRIORITY_BUDGET = new SkipDecision(
+            ReviewFileSkipCategory.BUDGET_PRIORITY,
+            "review budget assigned to higher-priority files"
+    );
+
     private final ReviewProperties reviewProperties;
 
     public List<ReviewFile> plan(Long taskId, List<GithubChangedFile> changedFiles) {
@@ -49,7 +58,10 @@ public class ReviewFilePlanner {
         reviewFile.setDeletions(changedFile.getDeletions());
         boolean skipped = changedFile.getPatch() == null || changedFile.getPatch().isBlank();
         reviewFile.setSkipped(skipped);
-        reviewFile.setSkipReason(skipped ? "patch is empty or file is binary/too large" : null);
+        if (skipped) {
+            reviewFile.setSkipReason("patch is empty or file is binary/too large");
+            reviewFile.setSkipCategory(ReviewFileSkipCategory.EMPTY_PATCH.name());
+        }
         reviewFile.setCreatedAt(LocalDateTime.now());
         return reviewFile;
     }
@@ -58,24 +70,27 @@ public class ReviewFilePlanner {
         List<ReviewFile> candidates = new ArrayList<>();
 
         for (ReviewFile reviewFile : reviewFiles) {
-            String basicSkipReason = getBasicSkipReason(reviewFile);
-            if (basicSkipReason != null) {
-                markSkipped(reviewFile, basicSkipReason);
+            SkipDecision basicSkip = getBasicSkipReason(reviewFile);
+            if (basicSkip != null) {
+                markSkipped(reviewFile, basicSkip);
                 continue;
             }
 
             if (isPositive(reviewProperties.getMaxPatchCharsPerFile())
                     && patchLength(reviewFile) > reviewProperties.getMaxPatchCharsPerFile()) {
-                markSkipped(reviewFile, "patch exceeds per-file review limit");
+                markSkipped(reviewFile, new SkipDecision(
+                        ReviewFileSkipCategory.PATCH_TOO_LARGE,
+                        "patch exceeds per-file review limit"
+                ));
                 continue;
             }
 
             candidates.add(reviewFile);
-            markSkipped(reviewFile, "review budget assigned to higher-priority files");
+            markSkipped(reviewFile, PRIORITY_BUDGET);
         }
 
         Set<ReviewFile> selectedFiles = Collections.newSetFromMap(new IdentityHashMap<>());
-        Map<ReviewFile, String> budgetSkipReasons = new IdentityHashMap<>();
+        Map<ReviewFile, SkipDecision> budgetSkipReasons = new IdentityHashMap<>();
         int reviewedFiles = 0;
         int totalPatchChars = 0;
 
@@ -85,13 +100,19 @@ public class ReviewFilePlanner {
             int patchLength = patchLength(reviewFile);
             if (isPositive(reviewProperties.getMaxFilesPerTask())
                     && reviewedFiles >= reviewProperties.getMaxFilesPerTask()) {
-                budgetSkipReasons.put(reviewFile, "review file count limit exceeded");
+                budgetSkipReasons.put(reviewFile, new SkipDecision(
+                        ReviewFileSkipCategory.FILE_COUNT_BUDGET,
+                        "review file count limit exceeded"
+                ));
                 continue;
             }
 
             if (isPositive(reviewProperties.getMaxTotalPatchChars())
                     && totalPatchChars + patchLength > reviewProperties.getMaxTotalPatchChars()) {
-                budgetSkipReasons.put(reviewFile, "review total patch length limit exceeded");
+                budgetSkipReasons.put(reviewFile, new SkipDecision(
+                        ReviewFileSkipCategory.TOTAL_PATCH_BUDGET,
+                        "review total patch length limit exceeded"
+                ));
                 continue;
             }
 
@@ -104,11 +125,9 @@ public class ReviewFilePlanner {
             if (selectedFiles.contains(reviewFile)) {
                 reviewFile.setSkipped(false);
                 reviewFile.setSkipReason(null);
+                reviewFile.setSkipCategory(null);
             } else {
-                markSkipped(reviewFile, budgetSkipReasons.getOrDefault(
-                        reviewFile,
-                        "review budget assigned to higher-priority files"
-                ));
+                markSkipped(reviewFile, budgetSkipReasons.getOrDefault(reviewFile, PRIORITY_BUDGET));
             }
         }
 
@@ -124,25 +143,62 @@ public class ReviewFilePlanner {
                 reviewProperties.getMaxTotalPatchChars());
     }
 
-    private String getBasicSkipReason(ReviewFile reviewFile) {
+    private SkipDecision getBasicSkipReason(ReviewFile reviewFile) {
         if (Boolean.TRUE.equals(reviewFile.getSkipped())) {
-            return StringUtils.hasText(reviewFile.getSkipReason()) ? reviewFile.getSkipReason() : "file is already marked skipped";
+            // 保留进入规划前已经写好的更精确分类，不要一律改写成 ALREADY_SKIPPED——
+            // 否则 EMPTY_PATCH 这类具体原因会在摘要里退化成"进入规划前已跳过"，用户就看不出真实原因了。
+            return new SkipDecision(
+                    existingCategory(reviewFile),
+                    StringUtils.hasText(reviewFile.getSkipReason())
+                            ? reviewFile.getSkipReason()
+                            : "file is already marked skipped"
+            );
         }
         if (!StringUtils.hasText(reviewFile.getPatch())) {
-            return "patch is empty or file is binary/too large";
+            return new SkipDecision(
+                    ReviewFileSkipCategory.EMPTY_PATCH,
+                    "patch is empty or file is binary/too large"
+            );
         }
         if (!StringUtils.hasText(reviewFile.getFilePath())) {
-            return "file path is empty";
+            return new SkipDecision(ReviewFileSkipCategory.INVALID_PATH, "file path is empty");
         }
         if (shouldSkipPath(reviewFile.getFilePath())) {
-            return "file type or generated path skipped";
+            return new SkipDecision(
+                    ReviewFileSkipCategory.PATH_EXCLUDED,
+                    "file type or generated path skipped"
+            );
         }
         return null;
     }
 
-    private void markSkipped(ReviewFile reviewFile, String reason) {
+    private void markSkipped(ReviewFile reviewFile, SkipDecision decision) {
         reviewFile.setSkipped(true);
-        reviewFile.setSkipReason(reason);
+        reviewFile.setSkipReason(decision.reason());
+        reviewFile.setSkipCategory(decision.category().name());
+    }
+
+    /**
+     * 读取已写入的分类；缺失或无法识别时退回 {@link ReviewFileSkipCategory#ALREADY_SKIPPED}。
+     */
+    private ReviewFileSkipCategory existingCategory(ReviewFile reviewFile) {
+        String category = reviewFile.getSkipCategory();
+        if (!StringUtils.hasText(category)) {
+            return ReviewFileSkipCategory.ALREADY_SKIPPED;
+        }
+        try {
+            return ReviewFileSkipCategory.valueOf(category);
+        } catch (IllegalArgumentException exception) {
+            log.warn("Unknown review file skip category, falling back, filePath={}, category={}",
+                    reviewFile.getFilePath(), category);
+            return ReviewFileSkipCategory.ALREADY_SKIPPED;
+        }
+    }
+
+    /**
+     * 一次跳过判定的两个面：机器可读的分类（用于分组统计）与给人读的原因（用于解释）。
+     */
+    private record SkipDecision(ReviewFileSkipCategory category, String reason) {
     }
 
     private boolean isPositive(int value) {

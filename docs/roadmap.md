@@ -114,6 +114,23 @@
 
 ## R2 审查覆盖度透明化
 
+> **状态：基础层已完成，用户可见的修复尚未实现。**
+>
+> 已完成（本轮）：`ReviewFileSkipCategory` 枚举、迁移 **V18**（`review_file.skip_category` + 索引）、
+> `ReviewFile` 实体字段、`ReviewFilePlanner` 在每个跳过点写入分类。跳过原因现在是**机器可读**的，
+> 可以按原因分组统计——这是摘要「审查覆盖」区块的前提。
+>
+> **仍未实现（R2 的核心）**：
+> 1. `ReviewReportFormatter` 渲染覆盖度区块（当前仍不提被跳过的文件）
+> 2. **修正"未发现问题。"的假体检合格**（全部文件被跳过时仍会输出该文案）
+> 3. `GitHubCommentServiceImpl` 加载 `review_file` 并传给 formatter
+> 4. 三个配置项：`coverage-report-enabled` / `coverage-max-listed-files` / `min-coverage-ratio`
+> 5. 回归测试：**全部文件被跳过时摘要不得包含"未发现问题"**
+>
+> 实现过程中由测试发现并修掉一个自身缺陷：`getBasicSkipReason` 的"已跳过"分支会把
+> `toReviewFile` 写好的精确分类（如 `EMPTY_PATCH`）覆盖成 `ALREADY_SKIPPED`，
+> 导致摘要里具体原因退化。现已保留既有分类。
+
 ### 问题
 
 `ReviewReportFormatter.formatMarkdown`(:44-76) 只渲染 issue 列表：

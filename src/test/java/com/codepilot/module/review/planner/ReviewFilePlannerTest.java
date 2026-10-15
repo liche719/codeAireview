@@ -1,5 +1,6 @@
 package com.codepilot.module.review.planner;
 
+import com.codepilot.common.enums.ReviewFileSkipCategory;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.entity.ReviewFile;
@@ -44,6 +45,49 @@ class ReviewFilePlannerTest {
                 "file type or generated path skipped",
                 "file type or generated path skipped"
         );
+    }
+
+    /**
+     * skip_reason 给人读，skip_category 用于按原因分组统计（摘要的「审查覆盖」区块）。
+     * 两者必须同时写入，否则摘要无法回答"哪些文件没审、为什么"。
+     */
+    @Test
+    void shouldRecordMachineReadableSkipCategoryForEachSkipReason() {
+        ReviewProperties properties = new ReviewProperties();
+        properties.setMaxPatchCharsPerFile(5);
+        ReviewFilePlanner planner = new ReviewFilePlanner(properties);
+
+        List<ReviewFile> reviewFiles = planner.plan(1L, List.of(
+                changedFile("src/main/java/Binary.class", "modified", null),
+                changedFile("dist/app.js", "modified", "+bundle"),
+                changedFile("src/main/java/TooBig.java", "modified", "123456")
+        ));
+
+        assertThat(reviewFiles).extracting(ReviewFile::getSkipCategory).containsExactly(
+                ReviewFileSkipCategory.EMPTY_PATCH.name(),
+                ReviewFileSkipCategory.PATH_EXCLUDED.name(),
+                ReviewFileSkipCategory.PATCH_TOO_LARGE.name()
+        );
+    }
+
+    @Test
+    void shouldMarkFileCountBudgetCategoryWhenLimitIsHit() {
+        ReviewProperties properties = new ReviewProperties();
+        properties.setMaxFilesPerTask(1);
+        ReviewFilePlanner planner = new ReviewFilePlanner(properties);
+
+        List<ReviewFile> reviewFiles = planner.plan(1L, List.of(
+                changedFile("src/main/java/A.java", "modified", "+a"),
+                changedFile("src/main/java/B.java", "modified", "+b")
+        ));
+
+        // 同优先级下稳定排序保留原顺序：A 入选，B 因文件数预算被跳过
+        assertThat(reviewFiles.getFirst().getSkipped()).isFalse();
+        assertThat(reviewFiles.getFirst().getSkipCategory()).isNull();
+        assertThat(reviewFiles.get(1).getSkipCategory())
+                .isEqualTo(ReviewFileSkipCategory.FILE_COUNT_BUDGET.name());
+        assertThat(ReviewFileSkipCategory.valueOf(reviewFiles.get(1).getSkipCategory()).isBudgetRelated())
+                .isTrue();
     }
 
     @Test
