@@ -29,6 +29,7 @@
 | **R14** | `pull_request_review_comment` 里的 @mention | P2 | F14 | 无 | M |
 | **R15** | 评论生命周期（outdated 检测 + 编辑而非新建） | P2 | C14/C15 | R6 | M |
 | **R16** | 修正误导性文案与分类错位 | P2 | B14/B18/C12 | 无 | S |
+| **R17** | 构建门禁语义（默认不阻塞） | P2 | 新场景：门禁 | R1/R2 | S |
 | **D1** | 增量审查 | **待决** | A2/A17/H2 | R1/R6 | XL |
 | **D2** | 离线评估集扩充 | **待决（已确认要做）** | 指标可信度 | 无 | M |
 
@@ -716,6 +717,142 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 **回滚**：纯文本。**风险**：极低。
 
 ---
+
+## R17 构建门禁语义
+
+### 问题
+
+**本项目完全没有门禁语义**——而这是 Phase 0 场景矩阵**遗漏的一个场景**（原 142 项里没有"是否阻塞合并"这一条，属于我的枚举缺口，在此补上）。
+
+现状：审查产出只有 GitHub 评论，不提交 review verdict（C10），也不写 commit status/check run。因此：
+- 无法与 branch protection / required status checks 联动
+- 也没有任何"什么情况下应该阻塞"的定义
+
+对标结论（**这是本节最重要的输入**）：
+
+| 系统 | 默认是否阻塞 | 机制 |
+|---|---|---|
+| reviewdog | **否** | 退出码默认 `-fail-level=none`，**有 finding 也返回 0**；`level`→状态映射硬编码（info/warning→neutral，error→failure），但要显式设 `-fail-level` 才真正失败 |
+| Danger JS | **否** | `-f/--failOnErrors` **默认 false**；门禁主通道是独立 commit status（`context = dangerID`），可用 `--no-publish-check` 关闭 |
+| SonarQube | 取决于配置 | **质量门注册为独立 GitHub check（名字 `SonarQube Code Analysis`）**，靠加进 required status checks 卡合并 |
+| Semgrep | **是** | `semgrep ci` 有 finding 即退出 1 |
+
+**共同设计原则**：**"产生评论"与"判定失败"是两个独立维度**，且成熟工具默认都不阻塞。
+
+### 方案
+
+1. **不引入 review verdict 作为门禁**（沿用 PR-Agent 的结论：`REQUEST_CHANGES` 风险高、我们已有 Fix 审批链路的保守基调）。改用**独立 commit status**：`context = "CodePilot Review"`，取值 `success` / `neutral` / `failure`。
+2. **默认 `neutral`（不阻塞）**。仅在同时满足以下条件时才 `failure`：
+   - 开关 `codepilot.review.gate-enabled=true`（**默认 false**）
+   - 存在 severity ≥ 阈值的**确定性规则**发现（`codepilot.review.gate-min-severity`，默认 `HIGH`）
+   - **LLM 类 finding 默认不参与门禁**（保留 `gate-include-llm-findings`，默认 `false`）——理由：LLM 输出不确定，用它卡合并会让开发者对门禁失去信任
+3. **reviewdog 的分级思路**：`level`（展示级别）与 `fail-level`（失败级别）分开配置，互不耦合。
+
+### 替代方案与不选理由
+
+| 方案 | 不选理由 |
+|---|---|
+| **提交 `REQUEST_CHANGES` review 来卡合并** | PR-Agent 明确不做且把调用点注释掉；GitHub 的 `REQUEST_CHANGES` 会占用"必需 review"语义，与人类 reviewer 冲突；且一旦误判会**阻塞整个 PR** |
+| **用"有没有产生评论"当失败条件** | 这正是对标工具刻意避免的耦合（reviewdog 默认 `-fail-level=none`）。有 finding ≠ 该阻塞 |
+| **让 LLM finding 参与门禁** | 不确定性太高；eval 只有 6 个样本、Precision 85.71%，用它卡合并是不负责任的 |
+| **不做门禁，只发评论** | 也可接受（且是当前状态）。但既然要补这一维度，应做成"默认关、可开、且只在确定性高置信发现上生效" |
+
+### 数据模型与迁移
+
+新增迁移 **V25**：`review_task` 增加 `gate_status VARCHAR(16)`（`SUCCESS`/`NEUTRAL`/`FAILURE`）+ `gate_reason VARCHAR(255)`，用于审计"为什么这次判了 failure"。
+
+### 配置开关与默认值
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `codepilot.review.gate-enabled` | **`false`** | 是否写 commit status |
+| `codepilot.review.gate-min-severity` | `HIGH` | 触发 failure 的最低 severity |
+| `codepilot.review.gate-include-llm-findings` | **`false`** | LLM finding 是否参与门禁 |
+| `codepilot.review.gate-context-name` | `CodePilot Review` | commit status 的 context 名 |
+
+### 测试计划
+
+- `gate-enabled=false` 时不调用任何 status API
+- 只有 MEDIUM 的确定性发现 + 阈值 HIGH → status 为 `neutral`
+- 有 HIGH 确定性发现 + 阈值 HIGH → `failure` 且 `gate_reason` 落库
+- **有 HIGH 的 LLM finding 但 `gate-include-llm-findings=false` → 仍为 `neutral`**（关键回归测试）
+- status API 调用失败不得影响审查任务状态（旁路设计）
+
+### 回滚
+
+`gate-enabled=false`（默认即关）。新增列 nullable。
+
+### 风险
+
+- **中**：误判为 `failure` 会**阻塞他人合并**。缓解：默认关闭 + 只信确定性规则 + severity 阈值可调 + 全量审计（`gate_reason`）。
+- **低**：需要在 GitHub App 权限中增加 commit status 写权限，属权限面扩大。缓解：仅在 `gate-enabled=true` 时才需要，文档中明确说明。
+
+---
+
+## 对标补充：改变前述设计的六条跨项结论
+
+这一节记录在确定性工具组调研完成后，对前述若干条目的**修正**。出处见 [`docs/benchmark-ai-review-tools.md`](benchmark-ai-review-tools.md) 第 3bis 节。
+
+### 补充 1：R6 的指纹必须抗行号漂移——Semgrep 是唯一做到的先例
+
+| 工具 | 指纹是否含行号 | 兜底手段 |
+|---|---|---|
+| **Semgrep** | **否**（`hash(文件路径 + 规则名 + 元变量代入后的模式)`） | 官方示例证明**在匹配区间内插入无关代码行，指纹不变** |
+| reviewdog | 是（`(path, line, fingerprint)`） | 靠**删除过期评论**兜底 |
+| Danger JS | 是（按 `File:` + `Line:` 匹配） | 靠**删除匹配不上的旧行内评论**兜底 |
+| PR-Agent | **否**（`sha256(file \| line \| normalized_body)` —— 用了 `line` 但注释说明刻意不用 diff position） | 靠状态标记 |
+
+**对 R6 的修正**：指纹**不得包含行号**（我原方案已经是这样，此处补充了业界先例），并且**必须同时具备删除过期评论的能力**（见补充 2）——两者缺一不可，否则行号漂移会导致重复评论。
+
+### 补充 2：R15 需要增加"删除过期评论"，且**有回复的不能删**
+
+reviewdog 的源码里有一个我原方案漏掉的机制：它每轮会 `DeleteComment` 删除**指纹不再出现的自己的评论**，但**通过 `GetInReplyTo` 判断"有回复的除外"**。
+
+**对 R15 的修正**：原方案只做"resolve thread"，现在补上删除路径，判据为：
+1. 该评论由本 bot 发出（`review_published_comment` 可查）
+2. 其 finding 指纹在本次审查中不再出现
+3. **且该评论没有被任何人回复**（`in_reply_to` 无人引用）
+
+**为什么"有回复的不能删"很重要**：一旦有人回复了我们的评论，那条评论就承载了**人类讨论**，删除它等于删掉别人的上下文。这是我在原方案里没有想到的。
+
+**并且**：resolve 与删除是两种不同语义——**resolve 保留痕迹（可审计），删除不留痕迹**。默认应选 **resolve**，删除作为可选开关。
+
+### 补充 3：R7 的抑制必须"可审计"——Semgrep 的语义优于 SonarQube
+
+| 机制 | 行为 | 可审计性 |
+|---|---|---|
+| **Semgrep `nosemgrep`** | **仍然生成 finding，并自动置为 `Ignored`** | **好** —— 能统计"被忽略了多少、都是什么" |
+| SonarQube Accepted / False positive | 服务器端状态，**被排除在质量报告与评级之外** | 中 —— 状态可查但被排除出报告 |
+| SonarQube `//NOSONAR` | **静音该行所有现在与未来的问题** | **差** —— 官方自己都在劝阻 |
+
+**对 R7 的修正**：抑制**不得让 finding 从系统中消失**，只能让它不被发布。具体：
+- 被抑制的 finding **仍写入 `review_issue`**（带 `publishDecision=SUPPRESS` + `suppressionReason`），只是不发 GitHub 评论
+- 摘要中按 R2 上报"被抑制 N 条"
+- **禁止**实现"按路径/规则一次性静音"这类不可审计的机制
+
+### 补充 4：R2 的评论预算可采用对标的具体数值
+
+- reviewdog：`maxCommentsPerRequest = 30` / `maxFileComments = 10`，**溢出进 review body 的 `<details>`**
+- Semgrep：同一 finding 在 PR 内 **超过 5 次 → 折叠为汇总评论**
+
+**对 R2 的修正**：`coverage-max-listed-files=20` 保留，但**摘要侧的总评论展示上限**建议对齐为 **30 条，其余折叠**（当前 `max-summary-findings=20` 偏小且**没有折叠**，只是截断并说"还有 N 条未展示"）。
+
+### 补充 5：确定性规则应默认只报"本 PR 新增行"
+
+reviewdog 的 `-filter-mode` **默认 `added`**；SonarQube 只报目标分支没有的问题；Semgrep 用 diff-aware scan。**三家默认都是"只看本 PR 改动的行"。**
+
+**对现有实现的评估**：我们的 `DiffLineMapper` 已经做到"只评论 diff 内可评论的行"（`ReviewIssueLocationGuard`），方向一致。但**确定性工具本身扫描的是整个 patch**（`SqlRiskTool` 等接收 `patch`），因此**可能在未改动但出现在 diff context 里的行上产生 finding**。这需要在实现阶段核实并可能收紧。
+
+### 补充 6：fork PR 的写权限降级
+
+reviewdog 明确因 fork PR 的 `GITHUB_TOKEN` 只读而降级到 Actions 注解。
+
+**对本项目的意义**：我们的审查链路不感知 fork（A18），发布侧也没有降级路径。若审查一个 fork PR 且评论发布失败（403），当前行为是 `publish_status=FAILED` → 重试至 `FAILED_FINAL`，**结果完全无法送达用户**。应在实现阶段评估：fork PR 场景下把结果降级为 commit status description 或 Actions 注解，而不是耗尽重试。
+
+> 这一条**尚未纳入任何 R 条目**，因为需要先确认我们实际部署形态（GitHub App vs PAT、是否在 Actions 中运行）下的真实权限行为。**列为待核实项。**
+
+---
+
 
 # 待决项（本轮不实现）
 
