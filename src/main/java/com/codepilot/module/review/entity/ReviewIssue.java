@@ -29,6 +29,13 @@ public class ReviewIssue {
     /** 落点所在侧 RIGHT/LEFT，由 DiffLineMapper 判定后持久化。 */
     private String lineSide;
 
+    /**
+     * 替换后的完整代码块；为空表示这条 finding 没有可应用的修复建议。
+     *
+     * <p>存的是<b>替换后的内容</b>而不是 diff——GitHub 的 suggestion 语法要求前者。</p>
+     */
+    private String suggestedCode;
+
     private String issueType;
 
     private String issueTypeZh;

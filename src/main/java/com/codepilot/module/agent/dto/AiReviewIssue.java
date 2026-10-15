@@ -22,6 +22,14 @@ public class AiReviewIssue {
     /** 跨越的结束行，与 lineNumber 一致；单行问题为 null。 */
     private Integer endLine;
 
+    /**
+     * 替换后的完整代码块，用于生成 GitHub 一键应用的建议；没有可给的建议时为 null。
+     *
+     * <p><b>给的是替换后的内容，不是 diff</b>——GitHub 的 suggestion 语法要求如此。
+     * 服务端仍会校验它是否落在 diff 新侧的连续行上，校验不过就降级为 diff 块。</p>
+     */
+    private String suggestedCode;
+
     private String issueType;
 
     private String issueTypeZh;

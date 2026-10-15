@@ -181,6 +181,14 @@ codepilot:
     # 多行区间评论（R4）：finding 跨多行时发布 start_line..line 区间评论。
     # 区间不满足 GitHub 的约束（同侧/在 diff 内/连续）时自动降级为单行，不会丢失 finding。
     multiline-comment-enabled: ${CODEPILOT_REVIEW_MULTILINE_COMMENT_ENABLED:true}
+    # 一键应用的建议（R5）：给评论附 GitHub 的 ```suggestion 块。
+    # 默认关闭——suggestion 被点一下就会改用户代码，属写侧交互，必须显式开启。
+    suggestion-enabled: ${CODEPILOT_REVIEW_SUGGESTION_ENABLED:false}
+    # 单条建议的最大行数；超限则不给一键应用（仍可能以 diff 块展示）。
+    suggestion-max-lines: ${CODEPILOT_REVIEW_SUGGESTION_MAX_LINES:20}
+    # 不可一键应用时，是否仍把建议代码降级成 diff 块展示。false 则连代码块一起省略。
+    # 默认为 true：降级展示比直接丢弃信息更有用，且 diff 块不可能被误点。
+    suggestion-fallback-to-diff: ${CODEPILOT_REVIEW_SUGGESTION_FALLBACK_TO_DIFF:true}
     max-patch-chars-per-file: ${CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE:12000}
     max-total-patch-chars: ${CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS:80000}
     max-parallel-files: ${CODEPILOT_REVIEW_MAX_PARALLEL_FILES:2}

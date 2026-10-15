@@ -441,6 +441,45 @@ ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS line_side VARCHAR(8);
 
 ## R5 `suggestion` 块 + 不可应用降级
 
+> **状态：已完成（422 兜底与真机可应用性验证除外，见"仍未覆盖"）。**
+>
+> 已实现：
+> - `ReviewIssue.suggestedCode` / `AiReviewIssue.suggestedCode`；JSON schema 增加 `suggestedCode`（可空，进入 required 列表）
+> - `ReviewIssueAssembler.usableSuggestedCode`：只做长度与空白校验；**超长整段丢弃而不是截断**
+>   （`MAX_SUGGESTED_CODE_LENGTH = 20000`）——被截断的代码不可应用，展示它是误导
+> - `ReviewSuggestionValidator.isApplicable(issue, mapping)`：四个条件全部满足才给一键应用按钮
+> - `GitHubInlineCommentBodyBuilder.appendSuggestedCode`：可应用 → ` ```suggestion `；
+>   不可应用且 `fallback-to-diff=true` → ` ```diff ` + 一句说明；否则整个代码块省略
+> - `GitHubInlineCommentServiceImpl` 在**发布时**计算 `suggestionApplicable` 并传入 builder
+> - 迁移 **V22**：`review_issue.suggested_code`
+> - 配置：`suggestion-enabled`（**false**）、`suggestion-max-lines`（`20`）、`suggestion-fallback-to-diff`（`true`）
+>
+> **与初版方案的三处偏离（均已核实为更优，不是缩水）**：
+>
+> 1. **迁移是 V22 而不是 V21，且没有 `suggestion_applicable` 列。**
+>    V21 已被 R4 占用。更重要的是：可应用性是**发布那一刻**才成立的派生结论——它同时依赖
+>    当时的 diff 和配置。落库一个布尔值只会制造"库里的值与重新计算的值不一致"的机会。
+>    因此只在发布时算，不持久化。
+> 2. **校验从"检查区间"变成"检查映射结果"。**
+>    初版方案写的是"区间必须整体落在新侧、不得含删除行"。实现时发现这条**已由
+>    `DiffLineMapper.mapRange` 结构性保证**：它只在区间是新侧**连续新增**行时才返回 `RIGHT`。
+>    再查一遍是重复逻辑，两处判断还会漂移。于是 validator 只查"映射是否可评论 + 是否 RIGHT"，
+>    把区间正确性留给唯一负责它的那层。
+> 3. **`countLines` 先归一化 CRLF。**
+>    初版实现用 `code.substring(0, lastIndexOf('\n'))` 去掉结尾换行再用 `\R` 切分。
+>    实测（`target/scratch` 一次性验证，已删除）：`"a\r\nb\r\n"` 会剩下落单的 `\r`，
+>    被 `\R` 当成又一个行尾，**2 行被算成 3 行**，导致"刚好卡在上限"的建议被无谓降级。
+>    改为先 `\r\n`/`\r` → `\n` 归一化、再从尾部连续剥掉换行。
+>
+> **仍未覆盖**：
+> - **422 兜底未实现**（原方案第 4 条）。当前发布失败只记 warning 并计入 `failedCount`，
+>   不会剥掉 suggestion 后只锚第一行重试。
+> - **没有真机验证"发出的 suggestion 确实可被 GitHub 应用"**。这是方案里承认的
+>   "唯一可信证据"，目前只有单元测试覆盖"该给按钮时给了、不该给时没给"。
+>   需要 `suggestion-enabled=true` 的沙箱 PR 实测。
+> - 没有独立的 `GitHubInlineCommentBodyBuilderTest`：该 builder 是包级私有类，
+>   覆盖放在 `GitHubInlineCommentServiceImplTest`（5 个新用例）。
+
 ### 问题
 
 `GitHubInlineCommentBodyBuilder` 不生成 ` ```suggestion ` 围栏，全仓库无 `suggestion` 关键字 → **无法一键应用修复**，这是 AI review 最高价值的交互，也是所有对标系统的标配。
@@ -449,11 +488,13 @@ ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS line_side VARCHAR(8);
 
 1. `AiReviewIssue` / `ReviewIssue` 增加 `suggestedCode`（可选）字段，由 LLM 在结构化输出中提供**替换后的完整代码块**（而非 diff）。
 2. **可应用性校验（核心）**：`ReviewSuggestionValidator` 在发布前校验
-   - `startLine..endLine` 必须整体落在 diff **新侧**的可评论行内
-   - `suggestedCode` 的行数与区间行数**不要求相等**（GitHub 允许），但**必须非空**
-   - 区间内**不得包含被删除的行**（CodeRabbit 明确"对已删除行拒绝生成"）
-3. **降级策略（抄 PR-Agent）**：校验失败时，把 ` ```suggestion ` 块**改写为 ` ```diff ` 块**，保留多行展示但明确不可一键应用（PR-Agent 注释原文："make the suggestion non-committable, yet multi line"）。
-4. 422 兜底：发布失败时剥掉 suggestion 部分、只锚第一行重试（PR-Agent 的 `_publish_inline_comments_fallback_with_verification` 思路）。
+   - `suggestedCode` 必须非空（去空白后仍有内容）
+   - 落点必须**可评论**，且位于 diff **新侧**（`RIGHT`）——删除侧的内容在应用后就不存在了
+   - 行数不超过 `suggestion-max-lines`
+   - 「区间整体落在新侧、且不含被删除的行」**不需要在这里重复检查**：`DiffLineMapper.mapRange`
+     只在区间构成新侧**连续新增**行时才返回 `RIGHT`。两处判断会漂移，只留一处负责。
+3. **降级策略（抄 PR-Agent）**：校验失败时，把 ` ```suggestion ` 块**改写为 ` ```diff ` 块**，保留多行展示但明确不可一键应用（PR-Agent 注释原文："make the suggestion non-committable, yet multi line"）。`fallback-to-diff=false` 时才整段省略。
+4. 422 兜底：发布失败时剥掉 suggestion 部分、只锚第一行重试（PR-Agent 的 `_publish_inline_comments_fallback_with_verification` 思路）。**⚠️ 未实现**，见状态块的"仍未覆盖"。
 
 ### 替代方案与不选理由
 
@@ -466,12 +507,14 @@ ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS line_side VARCHAR(8);
 
 ### 数据模型与迁移
 
-新增迁移 **V21**：
+新增迁移 **V22**（V21 已被 R4 占用）：
 
 ```sql
 ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS suggested_code TEXT;
-ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS suggestion_applicable BOOLEAN DEFAULT FALSE;
 ```
+
+**刻意不加 `suggestion_applicable` 列**：可应用性是发布那一刻才成立的派生结论（依赖当时的 diff 与配置），
+持久化它只会制造"库里的值与重新计算的值不一致"的机会。判定只在发布时进行。
 
 ### 配置开关与默认值
 
@@ -483,10 +526,16 @@ ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS suggestion_applicable BOOLEAN 
 
 ### 测试计划
 
-- `ReviewSuggestionValidatorTest`：区间含删除行 → 拒绝；区间越界 → 拒绝；区间在新侧且非删除行 → 通过
-- `GitHubInlineCommentBodyBuilderTest`：通过时生成 ` ```suggestion `；失败且 `fallback-to-diff=true` 时生成 ` ```diff `
-- 沙箱 E2E：在测试仓库真实 PR 上发出 suggestion，**并用 GitHub API 验证其可被应用**（这是"保证可应用"的唯一可信证据）
-- 422 兜底：mock 422 响应，断言降级重试只锚第一行
+- `ReviewSuggestionValidatorTest`（10 例，已落地）：功能关闭 → 拒绝；新侧可评论且在限内 → 通过；
+  建议为空/空白 → 拒绝；不可评论映射 → 拒绝；**LEFT 侧 → 拒绝**；小写 `right` → 通过；
+  超行数 → 拒绝；`max-lines<=0` 视为 1 行；**CRLF 结尾换行不额外计行**（见偏离 3）；null issue/mapping → 拒绝
+- `GitHubInlineCommentServiceImplTest`（5 例，已落地，覆盖 builder 行为）：
+  开启且可应用 → 正文含 ` ```suggestion ` 且不含 ` ```diff `；
+  默认关闭 → 含 ` ```diff ` + "not one-click applicable" 且**不含** ` ```suggestion `；
+  删除侧（LEFT）→ 不给 suggestion；超行数 → 不给 suggestion；
+  `fallback-to-diff=false` → 连代码块一起省略
+- 沙箱 E2E（**未做**）：在测试仓库真实 PR 上发出 suggestion，**并用 GitHub API 验证其可被应用**（这是"保证可应用"的唯一可信证据）
+- 422 兜底（**未实现**）：mock 422 响应，断言降级重试只锚第一行
 
 ### 回滚
 

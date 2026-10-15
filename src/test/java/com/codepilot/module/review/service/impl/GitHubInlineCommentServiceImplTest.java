@@ -13,6 +13,7 @@ import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.processor.ReviewCommentBudgetAllocator;
 import com.codepilot.module.review.processor.ReviewFindingRanker;
+import com.codepilot.module.review.processor.ReviewSuggestionValidator;
 import com.codepilot.module.review.service.ReviewFileService;
 import com.codepilot.module.review.service.ReviewIssueService;
 import org.junit.jupiter.api.Test;
@@ -253,6 +254,143 @@ class GitHubInlineCommentServiceImplTest {
     }
 
     @Test
+    void shouldEmitOneClickSuggestionWhenValidatorAllowsIt() {
+        ReviewProperties properties = new ReviewProperties();
+        properties.setSuggestionEnabled(true);
+        TestContext context = new TestContext(true, 10, "token", properties);
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
+                .thenReturn(List.of(issueWithSuggestedCode(11)));
+        when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
+                .thenReturn(List.of(reviewFile()));
+        when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+
+        context.service.commentInlineIssues(1L);
+
+        verify(context.githubClient).createPullRequestInlineComment(
+                eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                eq("src/Demo.java"), eq(11), eq("RIGHT"), bodyCaptor.capture()
+        );
+        org.assertj.core.api.Assertions.assertThat(bodyCaptor.getValue())
+                .contains("```suggestion")
+                .contains("String sql = \"select * from user where id = ?\";")
+                .doesNotContain("```diff");
+    }
+
+    /**
+     * 默认配置下不得出现 {@code ```suggestion}——那是个会被用户点一下就改代码的按钮。
+     * 校验不通过时降级为 {@code ```diff}：信息仍然给出，但不可能被误点。
+     */
+    @Test
+    void shouldFallBackToDiffBlockWhenSuggestionIsDisabled() {
+        TestContext context = new TestContext(true, 10, "token");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
+                .thenReturn(List.of(issueWithSuggestedCode(11)));
+        when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
+                .thenReturn(List.of(reviewFile()));
+        when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+
+        context.service.commentInlineIssues(1L);
+
+        verify(context.githubClient).createPullRequestInlineComment(
+                eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                eq("src/Demo.java"), eq(11), eq("RIGHT"), bodyCaptor.capture()
+        );
+        String body = bodyCaptor.getValue();
+        org.assertj.core.api.Assertions.assertThat(body)
+                .doesNotContain("```suggestion")
+                .contains("```diff")
+                .contains("not one-click applicable")
+                .contains("String sql = \"select * from user where id = ?\";");
+    }
+
+    /** 删除侧（LEFT）的内容在建议应用后就不存在了，绝不能给一键应用。 */
+    @Test
+    void shouldNotEmitSuggestionOnDeletedLine() {
+        ReviewProperties properties = new ReviewProperties();
+        properties.setSuggestionEnabled(true);
+        TestContext context = new TestContext(true, 10, "token", properties);
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
+                .thenReturn(List.of(issueWithSuggestedCode(11)));
+        when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
+                .thenReturn(List.of(deletionReviewFile()));
+        when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+
+        context.service.commentInlineIssues(1L);
+
+        verify(context.githubClient).createPullRequestInlineComment(
+                eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                eq("src/Demo.java"), eq(11), eq("LEFT"), bodyCaptor.capture()
+        );
+        org.assertj.core.api.Assertions.assertThat(bodyCaptor.getValue())
+                .doesNotContain("```suggestion")
+                .contains("```diff");
+    }
+
+    /** 超过行数上限的建议不给一键应用，但仍以 diff 块展示。 */
+    @Test
+    void shouldNotEmitSuggestionWhenCodeExceedsMaxLines() {
+        ReviewProperties properties = new ReviewProperties();
+        properties.setSuggestionEnabled(true);
+        properties.setSuggestionMaxLines(2);
+        TestContext context = new TestContext(true, 10, "token", properties);
+        ReviewIssue issue = issueWithSuggestedCode(11);
+        issue.setSuggestedCode("line1\nline2\nline3");
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
+                .thenReturn(List.of(issue));
+        when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
+                .thenReturn(List.of(reviewFile()));
+        when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+
+        context.service.commentInlineIssues(1L);
+
+        verify(context.githubClient).createPullRequestInlineComment(
+                eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                eq("src/Demo.java"), eq(11), eq("RIGHT"), bodyCaptor.capture()
+        );
+        String body = bodyCaptor.getValue();
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("```suggestion").contains("```diff");
+    }
+
+    /** fallback 关闭时，不可应用的代码块整个不展示，而不是换成 diff。 */
+    @Test
+    void shouldOmitSuggestedCodeWhenFallbackToDiffIsOff() {
+        ReviewProperties properties = new ReviewProperties();
+        properties.setSuggestionFallbackToDiff(false);
+        TestContext context = new TestContext(true, 10, "token", properties);
+        when(context.reviewTaskMapper.selectById(1L)).thenReturn(reviewTask());
+        when(context.reviewIssueService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewIssue>>any()))
+                .thenReturn(List.of(issueWithSuggestedCode(11)));
+        when(context.reviewFileService.list(org.mockito.ArgumentMatchers.<Wrapper<ReviewFile>>any()))
+                .thenReturn(List.of(reviewFile()));
+        when(context.githubClient.getPullRequestDetail("liche719", "codeAireview", 123)).thenReturn(prDetail());
+        when(context.githubClient.listPullRequestReviewComments("liche719", "codeAireview", 123)).thenReturn(List.of());
+        ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+
+        context.service.commentInlineIssues(1L);
+
+        verify(context.githubClient).createPullRequestInlineComment(
+                eq("liche719"), eq("codeAireview"), eq(123), eq("head-sha"),
+                eq("src/Demo.java"), eq(11), eq("RIGHT"), bodyCaptor.capture()
+        );
+        org.assertj.core.api.Assertions.assertThat(bodyCaptor.getValue())
+                .doesNotContain("```suggestion")
+                .doesNotContain("```diff")
+                .doesNotContain("select * from user where id = ?");
+    }
+
+    @Test
     void shouldSanitizeInlineCommentBody() {
         TestContext context = new TestContext(true, 10, "token");
         ReviewIssue issue = issue(11);
@@ -329,6 +467,12 @@ class GitHubInlineCommentServiceImplTest {
         return issue;
     }
 
+    private ReviewIssue issueWithSuggestedCode(Integer lineNumber) {
+        ReviewIssue issue = issue(lineNumber);
+        issue.setSuggestedCode("String sql = \"select * from user where id = ?\";");
+        return issue;
+    }
+
     private ReviewFile reviewFile() {
         ReviewFile reviewFile = new ReviewFile();
         reviewFile.setTaskId(1L);
@@ -377,9 +521,16 @@ class GitHubInlineCommentServiceImplTest {
 
         private final GithubAuthTokenProvider githubAuthTokenProvider = mock(GithubAuthTokenProvider.class);
 
+        private final ReviewProperties properties;
+
         private final GitHubInlineCommentServiceImpl service;
 
         private TestContext(boolean enabled, int maxPerTask, String token) {
+            this(enabled, maxPerTask, token, new ReviewProperties());
+        }
+
+        private TestContext(boolean enabled, int maxPerTask, String token, ReviewProperties properties) {
+            this.properties = properties;
             when(githubAuthTokenProvider.canAuthenticate("liche719", "codeAireview"))
                     .thenReturn(org.springframework.util.StringUtils.hasText(token));
             service = new GitHubInlineCommentServiceImpl(
@@ -388,10 +539,11 @@ class GitHubInlineCommentServiceImplTest {
                     reviewFileService,
                     githubClient,
                     new DiffLineMapper(),
-                    new ReviewCommentBudgetAllocator(new ReviewProperties()),
+                    new ReviewCommentBudgetAllocator(properties),
                     new ReviewFindingRanker(),
+                    new ReviewSuggestionValidator(properties),
                     githubAuthTokenProvider,
-                    new ReviewProperties(),
+                    properties,
                     enabled,
                     maxPerTask
             );

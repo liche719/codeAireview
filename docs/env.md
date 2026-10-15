@@ -237,12 +237,31 @@ copy .env.example .env
 | `CODEPILOT_REVIEW_ALLOW_RESOLUTION` | `true` | 是否允许把"本次未再现"的 finding 判为已修复。**即使开启也有两道额外约束**：本次必须是完整审查（无预算跳过、无文件级 LLM 失败），且 head sha 确实变化。详见「审查记忆的安全边界」。 |
 | `CODEPILOT_REVIEW_DISMISSAL_SYNC_ENABLED` | `false` | 是否读取 GitHub review thread 的 resolved 状态做误报抑制（R7）。**默认关闭**：需要 GraphQL 权限，且会改变"提不提某个问题"的行为。 |
 | `CODEPILOT_REVIEW_MULTILINE_COMMENT_ENABLED` | `true` | 是否允许把 finding 发布成**多行区间**评论（R4）。默认开启；区间不合法时自动降级为单行，不会丢失 finding。 |
+| `CODEPILOT_REVIEW_SUGGESTION_ENABLED` | `false` | 是否给内联评论附 GitHub 的一键应用 ` ```suggestion ` 块（R5）。**默认关闭**：`suggestion` 被点一下就会改用户代码，属写侧交互，必须显式开启。 |
+| `CODEPILOT_REVIEW_SUGGESTION_MAX_LINES` | `20` | 单条建议可生成一键应用的最大行数。超限则不给按钮（降级为 `diff` 块）。防止把一个文件级改写塞进一行评论。 |
+| `CODEPILOT_REVIEW_SUGGESTION_FALLBACK_TO_DIFF` | `true` | 校验不通过时是否仍把建议代码以 ` ```diff ` 块展示。默认 `true`：**降级展示优于直接丢弃**，且 `diff` 围栏不可能被误点。设为 `false` 则连代码块一起省略。 |
 
 **多行区间评论（R4）**：一个 finding 常跨多行。开启后，若模型给出了 `startLine` / `endLine`，系统会尝试发布 `start_line..line` 的区间评论。
 
 **降级而非丢弃**：GitHub 对区间有硬约束——起止必须位于 diff **同一侧**、**都在 diff 内**、且构成**连续**一段。`DiffLineMapper.mapRange` 会在本地校验这三条，任何一条不满足就**降级为单行评论**，绝不因此丢掉这个 finding。区间跨 hunk 同样降级。
 
 **单行路径不受影响**：没有区间的 finding 走的调用形态与引入本能力之前**完全一致**，避免"新增能力顺手改动原有行为"。
+
+**一键应用的建议（R5）**：开启 `CODEPILOT_REVIEW_SUGGESTION_ENABLED` 后，内联评论会附上建议代码。
+
+**为什么默认关闭**：` ```suggestion ` 是 GitHub 唯一会渲染成"一键应用"按钮的围栏，点一下就会写入用户代码。发一个应用不了的建议，用户点下去得到报错或错内容，比压根不给建议更伤信任。因此这是写侧交互，默认关闭。
+
+**服务端判定，不看模型自述**：是否给按钮完全由 `ReviewSuggestionValidator` 判定，模型说"这段可以直接应用"不算数。条件有三条：
+
+1. 建议代码非空；
+2. 落点可评论且位于 diff **新侧**（`RIGHT`）——删除侧的内容在应用后就不存在了；
+3. 行数不超过 `CODEPILOT_REVIEW_SUGGESTION_MAX_LINES`。
+
+"区间内不得含被删除的行"这条不需要额外判定：`DiffLineMapper.mapRange` 只在区间是**新侧连续新增行**时才返回 `RIGHT` 区间。
+
+**降级而非丢弃（同 R4 原则）**：任一条不满足时，代码块从 ` ```suggestion ` 换成 ` ```diff `，并附一句"not one-click applicable"的说明。信息仍然给出，但**不可能被误点**。`diff` 围栏里放的其实是替换后的整段代码而非标准 diff——这是刻意的：GitHub 只对 `suggestion` 围栏做行级替换，其他围栏一律按普通代码渲染。
+
+**落地与审计**：只在**发布时**判定，`suggestion_applicable` 不落库（`review_issue` 只存 `suggested_code`）。原因是该结论依赖当时的 diff 与配置，持久化一个派生布尔值只会制造"库里的值与重新计算的值不一致"的机会。建议代码超长（> 20000 字符）时整段丢弃而不是截断——被截断的代码不可应用，展示它是误导。
 
 **误报抑制（R7）**：维护者在 GitHub 上把一个**由本机器人发起**的 review thread resolve 掉，系统就把它对应的 finding 记为 `DISMISSED`，后续审查不再重复提。
 

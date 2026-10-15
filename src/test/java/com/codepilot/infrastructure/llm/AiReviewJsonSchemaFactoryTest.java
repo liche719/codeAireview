@@ -41,6 +41,7 @@ class AiReviewJsonSchemaFactoryTest {
                 "lineNumber",
                 "startLine",
                 "endLine",
+                "suggestedCode",
                 "issueType",
                 "issueTypeZh",
                 "severity",
@@ -70,6 +71,7 @@ class AiReviewJsonSchemaFactoryTest {
         assertThat(((JsonAnyOfSchema) issue.properties().get("lineNumber")).anyOf()).hasSize(2);
         assertThat(((JsonAnyOfSchema) issue.properties().get("startLine")).anyOf()).hasSize(2);
         assertThat(((JsonAnyOfSchema) issue.properties().get("endLine")).anyOf()).hasSize(2);
+        assertThat(((JsonAnyOfSchema) issue.properties().get("suggestedCode")).anyOf()).hasSize(2);
         assertThat(((JsonAnyOfSchema) issue.properties().get("ruleReference")).anyOf()).hasSize(2);
         assertThat(issue.properties().keySet()).containsExactlyInAnyOrderElementsOf(List.of(
                 "filePath",
@@ -81,6 +83,7 @@ class AiReviewJsonSchemaFactoryTest {
                 "severity",
                 "title",
                 "description",
+                "suggestedCode",
                 "suggestion",
                 "source",
                 "ruleReference"

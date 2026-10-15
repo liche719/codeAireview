@@ -67,6 +67,20 @@ public class ReviewProperties {
      */
     private boolean multilineCommentEnabled = true;
 
+    /**
+     * 是否生成 GitHub 一键应用的 {@code suggestion} 块（R5）。
+     *
+     * <p><b>默认关闭</b>：suggestion 被点击后会直接改用户代码，属写侧交互，
+     * 需要先在沙箱里验证过再开。</p>
+     */
+    private boolean suggestionEnabled = false;
+
+    /** 单条建议的最大行数，超过则不生成 suggestion（仍会以 diff 块展示）。 */
+    private int suggestionMaxLines = 20;
+
+    /** 校验不通过时，是否把 suggestion 降级成 diff 块展示。关闭则完全不展示建议代码。 */
+    private boolean suggestionFallbackToDiff = true;
+
     private int maxPatchCharsPerFile = 12000;
 
     private int maxTotalPatchChars = 80000;

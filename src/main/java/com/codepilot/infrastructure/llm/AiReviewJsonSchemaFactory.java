@@ -49,6 +49,10 @@ public class AiReviewJsonSchemaFactory {
                                 + "Must be on the same side of the diff as lineNumber and smaller than it."))
                 .addProperty("endLine", nullableInteger(
                         "Last line of the changed range, matching lineNumber, or null for a single-line issue."))
+                .addProperty("suggestedCode", nullableString(
+                        "The replacement code for the lines above, used to build a one-click GitHub suggestion. "
+                                + "Provide the replacement content itself, not a diff. "
+                                + "Use null when no safe replacement can be given."))
                 .addEnumProperty("issueType", java.util.List.of(
                         "BUG_RISK",
                         "SECURITY",
@@ -71,6 +75,7 @@ public class AiReviewJsonSchemaFactory {
                         "lineNumber",
                         "startLine",
                         "endLine",
+                        "suggestedCode",
                         "issueType",
                         "issueTypeZh",
                         "severity",

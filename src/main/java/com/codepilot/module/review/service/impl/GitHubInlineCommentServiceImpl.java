@@ -15,6 +15,7 @@ import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
 import com.codepilot.module.review.processor.ReviewCommentBudgetAllocator;
 import com.codepilot.module.review.processor.ReviewFindingRanker;
+import com.codepilot.module.review.processor.ReviewSuggestionValidator;
 import com.codepilot.module.review.service.GitHubInlineCommentResult;
 import com.codepilot.module.review.service.GitHubInlineCommentService;
 import com.codepilot.module.review.service.ReviewFileService;
@@ -48,6 +49,8 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
 
     private final ReviewFindingRanker reviewFindingRanker;
 
+    private final ReviewSuggestionValidator reviewSuggestionValidator;
+
     private final GithubAuthTokenProvider githubAuthTokenProvider;
 
     private final GitHubInlineCommentBodyBuilder commentBodyBuilder = new GitHubInlineCommentBodyBuilder();
@@ -72,6 +75,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
             DiffLineMapper diffLineMapper,
             ReviewCommentBudgetAllocator reviewCommentBudgetAllocator,
             ReviewFindingRanker reviewFindingRanker,
+            ReviewSuggestionValidator reviewSuggestionValidator,
             GithubAuthTokenProvider githubAuthTokenProvider,
             ReviewProperties reviewProperties,
             @Value("${codepilot.github.inline-comment-enabled:false}") boolean inlineCommentEnabled,
@@ -84,6 +88,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
         this.diffLineMapper = diffLineMapper;
         this.reviewCommentBudgetAllocator = reviewCommentBudgetAllocator;
         this.reviewFindingRanker = reviewFindingRanker;
+        this.reviewSuggestionValidator = reviewSuggestionValidator;
         this.githubAuthTokenProvider = githubAuthTokenProvider;
         this.reviewProperties = reviewProperties == null ? new ReviewProperties() : reviewProperties;
         this.inlineCommentEnabled = inlineCommentEnabled;
@@ -168,6 +173,12 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                     continue;
                 }
 
+                // 是否给"一键应用"按钮完全由服务端判定，不看 LLM 的自我声明：
+                // suggestion 一旦被点击就会真改用户代码，误判的代价远高于少一个按钮。
+                boolean suggestionApplicable = reviewSuggestionValidator.isApplicable(issue, mapping);
+                String commentBody = commentBodyBuilder.build(
+                        issue, fingerprint, suggestionApplicable, reviewProperties.isSuggestionFallbackToDiff());
+
                 try {
                     if (mapping.isRange()) {
                         githubClient.createPullRequestInlineComment(
@@ -179,7 +190,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                                 mapping.line(),
                                 mapping.side(),
                                 mapping.startLine(),
-                                commentBodyBuilder.build(issue, fingerprint)
+                                commentBody
                         );
                     } else {
                         // 单行路径刻意保持与 R4 之前完全一致的调用形态，
@@ -192,7 +203,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                                 issue.getFilePath(),
                                 mapping.line(),
                                 mapping.side(),
-                                commentBodyBuilder.build(issue, fingerprint)
+                                commentBody
                         );
                     }
                     existingFingerprints.add(fingerprint);

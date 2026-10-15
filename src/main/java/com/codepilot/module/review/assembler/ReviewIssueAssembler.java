@@ -23,6 +23,9 @@ public class ReviewIssueAssembler {
 
     private static final int MAX_RULE_REFERENCE_LENGTH = 255;
 
+    /** 建议代码的上限；超出即整体丢弃（截断后既不可应用又像完整建议，比不给更糟）。 */
+    private static final int MAX_SUGGESTED_CODE_LENGTH = 20000;
+
     private static final int MIN_DESCRIPTION_LENGTH = 12;
 
     private static final int MIN_SUGGESTION_LENGTH = 8;
@@ -76,6 +79,7 @@ public class ReviewIssueAssembler {
             reviewIssue.setTitle(cleanText(issue.getTitle(), MAX_TITLE_LENGTH));
             reviewIssue.setDescription(cleanText(issue.getDescription(), MAX_TEXT_LENGTH));
             reviewIssue.setSuggestion(cleanText(issue.getSuggestion(), MAX_TEXT_LENGTH));
+            reviewIssue.setSuggestedCode(usableSuggestedCode(issue.getSuggestedCode()));
             reviewIssue.setSource(normalizedSource);
             reviewIssue.setRuleReference(cleanText(issue.getRuleReference(), MAX_RULE_REFERENCE_LENGTH));
             reviewIssue.setFinalScore(0);
@@ -100,6 +104,18 @@ public class ReviewIssueAssembler {
                 && startLine > 0
                 && startLine < endLine
                 && endLine.equals(lineNumber);
+    }
+
+    /**
+     * 建议代码超出上限时<b>整体丢弃</b>，而不是截断。
+     *
+     * <p>截断后的代码既不能应用、又看起来像完整建议，比不给更糟。</p>
+     */
+    private String usableSuggestedCode(String suggestedCode) {
+        if (suggestedCode == null || suggestedCode.isBlank()) {
+            return null;
+        }
+        return suggestedCode.length() > MAX_SUGGESTED_CODE_LENGTH ? null : suggestedCode;
     }
 
     public String calculateRiskLevel(List<ReviewIssue> reviewIssues) {
