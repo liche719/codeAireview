@@ -115,6 +115,10 @@ codepilot:
     app-token-cache-skew-seconds: ${CODEPILOT_GITHUB_APP_TOKEN_CACHE_SKEW_SECONDS:60}
     comment-enabled: ${CODEPILOT_GITHUB_COMMENT_ENABLED:false}
     comment-marker: "${CODEPILOT_GITHUB_COMMENT_MARKER:<!-- codepilot-ai-review:liche719/codeAireview -->}"
+    # 评论身份标记只在正文前 N 行内匹配，避免正文里引用到标记时被误判成身份标记。
+    # 各用途（审查摘要 / Agent 回复 / 命令提示 / 修复结果）的标记本身是代码常量，刻意不可配置——
+    # 允许配置只会引入"两个标记被配成同一个值"从而互相覆盖的风险。
+    comment-identity-header-lines: ${CODEPILOT_GITHUB_COMMENT_IDENTITY_HEADER_LINES:5}
     inline-comment-enabled: ${CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED:false}
     inline-comment-max-per-task: ${CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK:10}
     webhook-enabled: ${CODEPILOT_GITHUB_WEBHOOK_ENABLED:false}

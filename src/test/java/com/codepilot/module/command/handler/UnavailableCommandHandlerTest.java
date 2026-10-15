@@ -2,7 +2,7 @@ package com.codepilot.module.command.handler;
 
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
-import com.codepilot.module.review.report.ReviewReportFormatter;
+import com.codepilot.module.review.report.CommentMarkers;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -30,7 +30,10 @@ class UnavailableCommandHandlerTest {
                 bodyCaptor.capture()
         );
 
-        assertThat(bodyCaptor.getValue()).contains(ReviewReportFormatter.DEFAULT_COMMENT_MARKER);
+        // 命令提示必须用**自己的**身份标记，不能复用审查摘要标记，
+        // 否则它会被下一次摘要更新命中并覆盖。
+        assertThat(bodyCaptor.getValue()).contains(CommentMarkers.COMMAND_NOTICE);
+        assertThat(bodyCaptor.getValue()).doesNotContain(CommentMarkers.REVIEW_SUMMARY);
         assertThat(bodyCaptor.getValue()).contains("当前暂时不可用");
     }
 

@@ -44,6 +44,16 @@
 
 ## R1 评论身份分离
 
+> **状态：已实现**（commit 见 git log）。实现时的两处偏离：
+> 1. **身份标记刻意不做成配置项**（原方案列了 `agent-reply-marker` / `command-notice-marker` 两个新配置）。
+>    理由：身份一致性是这个机制的全部意义，允许配置只会引入"两个标记被配成同一个值"从而互相覆盖的风险——
+>    等于把刚修掉的 bug 变成可配置项。标记集中在 `CommentMarkers` 常量类，只有历史上的审查摘要标记保留配置。
+> 2. 新增配置 `codepilot.github.comment-identity-header-lines`（默认 5）**只作用于匹配侧**，写入侧无需配置。
+>
+> 实现文件：`CommentMarkers`（新增）、`GitHubCommentServiceImpl`、`AgentChatTaskRunner`、
+> `UnavailableCommandHandler`、`FixResultCommenter`、`GitHubWebhookPayloadParser`。
+> 新增 13 个测试，其中 3 个是能捕获回退的回归测试（作者过滤 / 头部匹配 / 标记分离）。
+
 ### 问题
 
 `ReviewReportFormatter.DEFAULT_COMMENT_MARKER`(`ReviewReportFormatter.java:18`) 与 `application.yml:117` 的 `comment-marker` 默认值是**同一个字符串**。`AgentChatTaskRunner.publishAndComplete`(:159-161) 用这个 marker 给 Agent 回复加前缀，而 `GitHubCommentServiceImpl.findExistingCommentId`(:95-105) 找旧摘要评论时**只按 marker 过滤 + 取 `updatedAt` 最大**，没有任何作者或类型判定。

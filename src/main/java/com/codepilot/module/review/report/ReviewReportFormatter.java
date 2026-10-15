@@ -15,7 +15,14 @@ import java.util.Locale;
 @Component
 public class ReviewReportFormatter {
 
-    public static final String DEFAULT_COMMENT_MARKER = "<!-- codepilot-ai-review:liche719/codeAireview -->";
+    /**
+     * 审查摘要的默认身份标记。
+     *
+     * @deprecated 标记已集中到 {@link CommentMarkers}。保留此常量只为兼容既有引用，
+     * 新代码请直接使用 {@link CommentMarkers}，避免标记再次分散导致身份冲突。
+     */
+    @Deprecated
+    public static final String DEFAULT_COMMENT_MARKER = CommentMarkers.REVIEW_SUMMARY;
 
     private static final int MAX_TEXT_LENGTH = 500;
 

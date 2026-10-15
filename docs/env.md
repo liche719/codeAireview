@@ -72,6 +72,10 @@ copy .env.example .env
 | --- | --- | --- |
 | `CODEPILOT_GITHUB_COMMENT_ENABLED` | `false` | 是否回写 PR Summary Comment。 |
 | `CODEPILOT_GITHUB_COMMENT_MARKER` | `<!-- codepilot-ai-review:liche719/codeAireview -->` | Summary Comment 幂等 marker。 |
+| `CODEPILOT_GITHUB_COMMENT_IDENTITY_HEADER_LINES` | `5` | 评论身份标记只在正文前 N 行内匹配，避免正文引用到标记时被误判。 |
+
+**关于评论身份标记**：系统在同一个 PR 上发布四类评论，各自使用**独立**的身份标记——审查摘要（可更新）、Agent 回复、命令提示、修复结果（后三者只追加）。
+除审查摘要标记可通过 `CODEPILOT_GITHUB_COMMENT_MARKER` 覆盖外，其余标记是代码常量（`CommentMarkers`）**刻意不可配置**：允许配置只会引入"两个标记被配成同一个值"从而互相覆盖的风险。
 | `CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED` | `false` | 是否开启 inline review comment。 |
 | `CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK` | `10` | 单个任务最多发布 inline comment 数。 |
 | `CODEPILOT_GITHUB_BOT_MENTION_ALIASES` | `@x-pilotx,@X-PilotX` | PR 评论命令 bot mention。 |

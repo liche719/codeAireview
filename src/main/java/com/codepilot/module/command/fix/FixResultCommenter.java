@@ -4,6 +4,7 @@ import com.codepilot.common.util.MarkdownSanitizer;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.review.report.CommentMarkers;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -88,7 +89,11 @@ public class FixResultCommenter {
 
     private void comment(PrCommandTask task, String body) {
         try {
-            githubClient.createPullRequestComment(task.getRepoOwner(), task.getRepoName(), task.getPrNumber(), body);
+            githubClient.createPullRequestComment(
+                    task.getRepoOwner(),
+                    task.getRepoName(),
+                    task.getPrNumber(),
+                    CommentMarkers.wrap(CommentMarkers.FIX_RESULT, body));
         } catch (Exception exception) {
             log.warn("Failed to comment PR command result, commandTaskId={}, message={}",
                     task.getId(), SensitiveDataSanitizer.redact(exception.getMessage()));

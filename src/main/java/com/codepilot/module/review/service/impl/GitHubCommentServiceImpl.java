@@ -4,9 +4,11 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.client.GithubClient;
+import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.review.entity.ReviewIssue;
 import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.review.mapper.ReviewTaskMapper;
+import com.codepilot.module.review.report.CommentMarkers;
 import com.codepilot.module.review.report.ReviewReportFormatter;
 import com.codepilot.module.review.service.GitHubCommentService;
 import com.codepilot.module.review.service.GitHubCommentResult;
@@ -36,13 +38,19 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
 
     private final boolean commentEnabled;
 
+    /**
+     * 身份标记只在评论正文前 N 行内匹配，避免正文里引用到标记造成误判。
+     */
+    private final int identityHeaderLines;
+
     public GitHubCommentServiceImpl(
             ReviewTaskMapper reviewTaskMapper,
             ReviewIssueService reviewIssueService,
             GithubClient githubClient,
             ReviewReportFormatter reviewReportFormatter,
             GithubAuthTokenProvider githubAuthTokenProvider,
-            @Value("${codepilot.github.comment-enabled:false}") boolean commentEnabled
+            @Value("${codepilot.github.comment-enabled:false}") boolean commentEnabled,
+            @Value("${codepilot.github.comment-identity-header-lines:5}") int identityHeaderLines
     ) {
         this.reviewTaskMapper = reviewTaskMapper;
         this.reviewIssueService = reviewIssueService;
@@ -50,6 +58,9 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
         this.reviewReportFormatter = reviewReportFormatter;
         this.githubAuthTokenProvider = githubAuthTokenProvider;
         this.commentEnabled = commentEnabled;
+        this.identityHeaderLines = identityHeaderLines <= 0
+                ? CommentMarkers.DEFAULT_HEADER_LINES
+                : identityHeaderLines;
     }
 
     @Override
@@ -97,11 +108,34 @@ public class GitHubCommentServiceImpl implements GitHubCommentService {
         if (!StringUtils.hasText(marker)) {
             return Optional.empty();
         }
+        String botLogin = githubClient.getAuthenticatedUserLogin();
         return githubClient.listPullRequestComments(task.getRepoOwner(), task.getRepoName(), task.getPrNumber()).stream()
                 .filter(comment -> comment != null && comment.getId() != null)
-                .filter(comment -> StringUtils.hasText(comment.getBody()) && comment.getBody().contains(marker))
+                .filter(comment -> isOwnSummaryComment(comment, marker, botLogin))
                 .max(Comparator.comparing(comment -> nullToEmpty(comment.getUpdatedAt())))
-                .map(com.codepilot.module.git.dto.GithubIssueComment::getId);
+                .map(GithubIssueComment::getId);
+    }
+
+    /**
+     * 只有<b>本机器人发的</b>且<b>带审查摘要身份标记</b>的评论才允许被更新。
+     *
+     * <p>这两道过滤缺一不可，只做任何一道都会重新引入覆盖缺陷：</p>
+     * <ul>
+     *   <li>只按标记匹配：机器人其它用途的评论一旦带上同一标记，就会被摘要更新覆盖；</li>
+     *   <li>只按作者匹配：摘要会命中机器人发的<b>任意</b>一条评论（例如 Agent 回复），同样覆盖错对象。</li>
+     * </ul>
+     *
+     * <p>作者信息不可用时（接口失败或 payload 未带 user）降级为只按标记判断，而不是拒绝更新——
+     * 此时身份标记的分离已经保证了不会误命中其他用途的评论。</p>
+     */
+    private boolean isOwnSummaryComment(GithubIssueComment comment, String marker, String botLogin) {
+        if (!CommentMarkers.matchesHeader(comment.getBody(), marker, identityHeaderLines)) {
+            return false;
+        }
+        if (!StringUtils.hasText(botLogin) || !StringUtils.hasText(comment.getUserLogin())) {
+            return true;
+        }
+        return botLogin.equalsIgnoreCase(comment.getUserLogin());
     }
 
     private String nullToEmpty(String value) {

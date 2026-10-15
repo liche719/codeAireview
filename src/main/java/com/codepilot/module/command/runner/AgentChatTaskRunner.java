@@ -15,9 +15,10 @@ import com.codepilot.module.command.entity.AgentRun;
 import com.codepilot.module.command.config.AgentRuntimeProperties;
 import com.codepilot.module.command.chat.AgentConversationContextBuilder;
 import com.codepilot.module.git.client.GithubClient;
-import com.codepilot.module.review.report.ReviewReportFormatter;
+import com.codepilot.module.review.report.CommentMarkers;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -49,6 +50,13 @@ public class AgentChatTaskRunner {
     private final AgentRuntimeProperties agentRuntimeProperties;
 
     private final AgentConversationContextBuilder conversationContextBuilder;
+
+    /**
+     * 审查摘要的身份标记（可配置）。这里只用于防御性剥离——模型输出里不应出现任何身份标记。
+     * 单元测试手工构造本类时该字段为 null，{@link CommentMarkers#stripIdentities} 会安全跳过。
+     */
+    @Value("${codepilot.github.comment-marker:}")
+    private String summaryMarker;
 
     public AgentChatTaskRunner(
             GithubClient githubClient,
@@ -158,15 +166,17 @@ public class AgentChatTaskRunner {
                 "Agent response generated.", "responseLength=" + safeResponse.length());
         githubClient.createPullRequestComment(
                 task.getRepoOwner(), task.getRepoName(), task.getPrNumber(),
-                ReviewReportFormatter.DEFAULT_COMMENT_MARKER + "\n\n" + safeResponse);
+                CommentMarkers.wrap(CommentMarkers.AGENT_REPLY, safeResponse));
         commandTaskLogService.record(task.getId(), "COMMENT_PUBLISHED", true,
                 "Agent response published to GitHub.", null);
         commandTaskStateManager.markSuccess(task, null);
     }
 
     private String sanitizeResponse(String response) {
-        String safe = SensitiveDataSanitizer.redact(response == null ? "" : response)
-                .replace(ReviewReportFormatter.DEFAULT_COMMENT_MARKER, "")
+        // 剥离所有身份标记（含可配置的审查摘要标记）：模型不应有能力伪造我们的评论身份，
+        // 否则它可以把一条 Agent 回复伪装成审查摘要，进而在摘要更新时被命中覆盖。
+        String safe = CommentMarkers.stripIdentities(
+                        SensitiveDataSanitizer.redact(response == null ? "" : response), summaryMarker)
                 .replace("\u0000", "")
                 .trim();
         if (!StringUtils.hasText(safe)) {
@@ -190,8 +200,8 @@ public class AgentChatTaskRunner {
         try {
             githubClient.createPullRequestComment(
                     task.getRepoOwner(), task.getRepoName(), task.getPrNumber(),
-                    ReviewReportFormatter.DEFAULT_COMMENT_MARKER
-                            + "\n\n**CodePilot AI** 暂时无法完成本次 Agent 请求，请稍后重试。");
+                    CommentMarkers.wrap(CommentMarkers.AGENT_REPLY,
+                            "**CodePilot AI** 暂时无法完成本次 Agent 请求，请稍后重试。"));
         } catch (Exception ignored) {
             log.warn("Failed to publish agent failure comment, commandTaskId={}", task.getId());
         }

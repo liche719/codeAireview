@@ -4,9 +4,10 @@ import com.codepilot.common.exception.BusinessException;
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.command.dto.GithubCommand;
 import com.codepilot.module.command.parser.GithubCommandParser;
-import com.codepilot.module.review.report.ReviewReportFormatter;
+import com.codepilot.module.review.report.CommentMarkers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -24,6 +25,13 @@ public class GitHubWebhookPayloadParser {
     private final ObjectMapper objectMapper;
 
     private final GithubCommandParser commandParser;
+
+    /**
+     * 审查摘要的身份标记（可配置）。用于识别"这条评论是机器人自己发的"。
+     * 单元测试手工构造本类时为 null，{@link CommentMarkers#containsAnyIdentity} 会安全跳过。
+     */
+    @Value("${codepilot.github.comment-marker:}")
+    private String summaryMarker;
 
     public GitHubWebhookPayloadParser(ObjectMapper objectMapper, GithubCommandParser commandParser) {
         this.objectMapper = objectMapper;
@@ -85,7 +93,10 @@ public class GitHubWebhookPayloadParser {
             }
 
             String commentBody = text(root, "comment", "body");
-            if (StringUtils.hasText(commentBody) && commentBody.contains(ReviewReportFormatter.DEFAULT_COMMENT_MARKER)) {
+            // 机器人自己发的任何评论都必须在这里被挡掉，否则「收到评论 → 回一条评论 → 又收到评论」
+            // 会形成自循环。因此这里判断的是**任意**已知身份标记，而不只是审查摘要标记。
+            if (CommentMarkers.containsAnyIdentity(
+                    commentBody, CommentMarkers.DEFAULT_HEADER_LINES, summaryMarker)) {
                 return GitHubPullRequestWebhookPayload.ignored("bot response", action, ISSUE_COMMENT_EVENT);
             }
             GithubCommand command = commandParser.parse(commentBody);
