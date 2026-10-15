@@ -32,6 +32,25 @@ public class ReviewProperties {
      */
     private double minCoverageRatio = 0.5;
 
+    /**
+     * 是否启用跨 headSha 的 finding 记忆。
+     *
+     * <p><b>默认关闭</b>：它会让"上次已提过的问题"不再重复评论，属于发布行为的改变，
+     * 需要灰度。开启后 {@code suppress-repeated-findings} 才生效。</p>
+     */
+    private boolean findingMemoryEnabled = false;
+
+    /** 记忆中已存在的 finding 是否跳过再次评论。默认开启（仅在记忆启用时生效）。 */
+    private boolean suppressRepeatedFindings = true;
+
+    /**
+     * 是否允许把"本次未再现"的 finding 判定为 RESOLVED。
+     *
+     * <p>即使开启，也只有当本次是<b>完整审查</b>且 head sha 确实变化时才会生效——
+     * 详见 {@code ReviewFindingMemoryService}。</p>
+     */
+    private boolean allowResolution = true;
+
     private int maxPatchCharsPerFile = 12000;
 
     private int maxTotalPatchChars = 80000;

@@ -23,7 +23,9 @@ class ReviewTaskResultStoreTest {
         ReviewFileService fileService = mock(ReviewFileService.class);
         ReviewIssueService issueService = mock(ReviewIssueService.class);
         ReviewTaskStateManager stateManager = mock(ReviewTaskStateManager.class);
-        ReviewTaskResultStore store = new ReviewTaskResultStore(fileService, issueService, stateManager);
+        ReviewTaskResultStore store = new ReviewTaskResultStore(
+                fileService, issueService, stateManager,
+                mock(com.codepilot.module.review.memory.ReviewFindingMemoryService.class));
         ReviewTask task = new ReviewTask();
         task.setId(1L);
         ReviewFile file = new ReviewFile();

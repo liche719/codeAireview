@@ -478,6 +478,31 @@ ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS suggestion_applicable BOOLEAN 
 
 ## R6 跨 headSha 记忆与去重
 
+> **状态：已实现，默认关闭（灰度）。**
+>
+> 已实现：
+> - 迁移 **V20**：`review_finding_memory` 表 + `(repo, pr, finding_fingerprint)` 唯一索引 + 状态索引
+> - `ReviewFindingFingerprint`：双指纹（`filePath|issueType|归一化标题` 与 `filePath|code|归一化建议`）OR 匹配，**均不含行号**
+> - `ReviewFindingMemoryService`：对账、抑制、RESOLVED 判定；`isCompleteReview` 复用 R2 的 `ReviewFileSkipCategory.isBudgetRelated()`
+> - 接进 `ReviewTaskResultStore.replaceAndComplete` 的**同一事务**，且在保存 issue **之前**执行
+> - 配置三项：`finding-memory-enabled`（**false**）/ `suppress-repeated-findings`（true）/ `allow-resolution`（true）
+>
+> **无需改动发布路径**：抑制复用既有的 `publishDecision=SUPPRESS` + `suppressionReason` 机制——
+> `ReviewFindingRanker:64`、`ReviewCommentBudgetAllocator:69` 已经会过滤它，
+> `ReviewReportFormatter:124` 会统计"已抑制 N 条"。因此被抑制的 finding **仍然落库并在摘要中上报**，
+> 符合 R7 确立的"抑制必须可审计"原则。
+>
+> **两条安全规则**（都有专门的回归测试，回退必失败）：
+> 1. **本次审查不完整时绝不判定已修复**——有文件因预算被跳过，或有文件级 LLM 失败（`AI_REVIEW_FAILED`）。
+>    理由：某个问题"没再出现"可能只是因为它所在的文件没被看到。
+> 2. **head sha 未变化时绝不判定已修复**——没有新提交时"未再现"不能作为证据。
+>
+> **指纹的保守取向**：识别信息不足（路径/类型缺失，或标题与描述都太短）时指纹返回 `null`，
+> 该 finding **永不抑制**。理由：两个不同问题算出同一指纹会导致**漏报**，比重复评论严重得多。
+>
+> **仍未覆盖**：没有真实 PR 上的端到端验证（本项默认关闭，需要显式开启后在一个多 commit 的 PR 上验证
+> "第二次 push 不再重复评论"）。也未与 R2 的覆盖度上报做过联合验证。
+
 ### 问题
 
 新 headSha = 全新任务、全新问题集。系统**不知道上一次审查提过什么**（E2/E3）。而 `synchronize` 是全量重审（A2），因此每次 push 都会把同一批问题**再评论一遍**。

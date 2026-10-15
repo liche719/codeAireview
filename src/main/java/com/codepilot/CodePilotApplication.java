@@ -11,7 +11,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.codepilot.module.rag.mapper",
         "com.codepilot.module.command.mapper",
         "com.codepilot.module.agent.review.cache",
-        "com.codepilot.module.dlq.mapper"
+        "com.codepilot.module.dlq.mapper",
+        "com.codepilot.module.review.memory"
 })
 @EnableScheduling
 @SpringBootApplication

@@ -232,6 +232,16 @@ copy .env.example .env
 | `CODEPILOT_REVIEW_COVERAGE_REPORT_ENABLED` | `true` | 是否在摘要中输出「审查覆盖」区块，说明哪些文件未被审查及原因。**默认开启**：关闭会让"只审了 5 / 200 个文件"的摘要看起来像完整结论。 |
 | `CODEPILOT_REVIEW_COVERAGE_MAX_LISTED_FILES` | `20` | 覆盖度区块中逐个列出的未审查文件上限，超出部分折叠进 `<details>`。 |
 | `CODEPILOT_REVIEW_MIN_COVERAGE_RATIO` | `0.5` | 已审文件数 / 变更文件数低于此比例时，摘要顶部给出醒目告警。`0` 表示关闭告警。 |
+| `CODEPILOT_REVIEW_FINDING_MEMORY_ENABLED` | `false` | 是否启用跨 headSha 的 finding 记忆。**默认关闭**：它会让上次已提过的问题不再重复评论，属于发布行为改变，需要灰度。开启后下面两项才生效。 |
+| `CODEPILOT_REVIEW_SUPPRESS_REPEATED_FINDINGS` | `true` | 记忆中已存在的 finding 是否跳过再次评论。被跳过的 finding **仍会落库并在摘要中计入"已抑制"**，不会静默消失。 |
+| `CODEPILOT_REVIEW_ALLOW_RESOLUTION` | `true` | 是否允许把"本次未再现"的 finding 判为已修复。**即使开启也有两道额外约束**：本次必须是完整审查（无预算跳过、无文件级 LLM 失败），且 head sha 确实变化。详见「审查记忆的安全边界」。 |
+
+**审查记忆的安全边界**：`RESOLVED` 的判定只有同时满足以下条件才会发生——否则一个"没再出现"的问题可能只是**因为它所在的文件根本没被审到**，把它标成"已修复"是错误结论：
+
+1. 本次审查**完整**：没有文件因 `max-files-per-task` / `max-total-patch-chars` 等预算被跳过，也没有文件级 LLM 失败（`AI_REVIEW_FAILED`）
+2. **head sha 与上次不同**：没有新提交时，"未再现"不能作为已修复的证据
+
+**指纹为什么不含行号**：行号会随 rebase 或前面插入几行而漂移，含行号会让去重立刻失效。指纹只用 `文件路径 + 问题类型 + 归一化标题`，另有基于建议代码的第二指纹做 OR 匹配。**识别信息不足时指纹为 null，此时永不抑制**——宁可重复评论，也不要把不同问题误判成同一个而漏报。
 
 **关于审查覆盖度**：只要还有变更文件未被审查，摘要就**不会**输出"未发现问题"，而是明确说明"本次没有可报告的问题，但有 N 个文件未被审查"。这条约束不受 `CODEPILOT_REVIEW_COVERAGE_REPORT_ENABLED` 影响——即使关闭覆盖度区块，"未能审查任何变更文件"的告警依然会输出。
 | `CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE` | `12000` | 单文件 patch 字符上限。 |

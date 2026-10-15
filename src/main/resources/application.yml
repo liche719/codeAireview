@@ -169,6 +169,12 @@ codepilot:
     coverage-max-listed-files: ${CODEPILOT_REVIEW_COVERAGE_MAX_LISTED_FILES:20}
     # 已审文件数 / 变更文件数 低于该比例时，摘要顶部给出醒目告警。0 表示关闭告警。
     min-coverage-ratio: ${CODEPILOT_REVIEW_MIN_COVERAGE_RATIO:0.5}
+    # 跨 headSha 的 finding 记忆：避免同一问题在每次 push 后被重复评论。
+    # 默认关闭——它会改变发布行为，需要灰度。
+    finding-memory-enabled: ${CODEPILOT_REVIEW_FINDING_MEMORY_ENABLED:false}
+    suppress-repeated-findings: ${CODEPILOT_REVIEW_SUPPRESS_REPEATED_FINDINGS:true}
+    # 即使开启，也只有"本次为完整审查且 head sha 确实变化"时才会把未再现的 finding 判为已修复。
+    allow-resolution: ${CODEPILOT_REVIEW_ALLOW_RESOLUTION:true}
     max-patch-chars-per-file: ${CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE:12000}
     max-total-patch-chars: ${CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS:80000}
     max-parallel-files: ${CODEPILOT_REVIEW_MAX_PARALLEL_FILES:2}

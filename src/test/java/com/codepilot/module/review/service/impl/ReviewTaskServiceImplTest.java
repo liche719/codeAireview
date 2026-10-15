@@ -369,7 +369,12 @@ class ReviewTaskServiceImplTest {
                 new ReviewMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
         private final ReviewTaskResultStore reviewTaskResultStore =
-                new ReviewTaskResultStore(reviewFileService, reviewIssueService, reviewTaskStateManager);
+                new ReviewTaskResultStore(
+                        reviewFileService,
+                        reviewIssueService,
+                        reviewTaskStateManager,
+                        org.mockito.Mockito.mock(
+                                com.codepilot.module.review.memory.ReviewFindingMemoryService.class));
 
         private final RabbitRetryAttemptResolver retryAttemptResolver = new RabbitRetryAttemptResolver();
 
