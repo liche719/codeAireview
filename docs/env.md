@@ -235,6 +235,18 @@ copy .env.example .env
 | `CODEPILOT_REVIEW_FINDING_MEMORY_ENABLED` | `false` | 是否启用跨 headSha 的 finding 记忆。**默认关闭**：它会让上次已提过的问题不再重复评论，属于发布行为改变，需要灰度。开启后下面两项才生效。 |
 | `CODEPILOT_REVIEW_SUPPRESS_REPEATED_FINDINGS` | `true` | 记忆中已存在的 finding 是否跳过再次评论。被跳过的 finding **仍会落库并在摘要中计入"已抑制"**，不会静默消失。 |
 | `CODEPILOT_REVIEW_ALLOW_RESOLUTION` | `true` | 是否允许把"本次未再现"的 finding 判为已修复。**即使开启也有两道额外约束**：本次必须是完整审查（无预算跳过、无文件级 LLM 失败），且 head sha 确实变化。详见「审查记忆的安全边界」。 |
+| `CODEPILOT_REVIEW_DISMISSAL_SYNC_ENABLED` | `false` | 是否读取 GitHub review thread 的 resolved 状态做误报抑制（R7）。**默认关闭**：需要 GraphQL 权限，且会改变"提不提某个问题"的行为。 |
+
+**误报抑制（R7）**：维护者在 GitHub 上把一个**由本机器人发起**的 review thread resolve 掉，系统就把它对应的 finding 记为 `DISMISSED`，后续审查不再重复提。
+
+两条硬约束：
+
+1. **只认"首条评论由本机器人发出"的线程**。任何人都能开一个线程再 resolve 掉它；如果照单全收，等于让人用 resolve 来关闭我们的 finding。
+2. **任何失败都降级为"不抑制"**。GraphQL 权限不足、限流、网络抖动都只记一条 warning —— 这是旁路能力，**绝不能让审查失败**。拿不到机器人登录名时同样一条都不抑制。
+
+线程与 finding 的关联靠行内评论正文里的隐藏标记 `<!-- codepilot-finding:<fingerprint> -->`（不含行号，跨 push 稳定）。**取不到该标记的线程一律跳过**——绝不退化成用行号或标题去猜，那会把不相干的线程关联到错误的 finding 上。
+
+被抑制的 finding **仍然落库并在摘要中计入"已抑制 N 条"**，不会静默消失。
 
 **审查记忆的安全边界**：`RESOLVED` 的判定只有同时满足以下条件才会发生——否则一个"没再出现"的问题可能只是**因为它所在的文件根本没被审到**，把它标成"已修复"是错误结论：
 

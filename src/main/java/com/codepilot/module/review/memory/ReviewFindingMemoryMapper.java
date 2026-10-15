@@ -86,4 +86,29 @@ public interface ReviewFindingMemoryMapper extends BaseMapper<ReviewFindingMemor
             @Param("findingFingerprint") String findingFingerprint,
             @Param("headSha") String headSha
     );
+
+    /**
+     * 把 finding 标为 DISMISSED——维护者在 GitHub 上 resolve 了我们开的那个线程。
+     *
+     * <p>这比 RESOLVED 更强：RESOLVED 只是"这次没看到"，DISMISSED 是"人明确说过不用管"，
+     * 因此后续审查中被再次识别到时应直接抑制，而不是重新提。</p>
+     */
+    @Update("""
+            UPDATE review_finding_memory
+            SET state = 'DISMISSED',
+                suppressed_reason = #{reason},
+                last_seen_at = CURRENT_TIMESTAMP
+            WHERE repo_owner = #{repoOwner}
+              AND repo_name = #{repoName}
+              AND pr_number = #{prNumber}
+              AND finding_fingerprint = #{findingFingerprint}
+              AND state <> 'DISMISSED'
+            """)
+    int markDismissed(
+            @Param("repoOwner") String repoOwner,
+            @Param("repoName") String repoName,
+            @Param("prNumber") Integer prNumber,
+            @Param("findingFingerprint") String findingFingerprint,
+            @Param("reason") String reason
+    );
 }

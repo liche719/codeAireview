@@ -397,6 +397,8 @@ class ReviewTaskServiceImplTest {
                 reviewTaskResultStore,
                 reviewTaskPublicationService,
                 reviewTaskStateManager,
+                org.mockito.Mockito.mock(
+                        com.codepilot.module.review.memory.ReviewDismissalService.class),
                 reviewMetrics
         );
 

@@ -608,6 +608,33 @@ CREATE INDEX IF NOT EXISTS idx_finding_memory_state
 
 ## R7 误报抑制
 
+> **状态：核心已实现（默认关闭）；`prompt 注入` 未实现。**
+>
+> 已实现：
+> - `GithubClient.listReviewThreads`：用 **GraphQL** 读 `reviewThreads { id isResolved comments(first:1) { author { login } body } }`
+>   ——REST **不暴露** thread 的 resolve 状态，只有 GraphQL 有
+> - `GithubReviewThreadResolver`：解析响应；只取**首条**评论（判断"线程是不是我们开的"必须看发起者）
+> - `ReviewDismissalService`：只对"已 resolve **且** 首条评论作者是本机"的线程 `markDismissed`
+> - 线程 ↔ finding 的关联：行内评论正文新增隐藏标记 `<!-- codepilot-finding:<16位指纹> -->`，
+>   用的是 R6 那个**不含行号**的稳定指纹（原有的 `<!-- codepilot-inline-review:<fp> -->` 含 headSha 与行号，跨 push 会变，不能用于此）
+> - 接进 `ReviewTaskRunner.run`，位于 `refresh(headSha)` 之后、`process` 之前
+> - 配置：`dismissal-sync-enabled`（**false**）
+>
+> **两条硬约束（各有专门测试）**：
+> 1. **只认首条评论由本机器人发出的线程**——任何人都能开个线程再 resolve，照单全收等于让人关闭我们的 finding
+> 2. **任何失败都降级为"不抑制"**——GraphQL 权限不足 / 限流 / 网络抖动只记 warning，**绝不让审查失败**；
+>    拿不到机器人登录名时同样一条都不抑制
+>
+> **另一条保守设计**：线程里取不到 finding 指纹标记时**直接跳过**，绝不退化成用行号或标题去猜——
+> 那会把不相干的线程关联到错误的 finding 上。
+>
+> **未实现：把 DISMISSED 列表注入 prompt。** 原方案的这一项需要把抑制列表穿透到每个文件的 LLM 输入
+> （`ReviewContext` → `AiReviewContextFormatter`），改动面比其余部分大。
+> 现状是：**DISMISSED 已经能阻止重复评论**（R6 的记忆服务会把它标成 `SUPPRESS`），
+> 但模型仍可能重复"生成"这些 finding 然后被丢弃——浪费 token，但不会漏到评论里。
+>
+> **仍未覆盖**：没有真实 PR 验证（默认关闭，需要一个真实的已 resolve 线程才能端到端验证）。
+
 ### 问题
 
 **整个 G 维度（协作与反馈）为零**：无 dismiss、无 resolve、无 reaction 处理。人标记过"这是误报"的问题，下次审查照样提。

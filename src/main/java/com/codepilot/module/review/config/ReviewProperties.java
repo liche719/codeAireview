@@ -51,6 +51,14 @@ public class ReviewProperties {
      */
     private boolean allowResolution = true;
 
+    /**
+     * 是否读取 GitHub review thread 的 resolved 状态来做误报抑制（R7）。
+     *
+     * <p><b>默认关闭</b>：它需要 GraphQL 权限，并且会改变"提不提某个问题"的行为。
+     * 开启后任何失败都只会降级为不抑制，不会影响审查本身。</p>
+     */
+    private boolean dismissalSyncEnabled = false;
+
     private int maxPatchCharsPerFile = 12000;
 
     private int maxTotalPatchChars = 80000;

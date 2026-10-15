@@ -8,6 +8,7 @@ import com.codepilot.module.git.config.GithubRestClientFactory;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubLinkedIssue;
+import com.codepilot.module.git.dto.GithubReviewThread;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.git.dto.GithubMergeResult;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +38,8 @@ public class GithubClient {
     private final GithubRequestExecutor requestExecutor;
 
     private final GithubLinkedIssueResolver linkedIssueResolver = new GithubLinkedIssueResolver();
+
+    private final GithubReviewThreadResolver reviewThreadResolver = new GithubReviewThreadResolver();
 
     private volatile String authenticatedUserLogin;
 
@@ -446,6 +449,64 @@ public class GithubClient {
                 })
         );
         return comments == null ? List.of() : comments;
+    }
+
+    /**
+     * 读取 PR 的 review thread 及其 resolved 状态。
+     *
+     * <p>必须用 GraphQL：REST 不暴露 thread 的 resolve 状态，只有 GraphQL 的
+     * {@code PullRequestReviewThread.isResolved} 才有。</p>
+     *
+     * <p>注意只取每条线程的<b>首条</b>评论——判断"这个线程是不是我们开的"必须看发起者。</p>
+     */
+    public List<GithubReviewThread> listReviewThreads(String owner, String repo, Integer pullNumber) {
+        Map<String, Object> response = executeGithubRequest("failed to list GitHub PR review threads", () ->
+                restClient.post()
+                        .uri("/graphql")
+                        .headers(headers -> setAuthorization(headers, owner, repo))
+                        .body(Map.of(
+                                "query",
+                                """
+                                query($owner: String!, $repo: String!, $number: Int!, $first: Int!) {
+                                  repository(owner: $owner, name: $repo) {
+                                    pullRequest(number: $number) {
+                                      reviewThreads(first: $first) {
+                                        nodes {
+                                          id
+                                          isResolved
+                                          comments(first: 1) {
+                                            nodes {
+                                              author { login }
+                                              body
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                """,
+                                "variables",
+                                Map.of(
+                                        "owner", owner,
+                                        "repo", repo,
+                                        "number", pullNumber,
+                                        "first", GithubReviewThreadResolver.PAGE_SIZE
+                                )
+                        ))
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<Map<String, Object>>() {
+                        })
+        );
+        if (response == null) {
+            return List.of();
+        }
+        Object errors = response.get("errors");
+        if (errors instanceof List<?> errorList && !errorList.isEmpty()) {
+            throw new BusinessException("failed to list GitHub PR review threads: "
+                    + linkedIssueResolver.summarizeGraphqlErrors(errorList));
+        }
+        return reviewThreadResolver.fromGraphqlResponse(response);
     }
 
     private List<GithubLinkedIssue> requestPullRequestClosingIssues(String owner, String repo, Integer pullNumber) {
