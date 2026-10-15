@@ -166,6 +166,7 @@ CREATE INDEX IF NOT EXISTS idx_review_file_task_skip
 | `codepilot.review.coverage-report-enabled` | **`true`** | 是否输出覆盖度区块。**默认开**（对标 PR-Agent） |
 | `codepilot.review.coverage-max-listed-files` | `20` | 超过则折叠进 `<details>` |
 | `codepilot.review.fail-on-zero-coverage` | `false` | 若为 true，一个文件都没审时把任务标为需要人工关注（而非 SUCCESS） |
+| `codepilot.review.min-coverage-ratio` | `0.5` | **（对标补充 7）** 已审文件数 / 变更文件数低于此比例时，摘要顶部加醒目告警，并让 R17 的 gate 保持 `neutral` 而非 `success`。理由：Ellipsis 把"预算溢出的 reviewer"直接判为失败，说明**覆盖不足本身是一种失败状态**，不能静默通过 |
 
 ### 测试计划
 
@@ -765,10 +766,11 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 
 | 配置 | 默认 | 说明 |
 |---|---|---|
-| `codepilot.review.gate-enabled` | **`false`** | 是否写 commit status |
-| `codepilot.review.gate-min-severity` | `HIGH` | 触发 failure 的最低 severity |
-| `codepilot.review.gate-include-llm-findings` | **`false`** | LLM finding 是否参与门禁 |
-| `codepilot.review.gate-context-name` | `CodePilot Review` | commit status 的 context 名 |
+| `codepilot.review.on-pass` | **`silent`** | **（对标补充 9）** 通过时的动作：`silent` / `comment` / `status-success`。形态借鉴 Ellipsis 的 `output.on_pass` |
+| `codepilot.review.on-fail` | **`comment`** | **（对标补充 9）** 失败时的动作：`comment` / `status-neutral` / `status-failure`。**默认只评论、不写阻塞性状态**。形态借鉴 Ellipsis 的 `output.on_fail` |
+| `codepilot.review.gate-min-severity` | `HIGH` | 触发失败判定的最低 severity |
+| `codepilot.review.gate-include-llm-findings` | **`false`** | LLM finding 是否参与失败判定 |
+| `codepilot.review.gate-context-name` | `CodePilot Review` | commit status 的 context 名（对标 reviewdog / Danger 的 context 命名） |
 
 ### 测试计划
 
@@ -853,6 +855,77 @@ reviewdog 明确因 fork PR 的 `GITHUB_TOKEN` 只读而降级到 Actions 注解
 
 ---
 
+
+## 对标补充 2：AI 原生审查产品带来的修正
+
+出处见 [`docs/benchmark-ai-review-tools.md`](benchmark-ai-review-tools.md) 第 3ter 节。**这一组里有一条推翻了我原先的假设。**
+
+### 补充 7：R2 不只是"补齐"，而是**差异化空间**（假设被推翻）
+
+我原先以为"上报覆盖度"是业界普遍做法。**核实后结论是分裂的**：
+
+| 阵营 | 是否在 PR 里告诉用户"哪些文件没审、为什么" |
+|---|---|
+| **4 个商用 AI 原生产品** | **一个都没有。** Copilot 只有静态排除清单；Ellipsis 只在 **API** 里暴露 `reviewed_files` / `reviewed_lines` |
+| **PR-Agent（开源，源码证实）** | **有**，`enable_review_coverage_footer=true` **默认开** |
+
+**对 R2 的修正**：优先级**不降反升**，因为它同时是（a）对标开源成熟实践（PR-Agent 证明可实现且成本低）和（b）对商用产品的差异点。
+
+**并且 Ellipsis 暴露了一个我没想到的失败模式**：它的策略是"**超限的 reviewer 直接判失败且不贡献任何内容**"。这提示 **R2 需要增加一条判定**：当覆盖度过低（例如审查文件数 / 变更文件数低于阈值）时，**应该把这次审查标记为"覆盖不足"而不是正常成功**——否则用户会把"只审了 5/200 个文件"的摘要当成完整结论。
+
+→ **R2 增加配置**：`codepilot.review.min-coverage-ratio`（默认 `0.5`），低于该比例时摘要顶部加醒目告警，并配合 R17 把 gate 置为 `neutral` 而非 `success`。
+
+### 补充 8：R6 增加一个更简单的替代机制 —— **按 commit 区间记账**
+
+Ellipsis 的去重**不是基于评论文本指纹**，而是**按 commit 区间记账**：每个 reviewer 只看到"它还没评审过的 commit"（`range_base_sha`）；锚定在该区间之外的评论**被扣下不发，但仍可在 API 查到**（`status: outside_range` / `not_in_diff`）。Bugbot 则用 **`git patch-id`** 对同一份 diff 直接短路。
+
+**对 R6 的修正**：指纹方案保留，但增加一个**更低成本的补充层**：
+- 在 `review_finding_memory` 上增加 `first_seen_head_sha` / `last_seen_head_sha`（原方案已有），并新增**"该 headSha 的 diff 是否已审过"**的记录（可用 `git patch-id` 等价的 patch 哈希，服务端对 patch 文本做 sha256 即可）
+- **若同一 patch 哈希已审过，直接短路跳过 LLM 调用**——这是纯收益（省 token、省时间），且不涉及 finding 语义判断
+- 区间外 finding 的处理沿用 Ellipsis 的思路：**不发布，但保留在库中并标记 `outside_range`**，而不是丢弃
+
+**并且这条有一个有力的反面论据支持我们做去重**：**Copilot 官方文档明确承认做不到**——重新审查"may repeat previous comments, **even if you resolved or downvoted them**"。连原生实现都会重复评论，说明这确实是难点，做成就是优势。
+
+### 补充 9：R17 借鉴 Ellipsis 的配置形态
+
+Ellipsis 的结论能力是**两个独立配置**：`output.on_pass` = `silent` | `comment` | `approve`；`output.on_fail` = `comment` | `request_changes`。
+
+**对 R17 的修正**：把 R17 从单一 `gate-enabled` 布尔扩成**两个维度的配置**：
+- `codepilot.review.on-pass`：`silent`（默认）| `comment` | `status-success`
+- `codepilot.review.on-fail`：`comment`（默认）| `status-neutral` | `status-failure`
+
+这比"一个开关 + 一个阈值"更清晰，也避免了我原方案里"门禁开关同时控制展示与状态"的耦合。
+
+**另注**：Cursor Bugbot **只发一个 check（success/neutral/failure）、完全不发 review verdict**——这与 R17 的核心选择一致，是对"不引入 REQUEST_CHANGES"的独立验证。
+
+### 补充 10：R10 的字段设计可以直接照抄
+
+| 产品 | 暴露的成本/token 字段 |
+|---|---|
+| **Cursor Bugbot** | analytics API 返回每次审查的 `cost_cents`、findings、`resolution_status`；**并有 dryRun 模式** |
+| **Ellipsis** | `cost`（按 llm / cpu / memory / fee 拆分，且**按模型拆分**）+ `tokens`（**含 `cache_read` / `cache_creation`**）+ 硬性 `budget.session` |
+| Copilot | 只给估算区间（Lite $0.05–1，Balanced $0.25–5）+ Actions minutes |
+
+**对 R10 的修正**：指标设计应对齐为
+- `codepilot.review.cost`（按模型打 tag）
+- `codepilot.review.tokens`（按 `prompt` / `completion` / **`cache_read`** / **`cache_creation`** 打 tag）—— **`cache_read` 单独打 tag 很重要**，它是衡量缓存是否真正省钱的唯一依据（我们已有 `ai_review_cache` 但没有任何命中成本数据）
+- 新增 **dry-run 模式**（`codepilot.review.publish-dry-run`，默认 `false`）：走完整审查与发布决策链路但**不真正调用 GitHub 写接口**，用于验证 R1/R5/R17 的发布逻辑。这是 Bugbot 已经提供的运维能力。
+
+### 补充 11：R11 的跳过清单可对齐 Copilot
+
+Copilot 的静态排除清单包含：锁文件、**`**/generated/**`**、`**/*.min.js`、**`**/*.d.ts`**、**`**/vendor/**`**、**`**/bin/**`**。
+
+**对 R11 的修正**：我们当前恰好缺粗体的那几类（B14/B15）。**直接采用 Copilot 的清单作为 `shouldSkipPath` 的补充**，比对标里任何一家都全。
+
+**附带发现**：Copilot **曾有 300 文件 / 20,000 行上限，已于 2026-08-27 移除**（转向按 token 预算控制）。这说明"硬性文件数上限"正在被"token 预算 + 明确上报"取代——**再次支持 R2 的方向：与其静默截断，不如按预算选并明确上报。**
+
+### 补充 12：R14 会让我们在这组里领先（但结论要收窄）
+
+**这 4 家里没有任何一家支持"在 diff 行上 @bot"**：Bugbot 与 Ellipsis 只有会话流评论触发（`cursor review` / `@ellipsis`），**Copilot code review 连评论触发都没有**（`@copilot` 驱动的是 cloud agent，不是 review）。
+
+**对 R14 的表述收窄**：可以说"相对这一组是差异点"，**但不能说"业界都不支持"**——CodeRabbit / Greptile 是否支持行级触发**尚未核实**。文档中已按此收窄表述。
+
+---
 
 # 待决项（本轮不实现）
 

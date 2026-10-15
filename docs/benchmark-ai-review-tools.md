@@ -17,10 +17,12 @@
 > - **reviewdog**：`gitlab.com` 上的**项目自建镜像**可读完整 README 与源码（`pkg.go.dev` 渲染版会在 Exit codes 前截断）
 > - **Danger JS**：`unpkg.com` 上的 **npm 发布产物**比文档更能反映真实行为
 > - **SonarQube / Semgrep**：文档站是 GitBook，**URL 后加 `.md`** 得到干净 Markdown（Semgrep 需先 301 到 `docs.semgrep.dev`）
-> - **Copilot**：无可用路径，仅社区说法
+> - **Copilot / Cursor Bugbot / Ellipsis**：`docs.github.com`、`cursor.com/docs`、`ellipsis.dev/docs` 的文档路径**后加 `.md`** 可拿到干净 markdown
+> - **Sweep**：`docs.sweep.dev` / `sweep.dev` **DNS 不可解析**；GitLab 镜像只有归档仓库，且**其中不含 PR 评审产品**
 >
-> 可靠覆盖：**PR-Agent（源码）、CodeRabbit / Greptile / Graphite（官方文档）、reviewdog（源码+README）、Danger JS（npm 产物源码）、SonarQube / Semgrep（官方文档）** = **8 个系统**。
-> 未覆盖：**GitHub Copilot、Cursor Bugbot、Sweep、Ellipsis**（见第 6 节）。
+> 可靠覆盖 **11 个系统**：PR-Agent、CodeRabbit、Greptile、Graphite、reviewdog、Danger JS、SonarQube、Semgrep、GitHub Copilot code review、Cursor Bugbot、Ellipsis。
+> **Sweep 已从对标范围移除**——它是"规则驱动的 issue→PR 代理"，不是代码审查产品（详见第 3ter 节）。
+> 因此"12 系统"这一目标以 **11 个已核实 + 1 个经核实后判定不适用** 收口。
 >
 > **命名更正（重要）**：Graphite 的 AI 审查能力原名 **Diamond**，该名称已于 **2025-10-08 弃用**，Diamond 与 Graphite Chat 合并为 **Graphite Agent**；`graphite.dev` 现已 **301 跳转到 `graphite.com`**。本文中「Graphite」一律指 **Graphite AI Reviews**（原 Diamond）。
 >
@@ -28,6 +30,7 @@
 > - [`docs/research/pr-agent-deep-dive.md`](research/pr-agent-deep-dive.md) —— PR-Agent 源码级深读
 > - [`docs/research/coderabbit-greptile-graphite.md`](research/coderabbit-greptile-graphite.md) —— CodeRabbit / Greptile / Graphite 官方文档调研（45 条编号引用）
 > - [`docs/research/deterministic-review-tools.md`](research/deterministic-review-tools.md) —— reviewdog / Danger / SonarQube / Semgrep 调研（含 8 项无法证实清单）
+> - [`docs/research/ai-native-reviewers.md`](research/ai-native-reviewers.md) —— Copilot code review / Cursor Bugbot / Ellipsis / Sweep 调研（27 条编号引用）
 
 ---
 
@@ -248,6 +251,61 @@ PRReviewIdentity.INCREMENTAL = "<!-- pr-agent:review:incremental -->"
 9. **fork PR 的写权限降级必须提前设计。** reviewdog 明确因 `GITHUB_TOKEN` 只读而降级到 Actions 注解。我们的审查链路不感知 fork（A18），发布侧也没有降级路径。
 10. **baseline 必须新鲜。** SonarQube 官方警告：目标分支分析过期会把老问题误报成新增。这直接约束我们 R6 的记忆——**"完整审查"判据里必须包含 baseline 的有效性**。
 
+## 3ter. AI 原生审查产品（Copilot code review / Cursor Bugbot / Ellipsis / Sweep）
+
+出处与 27 条编号引用见 [`docs/research/ai-native-reviewers.md`](research/ai-native-reviewers.md)。
+**取证突破**：`docs.github.com` 的任意文档路径**后加 `.md`** 会直接返回干净 markdown（此前我一直只拿到导航壳）；Cursor 用 `cursor.com/docs/*.md`，Ellipsis 用 `ellipsis.dev/docs/*.md`。
+
+> ⚠️ **Sweep 需要重新归类**：`docs.sweep.dev` / `sweep.dev` 在本环境 **DNS 不可解析**。通过 GitLab 镜像读到的归档仓库（2024 末 / 2025 初）**并不包含 PR 评审产品**——`handlers/on_review.py` 只是把 `base..head` 全量 diff 取出来的桩函数。**Sweep 实际是"规则驱动的 issue→PR 代理"，不是代码审查产品**，把它放进"12 个 AI review 系统"对标本身就是我最初的范围设定错误。
+
+### 各产品要点
+
+**GitHub Copilot code review**
+- **默认发普通 `Comment` review**；可配 Approve（public preview 自动批准）；**没有文档化的 request-changes**。
+- **官方明确承认做不到跨 push 去重**——文档原话：重新审查"may repeat previous comments, even if you resolved or downvoted them"。**即连原生实现都会重复评论。**
+- **静态排除清单**（这是 R11 的重要参考）：锁文件、`**/generated/**`、`**/*.min.js`、`**/*.d.ts`、`**/vendor/**`、`**/bin/**` 等。
+- **曾有 300 文件 / 20,000 行上限，已于 2026-08-27 移除。**
+- **code review 没有任何评论触发入口**（`@copilot` mention 驱动的是 cloud agent，不是 review）。
+- 成本给的是**估算区间**（Lite $0.05–1，Balanced $0.25–5）+ Actions minutes。
+
+**Cursor Bugbot**
+- **去重靠 `git patch-id`**：对同一份 diff 直接短路，另有 `review.incremental: true` 做增量。
+- **不发 review 结论**，只发一个 `Cursor Bugbot` **check**（success / neutral / failure）——**这一点与 R17 的设计完全一致**。
+- 有评论触发入口：`cursor review` / `bugbot run`。
+- **analytics API 返回每次审查的结构化数据**：`cost_cents`、findings、`resolution_status`，**并且有 dryRun 模式**。
+
+**Ellipsis**（这一组里记录最完整的）
+- **最好的去重模型**：按 **commit 区间**记账，而不是按评论文本——每个 reviewer 只看到"它还没评审过的 commit"（`range_base_sha`）；锚定在这个区间之外的评论**被扣下不发，但仍可在 API 中查到**（`status: outside_range` / `not_in_diff`）。
+- **最接近"覆盖度上报"的产品**：API 暴露 `reviewers[].reviewed_files` / `reviewed_lines`，加上被扣下评论的状态。**但它是通过 API 暴露，而不是在 PR 里告诉用户。**
+- **结论能力完全可配**：`output.on_pass` = `silent` \| `comment` \| `approve`；`output.on_fail` = `comment` \| `request_changes`。
+- **唯一给出评论预算数字的**：**64 条/次审查、64 条/每个 reviewer**；**超限的评论被保留但不发布**；**超限的 reviewer 直接判失败且不贡献任何内容**。
+- **成本/token 是结构化 API 字段**：`cost`（按 llm / cpu / memory / fee 拆分，且按模型拆分）+ `tokens`（含 `cache_read` / `cache_creation`）+ 硬性 `budget.session`。
+- 评论触发：`@ellipsis`，**不需要重复 mention**。
+
+### 这一组带来的三条修正
+
+**修正 A（推翻我的假设）："覆盖度上报"是真正的差异化空间。**
+
+我原以为业界普遍在上报覆盖度。**实际结论是分裂的**：
+
+| 阵营 | 是否上报"哪些文件没审、为什么" |
+|---|---|
+| **4 个商用 AI 原生产品** | **一个都没有在 PR 里告诉用户**。Copilot 只有静态排除清单；Ellipsis 只在 API 里暴露 `reviewed_files` |
+| **PR-Agent（开源，源码已证实）** | **有**。`enable_review_coverage_footer=true` **默认开**，明确输出被 token 预算排除的文件 |
+
+→ **R2 依然成立且优先级不降**：它既是**对标 PR-Agent 的成熟实践**，又是**对商用产品的差异点**。而且 PR-Agent 的存在证明它可实现、成本不高。
+
+**修正 B（验证 R17）：Bugbot 只发 check、不发 verdict —— 我的门禁设计方向正确。**
+Ellipsis 的 `on_pass` / `on_fail` 配置形态（`silent`/`comment`/`approve` × `comment`/`request_changes`）比我 R17 的方案更完整，值得借鉴其**形态**：把"通过时做什么"与"失败时做什么"分开配置。
+
+**修正 C（验证 R7 的可审计抑制）：Ellipsis 的"超限评论被保留但不发布"正是我采纳的原则。**
+同时它暴露了一个我没想到的失败模式：**"超限的 reviewer 直接判失败且不贡献任何内容"**——即预算溢出本身可以是一种失败。这提示 R2/R17 需要考虑"覆盖度过低是否应视为审查失败"。
+
+**另外两条对 R10 / R11 / R14 的直接影响**：
+- **R10**：Bugbot 与 Ellipsis 都把 **per-review cost + token** 作为结构化输出（含 `cache_read` tokens）。我们完全没有这一项，且这是可以直接照抄的字段设计。Bugbot 的 **dryRun 模式**也值得借鉴（用于验证发布路径而不真正发评论）。
+- **R11**：Copilot 的排除清单（`**/generated/**`、`**/*.d.ts`、`**/vendor/**`、`**/bin/**`）可直接作为我们跳过规则的补充参考——我们当前**恰好缺这几类**。
+- **R14**：**这 4 家里没有任何一家支持"在 diff 行上 @bot"**（Bugbot 与 Ellipsis 只支持会话流评论触发，Copilot 连评论触发都没有）。**R14 会让我们在这一组里领先**——但需注意 CodeRabbit/Greptile 是否支持尚未核实，所以只能说是相对这一组的差异点。
+
 ## 4. 对 CodePilot 的直接启示
 
 | 启示 | 来源 | 对应我们的问题 | 路线图 |
@@ -297,12 +355,15 @@ PRReviewIdentity.INCREMENTAL = "<!-- pr-agent:review:incremental -->"
 
 reviewdog / Danger JS / SonarQube / Semgrep 四个系统**已通过替代取证路径完成调研**：GitLab 自建镜像读 reviewdog 完整 README 与源码、`unpkg.com` 读 Danger JS 的 npm 产物源码、GitBook 文档站加 `.md` 读 SonarQube 与 Semgrep 官方文档。
 
+GitHub Copilot code review / Cursor Bugbot / Ellipsis / Sweep 四个系统**也已完成**：关键突破是发现 **`docs.github.com` 的文档路径后加 `.md` 会返回干净 markdown**，Cursor 与 Ellipsis 同理。**Sweep 经核实后判定不属于代码审查产品**（详见第 3ter 节）。
+
 ### 仍然未能核实
 
 | 系统 / 条目 | 原因 | 影响 |
 |---|---|---|
-| **GitHub Copilot code review** | `docs.github.com` 只返回导航壳；`github/docs` 仓库在封锁主机上 | verdict 策略只有一条低置信度社区说法（"始终只提交 COMMENTED"）。**这是当前最大剩余缺口** |
-| Cursor Bugbot / Sweep / Ellipsis | 未开始 | 影响较小 |
+| **Sweep 的评审相关格子** | `docs.sweep.dev` / `sweep.dev` **DNS 不可解析**；GitLab 镜像只有归档仓库，其中**不含 PR 评审产品**（`on_review.py` 是桩函数） | **已判定 Sweep 不属于代码审查产品**，从对标范围移除，而非"未核实" |
+| **Cursor Bugbot / Copilot 的评论预算数字** | 官方未公开 | 评论数上限只能参考 Ellipsis（64/64）与 reviewdog（30/10） |
+| **Cursor Bugbot / Copilot / Ellipsis 是否支持"在 diff 行上 @bot"** | 三家均未文档化行级触发 | 无法确认它们是否真的不支持，只能说**文档中没有** |
 | **PR-Agent 的 M6 / M9 / M10** | 配额中断，负责的子 agent 失败 | 跨文件 finding 落点、评论数上限（`max_number_of_suggestions`）、token/cost 上报未证实 |
 | **SonarQube 汇总评论的生命周期** | **官方文档确实未写明**（已用其文档站内建 `?ask=` 端点交叉确认，回答原文："doesn't specify whether its PR summary comment is edited or recreated, or describe a deduplication mechanism"） | 无法得知它是编辑还是新建汇总评论 |
 | SonarQube 旧的五态生命周期 | 常见说法里的 `Open/Confirmed/Reopened/Resolved/Closed` + `Won't Fix` **在当前文档中已不存在**（现为 `Open`/`Accepted`/`False positive`/`Confirmed` + Reopen） | **请勿照抄旧状态名** |
@@ -313,8 +374,8 @@ reviewdog / Danger JS / SonarQube / Semgrep 四个系统**已通过替代取证�
 
 ### 补做计划
 
-1. **GitHub Copilot code review**（剩余最高优先级）：尝试 `docs.github.com` 的 changelog / release notes 页面、GitHub Blog、以及 Copilot 的公开 REST/GraphQL 文档；目标是确认**它是否提交 verdict、是否支持 suggestion、是否上报覆盖度**。
-2. **PR-Agent 补齐 3 项**：`pr_code_suggestions.py`（reflect 打分阈值、`max_number_of_suggestions`）、`algo/run_details.py` + `run_output.py` + `telemetry/`（token/cost 上报与缓存）、`servers/github_app.py` + `agent/pr_agent.py`（事件分发与重复投递防护）。**本地 clone 仍在 `C:\Users\33721\AppData\Local\Temp\pr-agent`，可直接读，不受网络限制。**
-3. **Cursor Bugbot / Sweep / Ellipsis**：按 [`docs/research/deterministic-review-tools.md`](research/deterministic-review-tools.md) 第 0 节记录的替代路径表尝试（`docs.cursor.com`、`docs.sweep.dev`、`docs.ellipsis.dev`，GitBook/Mintlify 站点加 `.md`）。
+1. **PR-Agent 补齐 3 项**（唯一还剩的实质缺口）：`pr_code_suggestions.py`（reflect 打分阈值、`max_number_of_suggestions`）、`algo/run_details.py` + `run_output.py` + `telemetry/`（token/cost 上报与缓存）、`servers/github_app.py` + `agent/pr_agent.py`（事件分发与重复投递防护）。**本地 clone 仍在 `C:\Users\33721\AppData\Local\Temp\pr-agent`，可直接读，不受网络限制。**
+2. **Sweep 若要重新纳入**：需先确认其当前的代码审查产品线是否存在及文档地址（本次 DNS 不可解析，只能读到 2024 末的归档仓库）。
+3. **补 Cursor Bugbot / Copilot 未公开的评论预算数字**：只能等官方文档更新。
 
-补齐后本文件升级为完整的 **12 系统 × 10 机制**矩阵（当前为 **8 个系统** + 4 个明确标注未核实）。
+**收口结论**：本文件覆盖 **11 个系统 × 10 机制**。原计划的"12 系统"中，**Sweep 经核实不属于代码审查产品**，因此不是"未完成"，而是**范围修正**。
