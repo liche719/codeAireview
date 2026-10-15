@@ -23,6 +23,18 @@ public class GithubCommandProperties {
 
     private boolean fixEnabled = false;
 
+    private boolean fixPublishEnabled = false;
+
+    private boolean fixMergeEnabled = false;
+
+    private boolean fixApprovalRequireSameUser = true;
+
+    private int fixMaxPatchChars = 100000;
+
+    private String fixBranchPrefix = "codepilot/fix-";
+
+    private String fixMergeMethod = "squash";
+
     private int fixMaxFiles = 3;
 
     private int fixMaxChangedLines = 120;

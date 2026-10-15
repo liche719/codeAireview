@@ -27,6 +27,22 @@ public class GithubPullRequestDetail {
 
     private String baseRepoFullName;
 
+    private String baseRef;
+
+    private String state;
+
+    private Boolean draft;
+
+    private Boolean mergeable;
+
+    @JsonProperty("mergeable_state")
+    private String mergeableState;
+
+    private Boolean merged;
+
+    @JsonProperty("merge_commit_sha")
+    private String mergeCommitSha;
+
     @JsonProperty("head")
     public void unpackHead(Map<String, Object> head) {
         if (head != null && head.get("sha") != null) {
@@ -50,6 +66,9 @@ public class GithubPullRequestDetail {
 
     @JsonProperty("base")
     public void unpackBase(Map<String, Object> base) {
+        if (base != null && base.get("ref") != null) {
+            this.baseRef = base.get("ref").toString();
+        }
         Object repo = base == null ? null : base.get("repo");
         if (repo instanceof Map<?, ?> repoMap) {
             Object fullName = repoMap.get("full_name");

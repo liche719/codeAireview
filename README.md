@@ -15,7 +15,8 @@ CodePilot AI 是一个面向 Java / Spring Boot 团队的智能 PR 审查系统�
 
 ## 为什么不是普通 prompt wrapper
 
-- 多入口触发：支持 `POST /api/reviews`、GitHub PR Webhook、PR 评论 `/review` 和 `@x-pilotx review/fix/chat` 命令。
+- 多入口触发：支持 `POST /api/reviews`、GitHub PR Webhook、兼容命令 `/review`，以及任意自然语言 `@x-pilotx ...` Agent 请求。
+- Agent / Workflow 双模式：PR/Webhook 和 `/review` 进入预定义异步 Review Workflow；所有 `@x-pilotx ...` 评论统一进入 Agent，由模型按请求自由组合查询、RAG、联网检索、启动审查和修复预览 Tool。
 - 可靠异步执行：Webhook/API 在同一事务创建任务和本地消息，后台通过 RabbitMQ Publisher Confirm 投递；消费者以执行令牌和租约原子抢占，避免重复执行并支持宕机恢复。
 - 结果与发布解耦：审查结果在短事务内原子替换，GitHub 评论使用独立状态、超时恢复和有限重试，评论失败不会污染审查状态。
 - 并发审查：任务内按文件规划审查顺序，并通过 `reviewFileExecutor` 控制文件级并行度。
@@ -24,6 +25,7 @@ CodePilot AI 是一个面向 Java / Spring Boot 团队的智能 PR 审查系统�
 - 证据过滤：LLM 输出必须尽量绑定 changed line、patch token 或 review plan risk，降低空泛评论。
 - GitHub 落地：结果会入库，并回写 PR Summary Comment 或 inline comment，评论带 marker/指纹去重。
 - 安全边界：API Key、Redis 分布式固定窗口限流、Webhook HMAC、仓库 allowlist、GitHub App/PAT 双鉴权、fix 命令白名单和 Docker sandbox 都有实现。
+- Agent 可观测性：Agent 任务通过命令 outbox + RabbitMQ 异步执行，使用原子领取和租约恢复；`agent_run/agent_step` 记录模型轮次、Tool 调用结果、耗时、挂起和恢复状态。动作 Tool 只能启动受控 Workflow，不能直接操作 Git、Shell 或 GitHub 合并。
 
 ## 核心架构
 
@@ -73,14 +75,26 @@ flowchart TD
 
 ```text
 /review
-@x-pilotx review
-@x-pilotx fix dry-run
-@x-pilotx fix
+@x-pilotx 帮我总结这个 PR 的高风险问题
+@x-pilotx 检索 Redis 相关团队规范和最新资料，再解释这里是否有问题
+@x-pilotx 修复 UserService 的空指针问题，并给我一个补丁预览
 ```
 
 - 支持 PAT 和 GitHub App 两种鉴权模式，生产推荐 GitHub App。
 - Summary Comment 使用 marker 幂等更新，inline comment 使用 fingerprint 去重。
 - 可查询 PR closing issues，用于审查上下游上下文。
+
+### 4. Agent 交互与外部检索
+
+- `@x-pilotx ...` 评论会创建 `pr_command_task.command_type=CHAT`，由 RabbitMQ 消费者异步执行，Webhook 请求不再同步等待模型。
+- 入口不再把 mention 预分类为 `REVIEW/FIX/CHAT`；完整自然语言请求会原样交给 Agent，避免一个关键词无脑触发整条流水线。
+- Agent 可按需组合 PR 元信息、变更文件、已存审查证据、团队规则、`searchWeb`、`startReviewWorkflow` 和 `startFixPreview`；Tool 调用写入 `pr_command_task_log`，便于回放一次运行过程。
+- `startFixPreview` 永远只创建 `dryRun=true` 的受限修复任务；模型不能直接操作 Git、Shell、任意文件写入或 GitHub merge。
+- dry-run 成功后，原请求用户必须单独评论 `@x-pilotx 批准发布修复 <previewTaskId>`。服务端校验持久化的原评论、用户身份、仓库/PR、head SHA、patch SHA-256 和允许路径后，才会创建独立 `codepilot/fix-*` 分支并向原 PR 的 head 分支提交修复 PR。
+- 发布授权不包含合并授权。修复 PR 创建后还需评论 `@x-pilotx 批准合并修复 <publishTaskId>`；服务端再次校验分支、commit SHA、PR 状态和 mergeable 状态后才执行合并。发布和合并能力均默认关闭。
+- 可选的 `searchWeb` Tool 通过配置的 SearXNG JSON API 检索外部技术资料。该能力默认关闭，结果有超时、条数、长度和域名约束，并被提示词标记为不可信外部参考。
+- `searchWeb` 返回的 URL 会绑定到当前 Agent run；`fetchWebDocument` 只有在 URL 来自本轮搜索且命中 HTTPS 域名白名单时才可调用，并拒绝重定向、私网 DNS、非文本响应和超大正文。
+- Agent 支持有限跨评论上下文和异步 continuation：Review/Fix Workflow 完成后，系统会恢复原 Agent run，把结构化结果交给模型继续判断；每次运行有模型轮次、Tool 次数、continuation 次数和截止时间限制。
 
 ### 4. 安全与失败处理
 
@@ -88,7 +102,7 @@ flowchart TD
 - `/api/**` 默认开启固定窗口限流。
 - Webhook 使用 `X-Hub-Signature-256` HMAC 校验。
 - 生产建议配置 `CODEPILOT_GITHUB_ALLOWED_REPOSITORIES=owner/repo`。
-- `@x-pilotx fix` 默认关闭；开启后仍受补丁范围、命令白名单、超时、环境变量隔离和 Docker sandbox 约束。
+- 修复预览、发布、合并能力分别默认关闭；开启后仍受补丁范围、命令白名单、超时、环境变量隔离、Docker sandbox 和两阶段精确审批约束。
 - GitHub 请求有 rate limit retry/backoff，错误日志会脱敏。
 
 ## 技术栈
@@ -246,7 +260,7 @@ mvn test
 
 当前基线：
 
-- `523` 个自动化测试通过，其中真实容器测试覆盖 PostgreSQL/pgvector、Redis、RabbitMQ 和可靠任务链路。
+- 当前全量测试基线为 `540 tests, 0 failures, 0 errors`；Testcontainers 已使用隔离的 PostgreSQL/pgvector、Redis、RabbitMQ 覆盖命令 outbox、原子领取、租约恢复和 publisher confirm。
 - 离线 AI Review 评估覆盖 SQL 风险、Secret、prompt injection、测试缺失、API 契约变化、配置安全回归、非法 JSON 降级。
 - 当前离线评估：Precision `85.71%`，Recall `100%`，must-not-comment violation rate `0%`。
 

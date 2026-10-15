@@ -58,17 +58,32 @@ public class FixResultCommenter {
                 ```diff
                 %s
                 ```
+
+                如确认发布此补丁，请单独评论：`@x-pilotx 批准发布修复 %d`
                 """.formatted(
                 MarkdownSanitizer.sanitizeInlineText(summary, 500, "补丁已生成。"),
                 stats.filesChanged(),
                 stats.changedLines(),
-                MarkdownSanitizer.sanitizeCodeBlockText(patch, DRY_RUN_PATCH_PREVIEW_LIMIT, "")
+                MarkdownSanitizer.sanitizeCodeBlockText(patch, DRY_RUN_PATCH_PREVIEW_LIMIT, ""),
+                task.getId()
         ));
     }
 
     public void fixPushed(PrCommandTask task) {
         comment(task, "**CodePilot AI** 已推送修复提交"
                 + (StringUtils.hasText(task.getCommitSha()) ? "：`" + task.getCommitSha() + "`" : "。"));
+    }
+
+    public void fixPullRequestCreated(PrCommandTask task) {
+        comment(task, "**CodePilot AI** 已创建独立修复 PR："
+                + MarkdownSanitizer.sanitizeInlineText(task.getCreatedPrUrl(), 500, "链接不可用")
+                + "\n\n如需合并，请单独评论：`@x-pilotx 批准合并修复 " + task.getId() + "`");
+    }
+
+    public void fixPullRequestMerged(PrCommandTask task) {
+        comment(task, "**CodePilot AI** 修复 PR #" + task.getCreatedPrNumber()
+                + " 已通过独立审批完成合并。"
+                + (StringUtils.hasText(task.getCommitSha()) ? "\n\nMerge SHA：`" + task.getCommitSha() + "`" : ""));
     }
 
     private void comment(PrCommandTask task, String body) {

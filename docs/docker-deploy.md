@@ -79,7 +79,7 @@ Events: Pull requests, Issue comments
 
 - PR 打开、同步、重新打开时自动审查。
 - PR Conversation 评论 `/review` 或 `@x-pilotx review` 手动触发。
-- 在显式开启 fix 模式后处理 `@x-pilotx fix dry-run` 和 `@x-pilotx fix`。
+- 所有 `@x-pilotx ...` 评论进入 Agent；显式开启 fix 模式后，Agent 才能按具体请求启动 dry-run 修复预览。发布和合并还需要各自的服务端开关与独立用户审批。
 
 ## 5. 反向代理建议
 
@@ -95,13 +95,18 @@ Events: Pull requests, Issue comments
 
 ## 6. 自动修复模式的部署注意
 
-`@x-pilotx fix` 默认关闭：
+Agent 修复预览、发布和合并能力默认分别关闭：
 
 ```env
 CODEPILOT_GITHUB_FIX_ENABLED=false
+CODEPILOT_GITHUB_FIX_PUBLISH_ENABLED=false
+CODEPILOT_GITHUB_FIX_MERGE_ENABLED=false
+CODEPILOT_GITHUB_FIX_APPROVAL_REQUIRE_SAME_USER=true
 ```
 
-开启后系统会从当前 PR head sha 对应的成功审查结果中选择可修复 issue，生成小 patch，执行校验，通过后再推送到同仓库 PR 分支。
+开启 preview 后，系统会从当前 PR head SHA 对应的成功审查结果中选择可修复 issue，生成小 patch 并执行 dry-run 校验。它不会直接改原 PR 分支。
+
+只有用户精确评论 `@x-pilotx 批准发布修复 <previewTaskId>` 且服务端审批校验通过后，系统才将同一 patch 推送到同仓库独立 `codepilot/fix-*` 分支，并创建以原 PR head 分支为 base 的修复 PR。合并还要求第二条 `@x-pilotx 批准合并修复 <publishTaskId>` 评论。部署使用的 GitHub PAT/App 必须具有 `Contents: Read and write` 和 `Pull requests: Read and write`；生产必须同时配置 repository allowlist。
 
 默认校验只允许：
 

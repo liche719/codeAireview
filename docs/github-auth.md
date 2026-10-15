@@ -20,10 +20,9 @@ CODEPILOT_GITHUB_TOKEN=<fine-grained token>
 Recommended fine-grained token permissions:
 
 - `Metadata: Read`
-- `Contents: Read`
+- `Contents: Read and write` when approval-gated fix publishing is enabled; otherwise `Read`
 - `Pull requests: Read and write`
 - `Issues: Read and write`
-- `Contents: Read and write` only if `@x-pilotx fix` is enabled and allowed to push commits
 
 PAT mode is acceptable for local development and small self-hosted instances. It is not a good enterprise or SaaS story because one long-lived token can cross repository boundaries if it is over-scoped.
 
@@ -44,10 +43,9 @@ CODEPILOT_GITHUB_APP_TOKEN_CACHE_SKEW_SECONDS=60
 Recommended GitHub App permissions:
 
 - `Metadata: Read`
-- `Contents: Read`
+- `Contents: Read and write` when approval-gated fix publishing is enabled; otherwise `Read`
 - `Pull requests: Read and write`
 - `Issues: Read and write`
-- `Contents: Read and write` only if fix mode is enabled
 
 Recommended GitHub App webhook events:
 

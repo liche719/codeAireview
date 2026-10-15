@@ -71,6 +71,25 @@ management:
       show-details: when_authorized
 
 codepilot:
+  command:
+    execution-lease: ${CODEPILOT_COMMAND_EXECUTION_LEASE:15m}
+    outbox-batch-size: ${CODEPILOT_COMMAND_OUTBOX_BATCH_SIZE:20}
+    outbox-lock-timeout: ${CODEPILOT_COMMAND_OUTBOX_LOCK_TIMEOUT:2m}
+    outbox-confirm-timeout: ${CODEPILOT_COMMAND_OUTBOX_CONFIRM_TIMEOUT:5s}
+    outbox-retry-initial-delay: ${CODEPILOT_COMMAND_OUTBOX_RETRY_INITIAL_DELAY:1s}
+    outbox-retry-max-delay: ${CODEPILOT_COMMAND_OUTBOX_RETRY_MAX_DELAY:1m}
+    outbox-max-attempts: ${CODEPILOT_COMMAND_OUTBOX_MAX_ATTEMPTS:10}
+    recovery-batch-size: ${CODEPILOT_COMMAND_RECOVERY_BATCH_SIZE:50}
+  agent-runtime:
+    resumable-enabled: ${CODEPILOT_AGENT_RESUMABLE_ENABLED:true}
+    max-model-turns: ${CODEPILOT_AGENT_MAX_MODEL_TURNS:8}
+    max-tool-calls: ${CODEPILOT_AGENT_MAX_TOOL_CALLS:12}
+    max-continuations: ${CODEPILOT_AGENT_MAX_CONTINUATIONS:4}
+    run-deadline: ${CODEPILOT_AGENT_RUN_DEADLINE:30m}
+    continuation-context-max-chars: ${CODEPILOT_AGENT_CONTINUATION_CONTEXT_MAX_CHARS:4000}
+    waiting-poll-batch-size: ${CODEPILOT_AGENT_WAITING_POLL_BATCH_SIZE:50}
+    conversation-max-turns: ${CODEPILOT_AGENT_CONVERSATION_MAX_TURNS:5}
+    conversation-max-chars: ${CODEPILOT_AGENT_CONVERSATION_MAX_CHARS:6000}
   scheduling:
     enabled: ${CODEPILOT_SCHEDULING_ENABLED:true}
   api-auth:
@@ -112,6 +131,12 @@ codepilot:
     call-timeout: ${CODEPILOT_GITHUB_CALL_TIMEOUT:45s}
     allowed-comment-author-associations: ${CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS:OWNER,MEMBER,COLLABORATOR}
     fix-enabled: ${CODEPILOT_GITHUB_FIX_ENABLED:false}
+    fix-publish-enabled: ${CODEPILOT_GITHUB_FIX_PUBLISH_ENABLED:false}
+    fix-merge-enabled: ${CODEPILOT_GITHUB_FIX_MERGE_ENABLED:false}
+    fix-approval-require-same-user: ${CODEPILOT_GITHUB_FIX_APPROVAL_REQUIRE_SAME_USER:true}
+    fix-max-patch-chars: ${CODEPILOT_GITHUB_FIX_MAX_PATCH_CHARS:100000}
+    fix-branch-prefix: ${CODEPILOT_GITHUB_FIX_BRANCH_PREFIX:codepilot/fix-}
+    fix-merge-method: ${CODEPILOT_GITHUB_FIX_MERGE_METHOD:squash}
     fix-max-files: ${CODEPILOT_GITHUB_FIX_MAX_FILES:3}
     fix-max-changed-lines: ${CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES:120}
     fix-validation-command: ${CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND:git diff --check}
@@ -182,3 +207,16 @@ codepilot:
     sql-risk-enabled: true
     secret-scan-enabled: true
     test-suggestion-enabled: true
+  search:
+    searxng:
+      enabled: ${CODEPILOT_SEARXNG_ENABLED:false}
+      base-url: ${CODEPILOT_SEARXNG_BASE_URL:}
+      timeout: ${CODEPILOT_SEARXNG_TIMEOUT:5s}
+      max-results: ${CODEPILOT_SEARXNG_MAX_RESULTS:5}
+      max-query-chars: ${CODEPILOT_SEARXNG_MAX_QUERY_CHARS:240}
+      max-result-chars: ${CODEPILOT_SEARXNG_MAX_RESULT_CHARS:1200}
+      allowed-domains: ${CODEPILOT_SEARXNG_ALLOWED_DOMAINS:}
+      document-fetch-enabled: ${CODEPILOT_SEARXNG_DOCUMENT_FETCH_ENABLED:false}
+      document-fetch-timeout: ${CODEPILOT_SEARXNG_DOCUMENT_FETCH_TIMEOUT:8s}
+      document-fetch-max-bytes: ${CODEPILOT_SEARXNG_DOCUMENT_FETCH_MAX_BYTES:262144}
+      document-fetch-max-chars: ${CODEPILOT_SEARXNG_DOCUMENT_FETCH_MAX_CHARS:12000}

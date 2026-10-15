@@ -1,6 +1,7 @@
 package com.codepilot.module.command.creator;
 
 import com.codepilot.module.command.entity.PrCommandTask;
+import com.codepilot.module.command.config.GithubCommandProperties;
 import com.codepilot.module.command.mapper.PrCommandTaskMapper;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,7 @@ class PrCommandTaskCreatorTest {
 
     private final PrCommandTaskMapper mapper = mock(PrCommandTaskMapper.class);
 
-    private final PrCommandTaskCreator creator = new PrCommandTaskCreator(mapper);
+    private final PrCommandTaskCreator creator = new PrCommandTaskCreator(mapper, new GithubCommandProperties());
 
     @Test
     void shouldReuseExistingFixTaskForSameCommentId() {
@@ -83,6 +84,25 @@ class PrCommandTaskCreatorTest {
         assertThat(task.getCommentBody())
                 .contains("[REDACTED]")
                 .doesNotContain(secret);
+    }
+
+    @Test
+    void shouldCreateIdempotentChatTaskWithCommandText() {
+        when(mapper.selectList(any())).thenReturn(List.of());
+        when(mapper.insert(any(PrCommandTask.class))).thenAnswer(invocation -> {
+            PrCommandTask task = invocation.getArgument(0);
+            task.setId(101L);
+            return 1;
+        });
+        GitHubPullRequestWebhookPayload payload = payload();
+        payload.setCommandText("解释这个 SQL 风险");
+
+        PrCommandTask task = creator.createChatTask(payload);
+
+        assertThat(task.getCommandType()).isEqualTo("CHAT");
+        assertThat(task.getStatus()).isEqualTo("PENDING");
+        assertThat(task.getCommandText()).isEqualTo("解释这个 SQL 风险");
+        assertThat(task.getDryRun()).isFalse();
     }
 
     private PrCommandTask existingFixTask(String status) {

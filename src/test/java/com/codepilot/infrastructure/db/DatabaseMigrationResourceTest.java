@@ -88,4 +88,55 @@ class DatabaseMigrationResourceTest {
                 .contains("CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_review_cache_key")
                 .contains("CREATE INDEX IF NOT EXISTS idx_ai_review_cache_last_used_at");
     }
+
+    @Test
+    void shouldPersistAgentChatInputOutputAndEnforceCommentIdempotency() throws Exception {
+        String migration = new ClassPathResource("db/migration/V13__add_agent_chat_task_fields.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(migration)
+                .contains("ADD COLUMN IF NOT EXISTS command_text TEXT")
+                .contains("ADD COLUMN IF NOT EXISTS response_body TEXT")
+                .contains("uq_pr_command_task_chat_comment_id")
+                .contains("WHERE command_type = 'CHAT'");
+    }
+
+    @Test
+    void shouldPersistApprovalArtifactsAndEnforceActionIdempotency() throws Exception {
+        String migration = new ClassPathResource("db/migration/V14__add_fix_approval_workflow.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(migration)
+                .contains("ADD COLUMN IF NOT EXISTS source_task_id BIGINT")
+                .contains("ADD COLUMN IF NOT EXISTS patch_payload TEXT")
+                .contains("ADD COLUMN IF NOT EXISTS patch_sha256 VARCHAR(64)")
+                .contains("ADD COLUMN IF NOT EXISTS target_branch VARCHAR(255)")
+                .contains("uq_pr_command_task_fix_publish_source")
+                .contains("WHERE command_type = 'FIX_PUBLISH'")
+                .contains("uq_pr_command_task_fix_merge_source")
+                .contains("WHERE command_type = 'FIX_MERGE'");
+    }
+
+    @Test
+    void shouldAddReliableCommandAndResumableAgentRuntimeTables() throws Exception {
+        String reliableCommand = new ClassPathResource("db/migration/V15__harden_pr_command_execution.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+        String agentRuntime = new ClassPathResource("db/migration/V16__add_resumable_agent_runtime.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+        String webResources = new ClassPathResource("db/migration/V17__add_agent_web_resource_allowlist.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(reliableCommand)
+                .contains("execution_token VARCHAR(64)")
+                .contains("CREATE TABLE IF NOT EXISTS pr_command_task_outbox")
+                .contains("UNIQUE (command_task_id)");
+        assertThat(agentRuntime)
+                .contains("CREATE TABLE IF NOT EXISTS agent_run")
+                .contains("CREATE TABLE IF NOT EXISTS agent_step")
+                .contains("WAITING_WORKFLOW")
+                .contains("UNIQUE (command_task_id)");
+        assertThat(webResources)
+                .contains("CREATE TABLE IF NOT EXISTS agent_web_resource")
+                .contains("UNIQUE (agent_run_id, url_hash)");
+    }
 }

@@ -30,7 +30,7 @@ flowchart TD
 
 - `ReviewTaskCreator` 把 PR URL、title、head sha 和评论模式转成 `review_task`。
 - `ReviewTaskServiceImpl` 提供创建、查询和处理任务的统一入口。
-- `PrCommandTaskCreator` 把 `@x-pilotx fix` 一类 PR 评论命令转成可异步执行的命令任务。
+- `PrCommandTaskCreator` 把所有 `@x-pilotx ...` 自然语言评论转成 `CHAT` Agent 任务；只有无 mention 的兼容命令 `/review` 直接创建 Review Workflow。
 
 ### 消息层
 
@@ -74,6 +74,21 @@ flowchart TD
 - `GitHubInlineCommentServiceImpl` 使用 issue fingerprint 避免重复 inline comment。
 - inline 发布失败或不可定位时，系统仍可通过 Summary Comment 保留审查结果。
 
+### Agent Chat 层
+
+- `ChatCommandHandler` 只负责校验评论入口、创建 `CHAT` 类型的 `pr_command_task`；任务先写入 command outbox，再由后台发布器可靠投递 RabbitMQ。
+- `AgentChatTaskRunner` 在消费者线程中加载最新 review session context，调用带 Tool 的 LangChain4j Assistant，并将最终回复发布到 GitHub。
+- `AgentTaskTraceContext` 将当前 command task id 绑定到 Tool 调用线程；`GithubCommandChatTool` 记录 `TOOL_CALL`，任务日志同时记录上下文加载、模型回复和评论发布结果。
+- Agent 自主组合 PR 查询、变更摘要、已存 finding、团队规则检索和可选 SearXNG 外部搜索等只读 Tool，也可调用 `startReviewWorkflow` 或 `startFixPreview` 启动受控异步 Workflow。
+- `startFixPreview` 从当前持久化 Agent 任务派生仓库和 PR 身份，只允许 `dryRun=true`；Agent 不持有原始 Git/Shell Tool。
+- `approveFixPreview` / `approveFixMerge` 只是受控 Workflow 的入口，不是 GitHub 写操作。`FixApprovalService` 从持久化的原评论验证精确命令、同一请求者、仓库/PR、source head SHA、patch SHA-256、允许路径和服务端开关，模型自行调用 Tool 不构成授权。
+- `FIX_PUBLISH` 重新应用并校验已批准 patch，推送持久化的随机 `codepilot/fix-*` 分支，再创建以原 PR head 分支为 base 的修复 PR；唯一索引和远程分支/PR 查询保证重试幂等。
+- `FIX_MERGE` 使用第二次独立审批，校验修复 PR 非 draft、head/base/commit 与发布任务一致且 `mergeable_state=clean`，再用 expected SHA 调用 GitHub merge API。发布审批不等于合并审批。
+- `pr_command_task_outbox` 为 CHAT/FIX/审批动作提供事务内可靠投递；消费者通过 execution token 和 lease 原子领取，租约过期后由 recovery job 恢复，避免重复消息并发执行或 broker 短暂不可用丢任务。
+- `AgentRunService` 将一次 Agent 运行拆成 `agent_run` 与 `agent_step`，限制模型轮次、Tool 调用数、continuation 次数和总截止时间；异步 Workflow 会把运行置为 `WAITING_WORKFLOW`，完成后恢复为待执行。
+- 跨评论上下文只加载同一 repo/PR 的有限成功 CHAT 任务，并作为不可信数据注入；不参与审批或 Tool 作用域决策。
+- `fetchWebDocument` 只允许当前 Agent run 最近一次 `searchWeb` 返回的 HTTPS URL，且要求显式域名白名单并执行私网 DNS、响应大小、内容类型和重定向防护。
+
 ## 典型执行链路
 
 ```mermaid
@@ -99,6 +114,28 @@ sequenceDiagram
     Runner->>Task: mark SUCCESS or FAILED
     Runner->>Comment: publish summary/inline comments
     Comment->>GitHub: create/update PR comments
+
+    GitHub->>Webhook: issue_comment @x-pilotx natural-language request
+    Webhook->>Task: create CHAT command task
+    Task->>MQ: publish command task
+    MQ->>Agent: AgentChatTaskRunner
+    Agent->>Tool: compose query/RAG/search/workflow Tools
+    Tool-->>Agent: bounded untrusted result
+    Agent->>DB: persist task logs and response preview
+    Agent->>GitHub: publish chat response
+
+    GitHub->>Webhook: exact publish approval comment
+    Webhook->>Task: create CHAT approval task
+    Agent->>Tool: approveFixPreview(previewTaskId)
+    Tool->>DB: validate persisted comment + patch identity
+    Tool->>MQ: enqueue FIX_PUBLISH
+    MQ->>GitHub: push bot branch + create fix PR
+
+    GitHub->>Webhook: separate exact merge approval comment
+    Agent->>Tool: approveFixMerge(publishTaskId)
+    Tool->>DB: validate persisted comment + published PR identity
+    Tool->>MQ: enqueue FIX_MERGE
+    MQ->>GitHub: merge with expected head SHA
 ```
 
 ## 并发模型
@@ -180,7 +217,7 @@ CODEPILOT_REVIEW_MAX_FILES_PER_TASK=30
 - patch verification、location guard、finding ranking。
 - 自动修复 patch 应用、命令白名单和 sandbox 约束。
 
-当前全量测试基线：`523 tests, 0 failures, 0 errors, 2 skipped`。其中 Testcontainers 使用真实 PostgreSQL/pgvector、Redis 和 RabbitMQ 验证 Flyway、并发原子抢占、本地消息领取、分布式限流、Publisher Confirm、死信路由与事务回滚。
+当前全量测试基线为 540 个测试，0 failures/0 errors。Testcontainers 已使用隔离的 PostgreSQL/pgvector、Redis 和 RabbitMQ 验证命令 outbox、命令任务并发领取、租约恢复和 PR command publisher confirm。
 
 Actuator `metrics` 端点提供以下低基数业务指标：
 

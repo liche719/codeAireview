@@ -9,6 +9,7 @@ import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubLinkedIssue;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
+import com.codepilot.module.git.dto.GithubMergeResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
@@ -179,6 +180,85 @@ public class GithubClient {
         log.info("GitHub PR detail fetched, owner={}, repo={}, pullNumber={}, headSha={}",
                 owner, repo, pullNumber, detail.getHeadSha());
         return detail;
+    }
+
+    public GithubPullRequestDetail createPullRequest(
+            String owner,
+            String repo,
+            String title,
+            String head,
+            String base,
+            String body
+    ) {
+        if (!StringUtils.hasText(title) || !StringUtils.hasText(head) || !StringUtils.hasText(base)) {
+            throw new BusinessException("failed to create GitHub pull request: title, head and base are required");
+        }
+        GithubPullRequestDetail detail = executeGithubRequest("failed to create GitHub pull request", () ->
+                restClient.post()
+                        .uri("/repos/{owner}/{repo}/pulls", owner, repo)
+                        .headers(headers -> setAuthorization(headers, owner, repo))
+                        .body(Map.of(
+                                "title", title,
+                                "head", head,
+                                "base", base,
+                                "body", body == null ? "" : body
+                        ))
+                        .retrieve()
+                        .body(GithubPullRequestDetail.class)
+        );
+        if (detail == null || detail.getNumber() == null || !StringUtils.hasText(detail.getHtmlUrl())) {
+            throw new BusinessException("failed to create GitHub pull request: response is incomplete");
+        }
+        return detail;
+    }
+
+    public GithubPullRequestDetail findOpenPullRequestByHead(
+            String owner,
+            String repo,
+            String headBranch,
+            String baseBranch
+    ) {
+        List<GithubPullRequestDetail> pullRequests = executeGithubRequest(
+                "failed to find GitHub pull request by head",
+                () -> restClient.get()
+                        .uri(uriBuilder -> uriBuilder
+                                .path("/repos/{owner}/{repo}/pulls")
+                                .queryParam("state", "open")
+                                .queryParam("head", owner + ":" + headBranch)
+                                .queryParam("base", baseBranch)
+                                .build(owner, repo))
+                        .headers(headers -> setAuthorization(headers, owner, repo))
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<List<GithubPullRequestDetail>>() {
+                        })
+        );
+        return pullRequests == null || pullRequests.isEmpty() ? null : pullRequests.getFirst();
+    }
+
+    public GithubMergeResult mergePullRequest(
+            String owner,
+            String repo,
+            Integer pullNumber,
+            String expectedHeadSha,
+            String mergeMethod,
+            String commitTitle
+    ) {
+        GithubMergeResult result = executeGithubRequest("failed to merge GitHub pull request", () ->
+                restClient.put()
+                        .uri("/repos/{owner}/{repo}/pulls/{pullNumber}/merge", owner, repo, pullNumber)
+                        .headers(headers -> setAuthorization(headers, owner, repo))
+                        .body(Map.of(
+                                "sha", expectedHeadSha,
+                                "merge_method", mergeMethod,
+                                "commit_title", commitTitle
+                        ))
+                        .retrieve()
+                        .body(GithubMergeResult.class)
+        );
+        if (result == null) {
+            throw new BusinessException("failed to merge GitHub pull request: response is empty");
+        }
+        return result;
     }
 
     public List<GithubLinkedIssue> listPullRequestLinkedIssues(String owner, String repo, Integer pullNumber) {

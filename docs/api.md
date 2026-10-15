@@ -248,16 +248,29 @@ curl -X POST http://localhost:8080/api/rules/search ^
 - `pull_request` / `reopened`
 - `issue_comment` / `created`
 
-`pull_request` 事件会创建审查任务。`issue_comment` 事件只处理 PR Conversation 中的命令。
+`pull_request` 事件会创建审查任务。`issue_comment` 事件处理 `/review` 兼容命令和任意 `@x-pilotx ...` Agent 请求。
 
 命令：
 
 ```text
 /review
-@x-pilotx review
-@x-pilotx fix dry-run
-@x-pilotx fix
+@x-pilotx 总结当前审查发现并给出证据
+@x-pilotx 查一下 Redis 最新建议，再检查这个 PR
+@x-pilotx 针对 UserService 的空指针问题生成修复预览
 ```
+
+所有 mention 都创建 `CHAT` Agent 任务，不在 Webhook 入口预分类。Agent 根据完整请求选择多个 Tool，可启动审查 Workflow 和 dry-run 修复预览。模型不能直接创建分支、push、创建 PR 或 merge；这些写动作只能由服务端审批门禁派生的 `FIX_PUBLISH` / `FIX_MERGE` 异步任务执行。
+
+Agent 运行具有有限上下文和可恢复状态。同步 Tool 会在同一次模型调用内继续循环；异步 Review/Fix Tool 会返回 scheduled 状态，任务进入 `WAITING_WORKFLOW`，子任务完成后恢复原 Agent run。命令 outbox 和 execution lease 负责消息可靠投递与重复消费保护。
+
+修复发布和合并使用两个独立的精确命令：
+
+```text
+@x-pilotx 批准发布修复 <previewTaskId>
+@x-pilotx 批准合并修复 <publishTaskId>
+```
+
+也支持英文命令 `approve fix preview <id>` 和 `approve merge fix <id>`。额外说明或 ID 不匹配会被拒绝；模型调用 Tool 本身不构成授权。服务端会读取持久化的原始评论并验证评论者、仓库、PR、source head SHA、patch hash、允许修改路径和功能开关。
 
 返回 processed：
 

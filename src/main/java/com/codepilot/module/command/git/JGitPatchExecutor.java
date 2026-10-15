@@ -5,6 +5,7 @@ import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.command.fix.FixPatchScopeValidator;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.transport.RefSpec;
+import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -53,6 +54,7 @@ public class JGitPatchExecutor implements GitPatchExecutor {
             validateRequest(request);
             enforcePatchScope(request);
             String branch = request.getBranch();
+            String targetBranch = resolveTargetBranch(request);
             String cloneUrl = request.getCloneUrl();
             boolean dryRun = request.isDryRun();
 
@@ -66,6 +68,18 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                     request.getToken()
             );
 
+            if (!dryRun && !branch.equals(targetBranch)) {
+                String existingCommitSha = findRemoteBranchHead(cloneUrl, targetBranch, credentials);
+                if (StringUtils.hasText(existingCommitSha)) {
+                    log.info("Reuse existing fix target branch, sourceBranch={}, targetBranch={}, commitSha={}",
+                            branch, targetBranch, existingCommitSha);
+                    return GitPatchExecutionResult.success(
+                            existingCommitSha,
+                            "Target fix branch already exists and was reused.",
+                            "stage=branch-existing,targetBranch=" + targetBranch);
+                }
+            }
+
             stage = "clone";
             log.info("Git patch execution stage start, stage={}, branch={}, cloneUrlHost={}", stage, branch, safeRemoteLabel(cloneUrl));
             try (Git git = Git.cloneRepository()
@@ -75,6 +89,12 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                     .setCredentialsProvider(credentials)
                     .call()) {
                 log.info("Git patch execution stage success, stage={}, branch={}, workDir={}", stage, branch, workDir);
+
+                if (!dryRun && !branch.equals(targetBranch)) {
+                    stage = "checkout-target";
+                    git.checkout().setCreateBranch(true).setName(targetBranch).call();
+                    log.info("Git patch target branch created, sourceBranch={}, targetBranch={}", branch, targetBranch);
+                }
 
                 stage = "apply";
                 log.info("Git patch execution stage start, stage={}, branch={}", stage, branch);
@@ -149,7 +169,7 @@ public class JGitPatchExecutor implements GitPatchExecutor {
                 log.info("Git patch execution stage start, stage={}, branch={}, commitSha={}", stage, branch, commitSha);
                 git.push()
                         .setCredentialsProvider(credentials)
-                        .setRefSpecs(new RefSpec("HEAD:refs/heads/" + request.getBranch()))
+                        .setRefSpecs(new RefSpec("HEAD:refs/heads/" + targetBranch))
                         .call();
                 log.info("Git patch execution stage success, stage={}, branch={}, commitSha={}", stage, branch, commitSha);
                 return GitPatchExecutionResult.success(commitSha, "Patch committed and pushed.", validationResult.getDetail());
@@ -192,6 +212,47 @@ public class JGitPatchExecutor implements GitPatchExecutor {
             throw new IllegalArgumentException("cloneUrl, branch, patch and token are required");
         }
         validateValidationCommandPolicy(request);
+        validateBranch(resolveTargetBranch(request), "targetBranch");
+        validateBranch(request.getBranch(), "branch");
+    }
+
+    private String resolveTargetBranch(GitPatchExecutionRequest request) {
+        return request != null && StringUtils.hasText(request.getTargetBranch())
+                ? request.getTargetBranch().trim()
+                : request == null ? null : request.getBranch();
+    }
+
+    private void validateBranch(String branch, String field) {
+        if (!StringUtils.hasText(branch)
+                || branch.length() > 255
+                || branch.startsWith("/")
+                || branch.endsWith("/")
+                || branch.contains("..")
+                || branch.contains("\\")
+                || branch.contains(" ")
+                || branch.contains("~")
+                || branch.contains("^")
+                || branch.contains(":")) {
+            throw new IllegalArgumentException(field + " is not a safe Git branch name");
+        }
+    }
+
+    private String findRemoteBranchHead(
+            String cloneUrl,
+            String targetBranch,
+            UsernamePasswordCredentialsProvider credentials
+    ) throws Exception {
+        String expectedRef = "refs/heads/" + targetBranch;
+        for (Ref ref : Git.lsRemoteRepository()
+                .setRemote(cloneUrl)
+                .setCredentialsProvider(credentials)
+                .setHeads(true)
+                .call()) {
+            if (expectedRef.equals(ref.getName()) && ref.getObjectId() != null) {
+                return ref.getObjectId().getName();
+            }
+        }
+        return null;
     }
 
     private void enforcePatchScope(GitPatchExecutionRequest request) {

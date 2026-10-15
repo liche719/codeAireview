@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.eclipse.jgit.api.Git;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -219,6 +220,59 @@ class JGitPatchExecutorTest {
     }
 
     @Test
+    void shouldPushToIndependentTargetBranchAndReuseItOnRetry() throws Exception {
+        Path root = Files.createTempDirectory("codepilot-fix-branch-test-");
+        Path seedDir = root.resolve("seed");
+        Path originDir = root.resolve("origin.git");
+        String sourceBranch;
+        try {
+            try (Git seed = Git.init().setDirectory(seedDir.toFile()).call()) {
+                Files.writeString(seedDir.resolve("Demo.txt"), "old\n");
+                seed.add().addFilepattern("Demo.txt").call();
+                seed.commit().setMessage("initial").setAuthor("test", "test@example.com").call();
+                sourceBranch = seed.getRepository().getBranch();
+                try (Git ignored = Git.init().setBare(true).setDirectory(originDir.toFile()).call()) {
+                    // Bare origin initialized for the push below.
+                }
+                seed.push().setRemote(originDir.toUri().toString()).setPushAll().call();
+            }
+
+            GitPatchExecutionRequest request = new GitPatchExecutionRequest();
+            request.setCloneUrl(originDir.toUri().toString());
+            request.setBranch(sourceBranch);
+            request.setTargetBranch("codepilot/fix-1-abcd1234");
+            request.setPatch("""
+                    diff --git a/Demo.txt b/Demo.txt
+                    --- a/Demo.txt
+                    +++ b/Demo.txt
+                    @@ -1 +1 @@
+                    -old
+                    +new
+                    """);
+            request.setAllowedPaths(Set.of("Demo.txt"));
+            request.setToken("test-token");
+            request.setCommitMessage("fix: approved preview");
+            request.setValidationCommand("");
+            request.setDryRun(false);
+
+            GitPatchExecutionResult first = executor.execute(request);
+            GitPatchExecutionResult retry = executor.execute(request);
+
+            assertThat(first.isSuccess()).isTrue();
+            assertThat(first.getCommitSha()).isNotBlank();
+            assertThat(retry.isSuccess()).isTrue();
+            assertThat(retry.getCommitSha()).isEqualTo(first.getCommitSha());
+            try (Git origin = Git.open(originDir.toFile())) {
+                assertThat(origin.getRepository().findRef("refs/heads/codepilot/fix-1-abcd1234")).isNotNull();
+                assertThat(origin.getRepository().findRef("refs/heads/" + sourceBranch).getObjectId().getName())
+                        .isNotEqualTo(first.getCommitSha());
+            }
+        } finally {
+            deleteRecursively(root);
+        }
+    }
+
+    @Test
     void shouldRejectPatchExecutionWithoutAllowedPaths() {
         GitPatchExecutionRequest request = validRequest();
         request.setAllowedPaths(Set.of());
@@ -368,5 +422,17 @@ class JGitPatchExecutorTest {
         request.setAllowedValidationCommands(List.of("git diff --check"));
         request.setDryRun(true);
         return request;
+    }
+
+    private void deleteRecursively(Path root) throws Exception {
+        if (root == null || !Files.exists(root)) {
+            return;
+        }
+        try (var stream = Files.walk(root)) {
+            for (Path path : stream.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                path.toFile().setWritable(true);
+                Files.deleteIfExists(path);
+            }
+        }
     }
 }

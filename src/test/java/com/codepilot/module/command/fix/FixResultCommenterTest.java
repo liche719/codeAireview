@@ -41,6 +41,7 @@ class FixResultCommenterTest {
                                 && body.contains("[REDACTED]")
                                 && !body.contains(secret)
                                 && body.contains("`\u200b``")
+                                && body.contains("@x-pilotx 批准发布修复 1")
                 )
         );
     }

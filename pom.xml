@@ -48,6 +48,10 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
             <version>${mybatis-plus.version}</version>
@@ -148,6 +152,34 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+            <!--
+                Mockito 5 默认使用 inline mock maker，需要 byte-buddy agent。
+                JDK 9+ 默认禁止 JVM 自附加（jdk.attach.allowAttachSelf=false），
+                仅靠 Mockito 自附加在 JDK 21 上会直接失败：
+                  "Could not self-attach to current VM using external process"
+                这里按 Mockito 官方建议，把 byte-buddy-agent 作为 -javaagent 显式挂到
+                测试 JVM 上。agent 坐标由 dependency-plugin 解析成属性，避免硬编码版本号
+                和本机仓库路径。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>resolve-byte-buddy-agent</id>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-javaagent:${net.bytebuddy:byte-buddy-agent:jar} -Xshare:off</argLine>
                 </configuration>
             </plugin>
         </plugins>

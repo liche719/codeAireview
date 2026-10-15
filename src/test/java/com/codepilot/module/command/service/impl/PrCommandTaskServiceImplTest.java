@@ -7,6 +7,7 @@ import com.codepilot.module.command.creator.PrCommandTaskCreator;
 import com.codepilot.module.command.failure.PrCommandTaskFailureHandler;
 import com.codepilot.module.command.fix.FixableIssueSelector;
 import com.codepilot.module.command.fix.FixPatchScopeValidator;
+import com.codepilot.module.command.fix.FixPatchArtifactCodec;
 import com.codepilot.module.command.fix.FixRequestAssembler;
 import com.codepilot.module.command.fix.FixResultCommenter;
 import com.codepilot.module.command.fix.FixSnippetBuilder;
@@ -280,6 +281,9 @@ class PrCommandTaskServiceImplTest {
 
         private final FixPatchScopeValidator fixPatchScopeValidator = new FixPatchScopeValidator(properties);
 
+        private final FixPatchArtifactCodec fixPatchArtifactCodec =
+                new FixPatchArtifactCodec(new ObjectMapper(), properties);
+
         private final FixableIssueSelector fixableIssueSelector = mock(FixableIssueSelector.class);
 
         private final FixSnippetBuilder fixSnippetBuilder = mock(FixSnippetBuilder.class);
@@ -308,7 +312,7 @@ class PrCommandTaskServiceImplTest {
 
         private final FixPullRequestWritePolicy fixPullRequestWritePolicy = new FixPullRequestWritePolicy();
 
-        private final PrCommandTaskCreator commandTaskCreator = new PrCommandTaskCreator(mapper);
+        private final PrCommandTaskCreator commandTaskCreator = new PrCommandTaskCreator(mapper, properties);
 
         private final PrCommandTaskRunner commandTaskRunner = new PrCommandTaskRunner(
                 githubClient,
@@ -316,6 +320,7 @@ class PrCommandTaskServiceImplTest {
                 gitPatchExecutor,
                 commandTaskLogService,
                 fixPatchScopeValidator,
+                fixPatchArtifactCodec,
                 fixableIssueSelector,
                 fixSnippetBuilder,
                 fixRequestAssembler,

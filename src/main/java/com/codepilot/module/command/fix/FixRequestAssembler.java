@@ -6,6 +6,7 @@ import com.codepilot.module.command.git.GitPatchExecutionRequest;
 import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
 import com.codepilot.module.review.entity.ReviewIssue;
+import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -29,12 +30,20 @@ public class FixRequestAssembler {
     private final GithubAuthTokenProvider githubAuthTokenProvider;
 
     public FixPromptInput buildPromptInput(List<ReviewIssue> issues) throws Exception {
+        return buildPromptInput(null, issues);
+    }
+
+    public FixPromptInput buildPromptInput(PrCommandTask task, List<ReviewIssue> issues) throws Exception {
+        String userRequest = task == null
+                ? ""
+                : SensitiveDataSanitizer.redactAndTruncate(task.getCommandText(), 1000);
         return new FixPromptInput(
                 buildIssuesJson(issues),
                 allowedFixPaths(issues),
                 "maxFiles=" + properties.getFixMaxFiles()
                         + ", maxChangedLines=" + properties.getFixMaxChangedLines()
                         + ", output=unified diff only"
+                        + (StringUtils.hasText(userRequest) ? ", userRequest=" + userRequest : "")
         );
     }
 
@@ -48,6 +57,9 @@ public class FixRequestAssembler {
         GitPatchExecutionRequest request = new GitPatchExecutionRequest();
         request.setCloneUrl(detail.getHeadRepoCloneUrl());
         request.setBranch(detail.getHeadRef());
+        request.setTargetBranch(task != null && StringUtils.hasText(task.getTargetBranch())
+                ? task.getTargetBranch()
+                : detail.getHeadRef());
         request.setPatch(patch);
         request.setAllowedPaths(allowedPaths == null ? Set.of() : new LinkedHashSet<>(allowedPaths));
         request.setToken(resolveCloneToken(task, detail));

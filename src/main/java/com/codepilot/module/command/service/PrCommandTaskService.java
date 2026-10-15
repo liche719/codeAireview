@@ -8,5 +8,9 @@ public interface PrCommandTaskService extends IService<PrCommandTask> {
 
     PrCommandTask createFixTask(GitHubPullRequestWebhookPayload payload);
 
+    PrCommandTask createChatTask(GitHubPullRequestWebhookPayload payload);
+
+    void processCommandTask(Long commandTaskId);
+
     void processFixTask(Long commandTaskId);
 }

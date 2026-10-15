@@ -14,6 +14,13 @@ import com.codepilot.module.review.processor.ReviewTaskProcessingResult;
 import com.codepilot.module.review.state.ReviewTaskStateManager;
 import com.codepilot.task.ReviewTaskMessage;
 import com.codepilot.task.ReviewTaskProducer;
+import com.codepilot.module.command.entity.PrCommandTask;
+import com.codepilot.module.command.entity.PrCommandTaskOutbox;
+import com.codepilot.module.command.mapper.PrCommandTaskMapper;
+import com.codepilot.module.command.mapper.PrCommandTaskOutboxMapper;
+import com.codepilot.module.command.state.PrCommandTaskStateManager;
+import com.codepilot.task.PrCommandTaskProducer;
+import com.codepilot.task.PrCommandTaskMessage;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -103,6 +110,18 @@ class ReliableReviewInfrastructureIntegrationTest {
     @Autowired
     private RabbitTemplate rabbitTemplate;
 
+    @Autowired
+    private PrCommandTaskMapper commandTaskMapper;
+
+    @Autowired
+    private PrCommandTaskOutboxMapper commandTaskOutboxMapper;
+
+    @Autowired
+    private PrCommandTaskStateManager commandTaskStateManager;
+
+    @Autowired
+    private PrCommandTaskProducer commandTaskProducer;
+
     @Test
     void shouldUseRealInfrastructureForClaimOutboxRateLimitAndPublisherConfirm() throws Exception {
         ReviewTask task = pendingTask();
@@ -183,6 +202,38 @@ class ReliableReviewInfrastructureIntegrationTest {
                 .isEqualTo("src/Old.java");
     }
 
+    @Test
+    void shouldUseRealInfrastructureForCommandClaimOutboxAndPublisherConfirm() throws Exception {
+        PrCommandTask task = pendingCommandTask();
+        commandTaskMapper.insert(task);
+
+        ExecutorService executor = Executors.newFixedThreadPool(12);
+        long claimed;
+        try {
+            List<Callable<Boolean>> calls = new ArrayList<>();
+            for (int index = 0; index < 12; index++) {
+                calls.add(() -> commandTaskStateManager.claim(task.getId()) != null);
+            }
+            List<Future<Boolean>> futures = executor.invokeAll(calls);
+            claimed = futures.stream().filter(this::claimed).count();
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(claimed).isEqualTo(1);
+
+        commandTaskOutboxMapper.enqueue(task.getId(), LocalDateTime.now());
+        List<PrCommandTaskOutbox> outbox = commandTaskOutboxMapper.claimDue(
+                LocalDateTime.now(), LocalDateTime.now().minusMinutes(1), 10);
+        assertThat(outbox).singleElement()
+                .extracting(PrCommandTaskOutbox::getCommandTaskId)
+                .isEqualTo(task.getId());
+
+        commandTaskProducer.sendAndConfirm(task.getId(), Duration.ofSeconds(10));
+        Object received = rabbitTemplate.receiveAndConvert(PrCommandTaskProducer.PR_COMMAND_TASK_QUEUE, 5000);
+        assertThat(received).isInstanceOf(PrCommandTaskMessage.class);
+        assertThat(((PrCommandTaskMessage) received).getCommandTaskId()).isEqualTo(task.getId());
+    }
+
     private long claimConcurrently(Long taskId, int workers) throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(workers);
         try {
@@ -232,5 +283,22 @@ class ReliableReviewInfrastructureIntegrationTest {
         file.setSkipped(false);
         file.setCreatedAt(LocalDateTime.now());
         return file;
+    }
+
+    private PrCommandTask pendingCommandTask() {
+        PrCommandTask task = new PrCommandTask();
+        task.setCommandType("CHAT");
+        task.setStatus("PENDING");
+        task.setRepoOwner("liche719");
+        task.setRepoName("codeAireview");
+        task.setPrNumber(999);
+        task.setPrUrl("https://github.com/liche719/codeAireview/pull/999");
+        task.setCommentId(System.nanoTime());
+        task.setCommentBody("@x-pilotx explain");
+        task.setCommandText("explain");
+        task.setAttemptCount(0);
+        task.setCreatedAt(LocalDateTime.now());
+        task.setUpdatedAt(LocalDateTime.now());
+        return task;
     }
 }

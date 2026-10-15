@@ -34,6 +34,8 @@ public class PrCommandTask {
 
     private String commentBody;
 
+    private String commandText;
+
     private String commentUserLogin;
 
     private Boolean dryRun;
@@ -41,6 +43,36 @@ public class PrCommandTask {
     private String generatedPatch;
 
     private String commitSha;
+
+    private String responseBody;
+
+    private Long sourceTaskId;
+
+    private Long approvalCommentId;
+
+    private String approvedBy;
+
+    private String commentAuthorAssociation;
+
+    private String patchPayload;
+
+    private String patchSha256;
+
+    private String allowedPathsJson;
+
+    private String targetBranch;
+
+    private Integer createdPrNumber;
+
+    private String createdPrUrl;
+
+    private String executionStage;
+
+    private String executionToken;
+
+    private LocalDateTime leaseUntil;
+
+    private Integer attemptCount;
 
     private String errorMessage;
 

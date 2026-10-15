@@ -347,7 +347,7 @@ class GitHubWebhookServiceTest {
                     signatureVerifier,
                     new GitHubWebhookPayloadParser(
                             new ObjectMapper(),
-                            new GithubCommandParser(new GithubCommandProperties(), null, null, enabledLlmProperties())
+                            new GithubCommandParser(new GithubCommandProperties(), enabledLlmProperties())
                     ),
                     reviewTaskService,
                     githubCommandRouter,

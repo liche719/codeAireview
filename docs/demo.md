@@ -180,10 +180,17 @@ PR 打开或同步后，CodePilot 会：
 如果开启 fix 模式，还可以演示：
 
 ```text
-@x-pilotx fix dry-run
+@x-pilotx 只修复 SQL 拼接问题，并生成 dry-run 补丁预览
 ```
 
-`@x-pilotx fix` 默认关闭。只有在隔离环境、最小权限 token 和 sandbox 校验准备好后才建议开启。
+修复预览、发布和合并 Tool 默认关闭。只有在隔离环境、最小权限 token 和 sandbox 校验准备好后才建议开启。dry-run 成功后，按评论中返回的任务 ID 依次演示：
+
+```text
+@x-pilotx 批准发布修复 <previewTaskId>
+@x-pilotx 批准合并修复 <publishTaskId>
+```
+
+第一条审批创建独立 bot 分支和修复 PR，第二条审批才允许合并。强调模型不能直接 push 或 merge，服务端会根据持久化的原始评论重新验证授权与 patch 身份。
 
 ## 演示时重点讲什么
 

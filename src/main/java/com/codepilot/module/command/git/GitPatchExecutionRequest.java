@@ -14,6 +14,8 @@ public class GitPatchExecutionRequest {
 
     private String branch;
 
+    private String targetBranch;
+
     private String patch;
 
     private Set<String> allowedPaths = new LinkedHashSet<>();

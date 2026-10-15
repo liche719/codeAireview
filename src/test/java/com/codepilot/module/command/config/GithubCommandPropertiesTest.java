@@ -14,15 +14,20 @@ class GithubCommandPropertiesTest {
 
     @Test
     void shouldBindFixValidationSafetyProperties() {
-        MapConfigurationPropertySource source = new MapConfigurationPropertySource(Map.of(
-                "codepilot.github.fix-validation-command", "mvn -q -DskipTests compile",
-                "codepilot.github.fix-allowed-validation-commands[0]", "git diff --check",
-                "codepilot.github.fix-allowed-validation-commands[1]", "mvn -q -DskipTests compile",
-                "codepilot.github.fix-validation-allow-build-commands", "true",
-                "codepilot.github.fix-validation-inherit-environment", "true",
-                "codepilot.github.fix-validation-execution-mode", "docker",
-                "codepilot.github.fix-validation-docker-image", "maven:3.9-eclipse-temurin-21",
-                "codepilot.github.fix-validation-docker-network", "none"
+        MapConfigurationPropertySource source = new MapConfigurationPropertySource(Map.ofEntries(
+                Map.entry("codepilot.github.fix-validation-command", "mvn -q -DskipTests compile"),
+                Map.entry("codepilot.github.fix-allowed-validation-commands[0]", "git diff --check"),
+                Map.entry("codepilot.github.fix-allowed-validation-commands[1]", "mvn -q -DskipTests compile"),
+                Map.entry("codepilot.github.fix-validation-allow-build-commands", "true"),
+                Map.entry("codepilot.github.fix-validation-inherit-environment", "true"),
+                Map.entry("codepilot.github.fix-validation-execution-mode", "docker"),
+                Map.entry("codepilot.github.fix-validation-docker-image", "maven:3.9-eclipse-temurin-21"),
+                Map.entry("codepilot.github.fix-validation-docker-network", "none"),
+                Map.entry("codepilot.github.fix-publish-enabled", "true"),
+                Map.entry("codepilot.github.fix-merge-enabled", "true"),
+                Map.entry("codepilot.github.fix-approval-require-same-user", "false"),
+                Map.entry("codepilot.github.fix-branch-prefix", "automation/fix-"),
+                Map.entry("codepilot.github.fix-merge-method", "rebase")
         ));
 
         GithubCommandProperties properties = new Binder(source)
@@ -37,6 +42,11 @@ class GithubCommandPropertiesTest {
         assertThat(properties.getFixValidationExecutionMode()).isEqualTo(ValidationExecutionMode.DOCKER);
         assertThat(properties.getFixValidationDockerImage()).isEqualTo("maven:3.9-eclipse-temurin-21");
         assertThat(properties.getFixValidationDockerNetwork()).isEqualTo("none");
+        assertThat(properties.isFixPublishEnabled()).isTrue();
+        assertThat(properties.isFixMergeEnabled()).isTrue();
+        assertThat(properties.isFixApprovalRequireSameUser()).isFalse();
+        assertThat(properties.getFixBranchPrefix()).isEqualTo("automation/fix-");
+        assertThat(properties.getFixMergeMethod()).isEqualTo("rebase");
     }
 
     @Test
@@ -50,5 +60,10 @@ class GithubCommandPropertiesTest {
         assertThat(properties.getFixValidationExecutionMode()).isEqualTo(ValidationExecutionMode.LOCAL);
         assertThat(properties.getFixValidationDockerImage()).isBlank();
         assertThat(properties.getFixValidationDockerNetwork()).isEqualTo("none");
+        assertThat(properties.isFixPublishEnabled()).isFalse();
+        assertThat(properties.isFixMergeEnabled()).isFalse();
+        assertThat(properties.isFixApprovalRequireSameUser()).isTrue();
+        assertThat(properties.getFixBranchPrefix()).isEqualTo("codepilot/fix-");
+        assertThat(properties.getFixMergeMethod()).isEqualTo("squash");
     }
 }

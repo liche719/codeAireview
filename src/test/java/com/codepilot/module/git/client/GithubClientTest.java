@@ -5,6 +5,8 @@ import com.codepilot.module.git.config.GithubProperties;
 import com.codepilot.module.git.dto.GithubChangedFile;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubLinkedIssue;
+import com.codepilot.module.git.dto.GithubPullRequestDetail;
+import com.codepilot.module.git.dto.GithubMergeResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -26,6 +28,47 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class GithubClientTest {
+
+    @Test
+    void shouldCreateFixPullRequest() {
+        TestContext context = new TestContext();
+        context.server.expect(once(), requestTo("https://api.github.test/repos/liche719/codeAireview/pulls"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer token"))
+                .andRespond(withSuccess(
+                        """
+                        {"number":99,"html_url":"https://github.com/liche719/codeAireview/pull/99"}
+                        """,
+                        MediaType.APPLICATION_JSON));
+
+        GithubPullRequestDetail result = context.client.createPullRequest(
+                "liche719", "codeAireview", "fix: approved", "codepilot/fix-1", "feature/source", "body");
+
+        assertThat(result.getNumber()).isEqualTo(99);
+        assertThat(result.getHtmlUrl()).endsWith("/pull/99");
+        context.server.verify();
+    }
+
+    @Test
+    void shouldMergeFixPullRequestWithExpectedHeadSha() {
+        TestContext context = new TestContext();
+        context.server.expect(once(), requestTo(
+                        "https://api.github.test/repos/liche719/codeAireview/pulls/99/merge"))
+                .andExpect(method(HttpMethod.PUT))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer token"))
+                .andRespond(withSuccess(
+                        """
+                        {"merged":true,"sha":"merge-sha","message":"Pull Request successfully merged"}
+                        """,
+                        MediaType.APPLICATION_JSON));
+
+        GithubMergeResult result = context.client.mergePullRequest(
+                "liche719", "codeAireview", 99, "fix-sha", "squash", "fix: approved");
+
+        assertThat(result.getMerged()).isTrue();
+        assertThat(result.getSha()).isEqualTo("merge-sha");
+        context.server.verify();
+    }
 
     @Test
     void shouldRetryTooManyRequestsOnceAndReturnFiles() {

@@ -23,6 +23,7 @@ CodePilot 的设计目标是把 AI 审查做成可调度、可验证、可回写
 - 负责规则与模型结果融合：在 LLM 前强制执行 SQL 风险、敏感信息、测试缺失等确定性规则，再和模型结果去重合并。
 - 负责评论落地质量：用 patch verification 和 location guard 过滤无法绑定变更证据的问题，并支持 Summary Comment 幂等更新与 inline comment fallback。
 - 负责运行和质量验证：补充离线评估、单元测试、运行态 smoke 脚本和基础并发验证，沉淀项目可运行证据。
+- 负责 Agent 交互链路：将所有 `@x-pilotx ...` 评论统一重构为 RabbitMQ `CHAT` 任务，由模型组合查询、RAG、联网检索和受控 Workflow Tool，并记录上下文、Tool 调用和回复发布轨迹。
 
 ## 核心技术难点
 
@@ -104,7 +105,7 @@ CodePilot 的设计目标是把 AI 审查做成可调度、可验证、可回写
 
 ### 5. 自动修复的安全边界
 
-问题：`@x-pilotx fix` 会应用补丁并可能推送提交，如果没有边界，风险比普通审查高很多。
+问题：模型驱动的修复可能应用补丁甚至推送提交，如果没有边界，风险比普通审查高很多。
 
 方案：
 
@@ -142,10 +143,13 @@ CodePilot 的设计目标是把 AI 审查做成可调度、可验证、可回写
 - SQL 规则：拆出 AST analyzer、字符串拼接检测、issue factory。
 - Review finding ranking：拆出 score calculator、duplicate resolver、publish sorter。
 - 跨文件图谱和源码上下文：拆出 graph assembler、node accumulator、source excerpt extractor 和路径工具。
+- Agent：复用 `pr_command_task`、command outbox 和 RabbitMQ 完成可靠异步执行；新增 `AgentChatTaskRunner`、`agent_run/agent_step`、执行租约、有限跨评论上下文和 Tool 结果/耗时追踪；模型按用户自然语言组合只读 Tool，并可在异步 Workflow 完成后恢复继续推理，不能直接获得 Git/Shell 权限。
+- 修复闭环：将 dry-run patch 以 SHA-256 和允许路径固化；用两次独立、精确且服务端校验的用户审批驱动 `FIX_PUBLISH` 与 `FIX_MERGE`，完成 bot 分支、commit、push、修复 PR 和 expected-SHA merge，同时用唯一索引与远端状态查询保证重试幂等。
+- 外部检索：新增可选 SearXNG JSON API Tool 和受 URL allowlist 保护的正文抓取 Tool，默认关闭并带超时、结果预算、HTTPS/域名、私网 DNS、响应大小和内容类型约束；外部资料不会直接作为 review finding 事实。
 
 ## 验证结果
 
-- 全量自动化测试：`523 tests, 0 failures, 0 errors, 2 skipped`；Testcontainers 使用真实 PostgreSQL/pgvector、Redis、RabbitMQ 验证并发抢占、本地消息、发布确认、死信和事务回滚。
+- 全量自动化测试基线为 540 个测试，0 failures/0 errors；新增命令 outbox、租约恢复、真实 LangChain4j 多 Tool Loop、Agent continuation 和网页 SSRF 防护测试，并用 Docker/Testcontainers 完成 PostgreSQL/pgvector、Redis、RabbitMQ 真实基础设施验证。
 - 真实中间件测试额外覆盖 RabbitMQ 死信路由、发布锁超时恢复，以及审查结果替换失败时的 PostgreSQL 事务回滚。
 - 离线 AI Review 评估：6 个 PR-like 场景，Precision `85.71%`，Recall `100%`，must-not-comment violation rate `0%`。
 - 评估覆盖：SQL 风险、硬编码密钥、prompt injection、缺少测试、API 契约变化、配置安全回归、非法 JSON 降级。

@@ -17,6 +17,6 @@ public class PrCommandTaskConsumer {
     public void consume(PrCommandTaskMessage message) {
         log.info("PR command task message consumed, commandTaskId={}, traceId={}",
                 message.getCommandTaskId(), message.getTraceId());
-        prCommandTaskService.processFixTask(message.getCommandTaskId());
+        prCommandTaskService.processCommandTask(message.getCommandTaskId());
     }
 }

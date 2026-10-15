@@ -8,6 +8,11 @@ import org.mockito.ArgumentCaptor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 
 class PrCommandTaskStateManagerTest {
 
@@ -79,6 +84,30 @@ class PrCommandTaskStateManagerTest {
                 .contains("[REDACTED]")
                 .doesNotContain(secret);
         assertThat(taskCaptor.getValue().getUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    void shouldAtomicallyClaimCommandTaskWithExecutionLease() {
+        PrCommandTask task = task();
+        task.setStatus("RUNNING");
+        doAnswer(invocation -> {
+            task.setExecutionToken(invocation.getArgument(1));
+            return 1;
+        }).when(mapper).claimForExecution(eq(1L), anyString(), any(), any());
+        when(mapper.selectById(1L)).thenReturn(task);
+
+        PrCommandTask claimed = stateManager.claim(1L);
+
+        assertThat(claimed).isSameAs(task);
+        assertThat(claimed.getExecutionToken()).isNotBlank();
+        verify(mapper).claimForExecution(eq(1L), anyString(), any(), any());
+    }
+
+    @Test
+    void shouldSkipDuplicateDeliveryWhenClaimFails() {
+        when(mapper.claimForExecution(eq(1L), anyString(), any(), any())).thenReturn(0);
+
+        assertThat(stateManager.claim(1L)).isNull();
     }
 
     private PrCommandTask task() {

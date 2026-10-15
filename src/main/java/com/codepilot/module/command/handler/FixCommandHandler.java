@@ -8,14 +8,12 @@ import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.service.PrCommandTaskService;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
-import com.codepilot.task.PrCommandTaskProducer;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class FixCommandHandler implements GithubCommandHandler {
 
     private final GithubCommandProperties properties;
@@ -24,7 +22,27 @@ public class FixCommandHandler implements GithubCommandHandler {
 
     private final PrCommandTaskService prCommandTaskService;
 
-    private final PrCommandTaskProducer prCommandTaskProducer;
+    private final com.codepilot.task.PrCommandTaskProducer legacyProducer;
+
+    @Autowired
+    public FixCommandHandler(GithubCommandProperties properties,
+                             GithubClient githubClient,
+                             PrCommandTaskService prCommandTaskService) {
+        this.properties = properties;
+        this.githubClient = githubClient;
+        this.prCommandTaskService = prCommandTaskService;
+        this.legacyProducer = null;
+    }
+
+    public FixCommandHandler(GithubCommandProperties properties,
+                             GithubClient githubClient,
+                             PrCommandTaskService prCommandTaskService,
+                             com.codepilot.task.PrCommandTaskProducer ignoredProducer) {
+        this.properties = properties;
+        this.githubClient = githubClient;
+        this.prCommandTaskService = prCommandTaskService;
+        this.legacyProducer = ignoredProducer;
+    }
 
     @Override
     public GithubCommandType commandType() {
@@ -50,12 +68,10 @@ public class FixCommandHandler implements GithubCommandHandler {
         }
 
         PrCommandTask task = prCommandTaskService.createFixTask(payload);
-        if (isTerminalStatus(task.getStatus())) {
-            log.info("Skip enqueueing terminal PR fix command task, commandTaskId={}, status={}",
-                    task.getId(), task.getStatus());
-            return GithubCommandHandleResult.processed(task.getId(), payload.getAction());
+        if (legacyProducer != null && task != null
+                && !isTerminalStatus(task.getStatus())) {
+            legacyProducer.send(task.getId());
         }
-        prCommandTaskProducer.send(task.getId());
         return GithubCommandHandleResult.processed(task.getId(), payload.getAction());
     }
 

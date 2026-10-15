@@ -19,4 +19,16 @@ public interface GithubCommandChatAiAssistant {
             @V("repo") String repo,
             @V("pullNumber") Integer pullNumber
     );
+
+    @SystemMessage(fromResource = "prompts/github-command-chat-system-message.txt")
+    @UserMessage(fromResource = "prompts/github-command-agent-user-message.txt")
+    String replyWithConversation(
+            @V("commentBody") String commentBody,
+            @V("commandText") String commandText,
+            @V("reviewSessionContext") String reviewSessionContext,
+            @V("conversationContext") String conversationContext,
+            @V("owner") String owner,
+            @V("repo") String repo,
+            @V("pullNumber") Integer pullNumber
+    );
 }

@@ -45,6 +45,23 @@ public class PrCommandTaskFailureHandler {
         throw new IllegalStateException("PR fix command task failed, commandTaskId=" + task.getId(), exception);
     }
 
+    public void handleAgentRetryable(PrCommandTask task, Exception exception, Runnable finalFailureNotifier) {
+        String message = sanitizedErrorMessage(exception);
+        RetryAttempt retryAttempt = retryAttemptResolver.currentAttempt();
+        String retryDetail = retryAttempt.detail(errorType(exception));
+        if (retryAttempt.finalAttempt()) {
+            commandTaskStateManager.markFailed(task, message);
+            commandTaskLogService.record(task.getId(), "AGENT_FAILED", false, message, retryDetail);
+            if (finalFailureNotifier != null) {
+                finalFailureNotifier.run();
+            }
+        } else {
+            commandTaskStateManager.markRetrying(task, message);
+            commandTaskLogService.record(task.getId(), "AGENT_RETRYING", false, message, retryDetail);
+        }
+        throw new IllegalStateException("Agent command task failed, commandTaskId=" + task.getId(), exception);
+    }
+
     private String sanitizedErrorMessage(Exception exception) {
         String message = exception == null ? null : exception.getMessage();
         String sanitized = SensitiveDataSanitizer.redactAndTruncate(message, 2000);

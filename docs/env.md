@@ -82,8 +82,8 @@ copy .env.example .env
 ```text
 /review
 @x-pilotx review
-@x-pilotx fix dry-run
-@x-pilotx fix
+@x-pilotx 检查 SQL 风险并生成修复预览
+@x-pilotx 查询团队规范和外部资料后解释这个问题
 ```
 
 ## GitHub Webhook
@@ -98,7 +98,13 @@ copy .env.example .env
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `CODEPILOT_GITHUB_FIX_ENABLED` | `false` | 是否启用 `@x-pilotx fix`。 |
+| `CODEPILOT_GITHUB_FIX_ENABLED` | `false` | 是否允许 Agent 调用 `startFixPreview` dry-run 修复预览 Tool。 |
+| `CODEPILOT_GITHUB_FIX_PUBLISH_ENABLED` | `false` | 是否允许通过精确用户审批创建 bot 分支并发布修复 PR。 |
+| `CODEPILOT_GITHUB_FIX_MERGE_ENABLED` | `false` | 是否允许通过第二次独立审批合并修复 PR。 |
+| `CODEPILOT_GITHUB_FIX_APPROVAL_REQUIRE_SAME_USER` | `true` | 发布/合并审批是否必须由最初请求修复预览的用户发出。 |
+| `CODEPILOT_GITHUB_FIX_MAX_PATCH_CHARS` | `100000` | 内部审批 patch payload 的最大字符数。 |
+| `CODEPILOT_GITHUB_FIX_BRANCH_PREFIX` | `codepilot/fix-` | 修复分支前缀；系统会追加任务 ID 和随机后缀。 |
+| `CODEPILOT_GITHUB_FIX_MERGE_METHOD` | `squash` | GitHub 合并方法，仅允许 `merge`、`squash` 或 `rebase`。 |
 | `CODEPILOT_GITHUB_FIX_MAX_FILES` | `3` | 单次 patch 最多修改文件数。 |
 | `CODEPILOT_GITHUB_FIX_MAX_CHANGED_LINES` | `120` | 单次 patch 最多新增/删除行数。 |
 | `CODEPILOT_GITHUB_FIX_VALIDATION_COMMAND` | `git diff --check` | push 前校验命令。 |
@@ -109,6 +115,23 @@ copy .env.example .env
 | `CODEPILOT_GITHUB_FIX_VALIDATION_DOCKER_NETWORK` | `none` | sandbox 网络模式。生产建议保持 `none`。 |
 | `CODEPILOT_GITHUB_FIX_VALIDATION_INHERIT_ENVIRONMENT` | `false` | local 校验进程是否继承服务环境变量。 |
 | `CODEPILOT_GITHUB_FIX_VALIDATION_TIMEOUT_SECONDS` | `300` | 校验超时。 |
+
+三个开关相互独立且默认关闭。发布审批只接受 `批准发布修复 <previewTaskId>` / `approve fix preview <id>`；合并必须再使用 `批准合并修复 <publishTaskId>` / `approve merge fix <id>`。Agent Tool Call 不是授权，服务端始终以持久化的原始 GitHub 评论为准。
+
+## 命令任务与 Agent Runtime
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_COMMAND_EXECUTION_LEASE` | `15m` | 命令任务单次执行租约；过期后可恢复。 |
+| `CODEPILOT_COMMAND_OUTBOX_BATCH_SIZE` | `20` | 每次命令 outbox 发布批次。 |
+| `CODEPILOT_COMMAND_OUTBOX_MAX_ATTEMPTS` | `10` | 命令消息可靠投递最大重试次数。 |
+| `CODEPILOT_COMMAND_RECOVERY_BATCH_SIZE` | `50` | 单次租约恢复任务数。 |
+| `CODEPILOT_AGENT_RESUMABLE_ENABLED` | `true` | 是否允许异步 Workflow 完成后恢复 Agent。 |
+| `CODEPILOT_AGENT_MAX_MODEL_TURNS` | `8` | 单次 Agent run 最大模型轮次。 |
+| `CODEPILOT_AGENT_MAX_TOOL_CALLS` | `12` | 单次 Agent run 最大 Tool 调用数。 |
+| `CODEPILOT_AGENT_MAX_CONTINUATIONS` | `4` | 单次 Agent run 最大异步恢复次数。 |
+| `CODEPILOT_AGENT_RUN_DEADLINE` | `30m` | Agent run 生命周期截止时间。 |
+| `CODEPILOT_AGENT_CONVERSATION_MAX_TURNS` | `5` | 同一 PR 注入的历史 Agent 对话轮数。 |
 
 ## LLM
 
@@ -145,6 +168,26 @@ copy .env.example .env
 | `CODEPILOT_RAG_CACHE_ENABLED` | `true` | 是否启用 RAG 召回缓存。 |
 | `CODEPILOT_RAG_CACHE_MAX_SIZE` | `256` | RAG LRU 缓存最大条目数。 |
 | `CODEPILOT_RAG_CACHE_TTL_SECONDS` | `300` | RAG 缓存 TTL。 |
+
+## SearXNG 外部检索 Tool
+
+默认关闭。启用后，只有配置的 SearXNG 服务会被访问；Agent 只接收截断后的 HTTPS 搜索结果，网页内容仍然视为不可信外部参考。
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_SEARXNG_ENABLED` | `false` | 是否开放 `searchWeb` Agent Tool。 |
+| `CODEPILOT_SEARXNG_BASE_URL` | 空 | 已部署的 SearXNG 服务地址，例如 `http://localhost:8080`。 |
+| `CODEPILOT_SEARXNG_TIMEOUT` | `5s` | 单次搜索连接/读取超时。 |
+| `CODEPILOT_SEARXNG_MAX_RESULTS` | `5` | 单次最多返回的结果数。 |
+| `CODEPILOT_SEARXNG_MAX_QUERY_CHARS` | `240` | 模型提交的查询最大长度。 |
+| `CODEPILOT_SEARXNG_MAX_RESULT_CHARS` | `1200` | 单条搜索摘要最大长度。 |
+| `CODEPILOT_SEARXNG_ALLOWED_DOMAINS` | 空 | 可选域名白名单，逗号分隔；为空时接受 HTTPS 结果。 |
+| `CODEPILOT_SEARXNG_DOCUMENT_FETCH_ENABLED` | `false` | 是否允许抓取搜索结果正文。 |
+| `CODEPILOT_SEARXNG_DOCUMENT_FETCH_TIMEOUT` | `8s` | 正文抓取超时。 |
+| `CODEPILOT_SEARXNG_DOCUMENT_FETCH_MAX_BYTES` | `262144` | 单个网页响应最大字节数。 |
+| `CODEPILOT_SEARXNG_DOCUMENT_FETCH_MAX_CHARS` | `12000` | 单个网页注入 Agent 的最大字符数。 |
+
+正文抓取要求 `CODEPILOT_SEARXNG_ALLOWED_DOMAINS` 非空；URL 必须先由当前 Agent run 的 `searchWeb` 返回，服务端还会阻止私网/环回 DNS、重定向、非文本 Content-Type 和超限响应。
 
 ## 审查限制与文件级并发
 

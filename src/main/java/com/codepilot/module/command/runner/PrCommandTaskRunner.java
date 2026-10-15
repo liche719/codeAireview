@@ -7,6 +7,8 @@ import com.codepilot.module.command.failure.PrCommandTaskFailureHandler;
 import com.codepilot.module.command.fix.FixPromptInput;
 import com.codepilot.module.command.fix.FixPatchScopeValidationResult;
 import com.codepilot.module.command.fix.FixPatchScopeValidator;
+import com.codepilot.module.command.fix.FixPatchArtifact;
+import com.codepilot.module.command.fix.FixPatchArtifactCodec;
 import com.codepilot.module.command.fix.FixRequestAssembler;
 import com.codepilot.module.command.fix.FixResultCommenter;
 import com.codepilot.module.command.fix.FixSnippetBuilder;
@@ -40,6 +42,8 @@ public class PrCommandTaskRunner {
     private final PrCommandTaskLogService commandTaskLogService;
 
     private final FixPatchScopeValidator fixPatchScopeValidator;
+
+    private final FixPatchArtifactCodec fixPatchArtifactCodec;
 
     private final FixableIssueSelector fixableIssueSelector;
 
@@ -77,7 +81,7 @@ public class PrCommandTaskRunner {
                 return;
             }
 
-            FixPromptInput promptInput = fixRequestAssembler.buildPromptInput(fixableIssues);
+            FixPromptInput promptInput = fixRequestAssembler.buildPromptInput(task, fixableIssues);
             String snippets = fixSnippetBuilder.build(task, detail.getHeadSha(), fixableIssues);
             if (!StringUtils.hasText(snippets)) {
                 commandTaskStateManager.markFailed(task, "找到了可修复的问题，但没有有效的代码片段。");
@@ -118,6 +122,9 @@ public class PrCommandTaskRunner {
                 fixResultCommenter.patchValidationFailed(task, executionResult.getMessage());
                 return;
             }
+
+            FixPatchArtifact patchArtifact = fixPatchArtifactCodec.encode(patch, promptInput.allowedPaths());
+            commandTaskStateManager.storeGeneratedPatchArtifact(task, patchArtifact);
 
             commandTaskStateManager.markSuccess(task, executionResult.getCommitSha());
             commandTaskLogService.record(task.getId(), "PATCH_EXECUTE", true, executionResult.getMessage(), executionResult.getDetail());
