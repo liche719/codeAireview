@@ -30,6 +30,7 @@
 | **R15** | 评论生命周期（outdated 检测 + 编辑而非新建） | P2 | C14/C15 | R6 | M |
 | **R16** | 修正误导性文案与分类错位 | P2 | B14/B18/C12 | 无 | S |
 | **R17** | 构建门禁语义（默认不阻塞） | P2 | 新场景：门禁 | R1/R2 | S |
+| **R18** | LLM finding 的自省闸门 | P2 | 空泛/幻觉 finding | R10（成本指标） | M |
 | **D1** | 增量审查 | **待决** | A2/A17/H2 | R1/R6 | XL |
 | **D2** | 离线评估集扩充 | **待决（已确认要做）** | 指标可信度 | 无 | M |
 
@@ -605,9 +606,15 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 **问题**：无缓存命中率（H3）、无队列积压（H6）、无 token 成本（H2/H8）；`AgentMetrics` 的三个指标（`codepilot.agent.model.turns` / `.tool.calls` / `.run.transitions`）**未出现在 `docs/architecture.md` 的指标清单里**。
 
 **方案**：
-1. 补指标：`codepilot.review.llm.cache`（hit/miss）、`codepilot.rag.cache`（hit/miss）、`codepilot.review.queue.backlog`（gauge，从 RabbitMQ `QueueDeclarePassive` 读 message count）、`codepilot.review.llm.tokens`（Counter，按 prompt/completion 分别打 tag）
-2. 把 `codepilot.agent.*` 三个指标补进 `docs/architecture.md` 指标清单
-3. 新增 `docs/observability.md`：列出全部指标、类型、含义、以及"没有 Prometheus 时的查询方式"
+1. 补指标：`codepilot.review.llm.cache`（hit/miss）、`codepilot.rag.cache`（hit/miss）、`codepilot.review.queue.backlog`（gauge，从 RabbitMQ `QueueDeclarePassive` 读 message count）
+2. **成本与 token（对标补充 13 已有源码级先例，字段设计照抄 PR-Agent 的 `run_output.py`）**：
+   - `codepilot.review.llm.tokens`（Counter，按 `prompt` / `completion` / **`cache_read`** / **`cache_creation`** 分别打 tag）
+   - `codepilot.review.cost`（Counter，按 `model` 打 tag；并**显式区分"完全不可定价"与"部分可定价"**，对应 PR-Agent 的 `cost_status = unavailable` / `partial`）
+   - 展示细节：成本四舍五入后若为 0 但实际为正，**显示 `<$0.01` 而不是 0**（`_format_usd` 的做法），否则会让人误以为不花钱
+   - **`cache_read` 必须单独打 tag**：它是判断"缓存到底有没有省钱"的唯一依据。注意 PR-Agent 的 `cache_read` 来自 **provider 侧 prompt caching**，而我们的 `ai_review_cache` 是**应用级响应缓存**，两者语义不同——因此指标要分两个维度：`codepilot.review.llm.cache`（我们的应用缓存命中）与 `cache_read` tag（provider 侧缓存命中）
+3. 把 `codepilot.agent.*` 三个指标补进 `docs/architecture.md` 指标清单
+4. 新增 `docs/observability.md`：列出全部指标、类型、含义、以及"没有 Prometheus 时的查询方式"
+5. 新增 **dry-run 模式**（`codepilot.review.publish-dry-run`，默认 `false`）：走完整审查与发布决策链路但**不真正调用 GitHub 写接口**，用于验证 R1/R5/R17 的发布逻辑（Cursor Bugbot 已提供同等能力，见对标补充 10）
 
 **替代方案**：直接引入 Prometheus + Grafana——**本轮不选**，属于部署栈变更，应与"是否做生产化"一起决策；先补齐指标本身，暴露方式后置。
 
@@ -791,6 +798,61 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 
 ---
 
+## R18 LLM finding 的自省闸门
+
+### 问题
+
+我们已有 `ReviewFindingScoreCalculator` 给 finding 打分、`ReviewFindingRanker` 排序，但**没有"自省后再决定要不要"这一道闸门**——LLM 输出的 finding 只要通过 patch verification 与 location guard 就会被发布。因此**未经复核的幻觉 finding 与经过推理的 finding 享受同等待遇**。
+
+### 方案（借鉴 PR-Agent 的 `suggestions_score_threshold` + `score_on_reflection_failure`）
+
+1. 对通过质量门 1/2 的 finding 增加一轮**轻量自省**：让模型只回答"这条 finding 在给定 patch 上是否成立"，输出 0–10 分。
+2. 两个关键阈值（PR-Agent 的命名与语义可直接借用）：
+   - `suggestions-score-threshold`：低于此分**丢弃**。PR-Agent 官方注释警告**不要高于 8**，否则"may clip highly relevant suggestions"——我们默认 **5**（保守），并在文档写明上调风险。
+   - `score-on-reflection-failure`：自省调用失败或输出无法解析时给几分。PR-Agent 取 7（高于其阈值 0，即**失败时保留**）。我们默认取 **0**（**失败即丢弃**）——**这是与 PR-Agent 刻意的分歧**：我们的 eval 只有 6 个样本，宁可漏报也不让未复核内容进 PR。
+3. 被丢弃的 finding **不删除**，写 `review_issue` 并标 `publishDecision=SUPPRESS` + `suppressionReason=reflection_below_threshold`，由 R2 在摘要中上报条数（符合 R7 的"可审计抑制"原则）。
+
+### 替代方案与不选理由
+
+| 方案 | 不选理由 |
+|---|---|
+| **不设闸门，靠 prompt 约束模型自律** | 正是当前现状，也是空泛输出的来源之一 |
+| **把自省并进主审查 prompt（一次调用同时出 finding 与分数）** | 省一次调用，但等于让模型"自己给自己打分"，缺乏独立视角 |
+| **自省失败时保留**（PR-Agent 取 7 的做法） | 我们评估基础太薄（6 样本 / Precision 85.71%），**失败时保留等于放行未复核内容**。宁可漏报 |
+| **用确定性规则替代自省** | 两者互补：确定性规则覆盖可枚举模式，自省覆盖语义判断 |
+
+### 数据模型与迁移
+
+新增迁移 **V26**：`review_issue` 增加 `reflection_score INT` + `reflection_status VARCHAR(16)`（`SCORED` / `FAILED` / `SKIPPED`）。
+
+### 配置开关与默认值
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `codepilot.review.reflection-enabled` | **`false`** | 是否启用自省闸门。**默认关**（新增一次 LLM 调用 = 成本上升，需先量化收益） |
+| `codepilot.review.suggestions-score-threshold` | `5` | 低于此分丢弃。**不要设到 8 以上** |
+| `codepilot.review.score-on-reflection-failure` | **`0`** | 自省失败时的分数。**0 = 失败即丢弃**（与 PR-Agent 取 7 相反，理由见上） |
+| `codepilot.review.reflection-max-findings` | `10` | 单文件最多自省多少条，控制成本 |
+
+### 测试计划
+
+- 自省给低分 → finding 被抑制且 `suppressionReason` 正确落库
+- 自省调用抛异常 → 分数取 `score-on-reflection-failure`；**取 0 时该 finding 不被发布**
+- 自省输出无法解析 → 同上，且 `reflection_status=FAILED`
+- 阈值边界：等于阈值保留、低于阈值丢弃
+- 成本：`reflection-enabled=false` 时不发起任何额外调用
+
+### 回滚
+
+`reflection-enabled=false`（默认即关）。
+
+### 风险
+
+- **中**：自省本身也可能出错，把真 finding 丢掉（漏报）。缓解：默认关闭 + 阈值保守（5）+ 被丢弃的 finding **仍落库并上报**，可通过摘要与数据库复盘误杀率
+- **中**：成本上升（每文件多一次调用）。缓解：`reflection-max-findings` 限条数 + 默认关闭 + 先用量化收益（依赖 R10 的 token 指标）
+
+---
+
 ## 对标补充：改变前述设计的六条跨项结论
 
 这一节记录在确定性工具组调研完成后，对前述若干条目的**修正**。出处见 [`docs/benchmark-ai-review-tools.md`](benchmark-ai-review-tools.md) 第 3bis 节。
@@ -924,6 +986,47 @@ Copilot 的静态排除清单包含：锁文件、**`**/generated/**`**、`**/*.
 **这 4 家里没有任何一家支持"在 diff 行上 @bot"**：Bugbot 与 Ellipsis 只有会话流评论触发（`cursor review` / `@ellipsis`），**Copilot code review 连评论触发都没有**（`@copilot` 驱动的是 cloud agent，不是 review）。
 
 **对 R14 的表述收窄**：可以说"相对这一组是差异点"，**但不能说"业界都不支持"**——CodeRabbit / Greptile 是否支持行级触发**尚未核实**。文档中已按此收窄表述。
+
+---
+
+## 对标补充 3：PR-Agent 的 M6 / M9 / M10 补齐后带来的修正
+
+此前标为"未证实"的三个机制已全部由源码证实（本地 clone，不受网络限制），出处见 [`docs/benchmark-ai-review-tools.md`](benchmark-ai-review-tools.md) 第 2.7 节。
+
+### 补充 13：R10 的字段设计现在有**源码级先例**（不再只是商用产品的 API 观察）
+
+`pr_agent/algo/run_output.py` 已实现一个 opt-in 的 run-details 区块，字段与我们 R10 的设计几乎一一对应：
+
+| PR-Agent 字段 | 位置 | 我们的对应 |
+|---|---|---|
+| `prompt_tokens` / `completion_tokens` / `total_tokens` | `:150-153` | `codepilot.review.tokens`（按 `prompt`/`completion` 打 tag） |
+| **`cache_read_tokens` / `cache_creation_tokens`** | `:156` | **新增**：缓存命中/写入单独计量 |
+| `duration_seconds` | `:159` | 已有 `codepilot.review.task.duration` |
+| `total_cost_usd` + `cost_status`（`unavailable`/`partial`） | `:162-172` | **新增** `codepilot.review.cost`，并**显式区分"完全不可定价"与"部分可定价"** |
+| `model_costs_usd`（多模型按模型拆分） | `:173-175` | **新增**：按 `model` 打 tag |
+
+**一个可直接抄的实现细节**：`_format_usd`（`:125-130`）在"两位小数四舍五入后变成 0 但实际为正"时**显示 `<$0.01` 而不是 `$0.00`**——避免把真实成本显示成零。这类细节决定了成本数据可不可信。
+
+**一个重要澄清（避免照搬错误）**：PR-Agent **没有自己的 LLM 响应缓存**。它的 `cache_read` / `cache_creation` 来自 **provider 侧 prompt caching**（`cache_control_injection_points`），另外只有一个 repo-context 缓存。
+→ **我们的 `ai_review_cache` 是应用级响应缓存，与它是完全不同的东西。** 因此不能照搬字段语义，但**"缓存命中必须单独计量"这个原则完全适用**——这正是 R10 里 `codepilot.review.llm.cache`（hit/miss）与补充 10 的 `cache_read` tag 要解决的问题。
+
+### 补充 14：R2 与"跨文件 finding 落点"的关系被澄清
+
+PR-Agent 的 M6 源码显示：**跨文件 / 架构级 finding 的默认归宿是 review 正文**，行内只是 opt-in 的增强（`inline_key_issues`），且**锚定失败的仍留在正文**；无行可锚时降级为 **文件级评论**（`subject_type="file"`）。
+
+**对 R2 的修正**：我们的 `ReviewReportFormatter` 已经承担了"跨文件 finding 的归宿"这一职责（location guard 拒绝后进 Summary），**方向正确**。但缺两层：
+1. **opt-in 的行内提升**（能锚定的跨文件 finding 可以考虑挂到最关键的那一行）
+2. **文件级降级层**（挂在文件上而不是只能进汇总）
+
+→ 这两点并入 **R4（多行区间）** 的实现范围，不单独开条目。
+
+### 补充 15：新增 R18 —— 自省闸门，且**在一处刻意与 PR-Agent 分歧**
+
+PR-Agent 的 self-reflection 打分通道已证实：`suggestions_score_threshold`（官方警告不要高于 8）+ `score_on_reflection_failure = 7`。
+
+**关键分歧点**：PR-Agent 在自省失败时给 **7 分（高于其阈值，即保留）**；**我们默认给 0 分（丢弃）**。
+
+理由：我们的评估基础是 **6 个样本 / Precision 85.71%**，**薄到不足以支撑"失败时放行"**。PR-Agent 有更大的用户基数与反馈闭环来兜底，我们没有。**这是一个"同样的机制、不同的默认值"的典型取舍——机制可以抄，默认值必须按自己的证据强度定。**
 
 ---
 

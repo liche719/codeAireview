@@ -45,11 +45,11 @@
 | M3 | **`suggestion` 一键应用块** | 会生成。关键在**降级策略**：`validate_comments_inside_hunks()` 发现建议行落在 hunk 外时，**把 ```suggestion 块替换成 ```diff 块**——宁可取消一键应用，也不发一个应用不了的 suggestion。GitHub 返回 422 时逐条重发并剥掉 suggestion、只锚第一行。行号定位失败（position=-1）**不丢弃，降级为 file-level 评论** | committable 条件明确：锚定 diff **新侧真实行** + **有效的 start-to-end 区间**；**对已删除行拒绝生成**；仅 GitHub/GitLab | inline 含"问题+原因+具体修复"，可 commit suggestion | inline 含问题与修复，可 commit | 【未】 |
 | M4 | **误报抑制 / 学习** | **人类 resolve Agent 开的 thread = 教它闭嘴**。`_load_dismissed_key_issues()` 只接受 `status=="resolved"` **且作者是 agent** 的线程，取最后一条回复作为 `state="DISMISSED"` 注回 prompt。同一 finding 再现会 `reopened_count+1`，已 RESOLVED 的保留在 `<details>` 区块。另有配置级静态抑制（ignore_pr_title / branches / labels / authors / repositories / language / file_filter） | **最完整**。自然语言 PR 回复 → **org 级 learning 存内部 DB**；`scope`=local/global/auto；`approval_delay` 0–30 天审批；**源自某 PR 的 learning 在该 PR 合并前只作用于该 PR**；写入时凭据脱敏；有 CRUD API | 👍/👎 **训练**系统（其他 emoji 视为中性）；**被忽略 3 次后自动抑制**；2–3 周完成适应；`disabledRules[]` 显式禁用 | 对评论 👍/👎；按规则统计 issues found / PRs reviewed / accepted issues / **acceptance rate** | 【未】 |
 | M5 | **大 PR 处理与覆盖度上报** | **必须重点抄**。`max_model_tokens=32000`；压缩 diff 按文件 token 数**从大到小**塞预算，塞不下的收进 `remaining_files_list` 并告知模型；`enable_large_pr_chunking` **默认 false**（opt-in，`max_number_of_calls=3`）；`large_patch_policy="clip"`；**`enable_review_coverage_footer=true`（默认开）**，输出"⚠️ Review coverage: The following files were not included in this review because of the token budget"（超 50 条折叠）；抓不到内容的文件**插占位说明让模型标为需人工审查**，避免"跳过"被误当"干净" | 硬上限按套餐：**150 / 300** 文件；**>300 即使加钱也不支持**；`reviews.review_details` 用于**上报被抑制的评论** | 【未】 | **硬闸门**：`Not running: ...exceeds 200,000 characters`；**`linguist-generated` 文件在"是否过大"判定中先被排除** | 【未】 |
-| M6 | **跨文件 finding 落点** | 【未】 | 【未】 | 【未】 | 代码索引存在，但 AI reviews 的收益标注为 **"*(coming soon)*"** | 【未】 |
+| M6 | **跨文件 finding 落点** | **【源码】默认进 review 正文**：`key_issues_to_review` 渲染进正文（普通 issue comment）；**opt-in `inline_key_issues`** 才转行内（`pr_reviewer.py:1335-1336` → `_publish_key_issues_as_inline_comments:1489`），且**锚定失败的仍留在正文**（`:1580-1582`）。无行可锚时降级为 **`subject_type="file"` 文件级评论**（`github_provider.py:915-919`）。即**跨文件/架构级 finding 的默认归宿是正文**，不是行内 | 【未】 | 【未】 | 代码索引存在，但 AI reviews 的收益标注为 **"*(coming soon)*"** | 【未】 |
 | M7 | **状态/记忆持久化位置** | **零外部 DB**：状态序列化成版本化隐藏标记 `<!-- pr-agent-review-state:v1 {json} -->` 塞在 review 评论正文里，存 `finding_id`(sha256[:12]) / `state: ACTIVE\|RESOLVED` / `reopened_count` / `last_run.head_sha` / `complete` / `excluded_files`。专门处理了 `-->` 转义与"截断时先截人读文本、保住标记"。配置：`configuration.toml` 全局 + per-repo `.pr_agent.toml`（`use_repo_settings_file`，支持 per-directory） | learning 存**内部 DB**（org 级）+ 仓库内 `.coderabbit.yaml`（若存在则优先于 `.coderabbit.config.ts`）；`reviews.path_instructions[]` = `{path: glob, instructions}`（上限 20000 字符）；`reviews.path_filters[]` 支持 `!` 排除 | `.greptile/` 目录（`config.json`+`rules.md`+`files.json`）**按目录级联**，优先于仓库根 `greptile.json`；键含 `strictness`/`commentTypes`/`autoReview`/`ignorePatterns`/`rules[]`/`disabledRules[]`/`updateSummaryOnly`/sections 的 `collapsible` | **全部 UI/仪表盘**（Rules & exclusions），**无文档化的仓库根配置文件**；排除项是自然语言 | 【未】 |
 | M8 | **正式 review verdict** | **不提交**。所有 `create_review` 都是 `event="COMMENT"`；`REQUEST_CHANGES` **全仓库零命中**；`auto_approve()` 存在但**唯一调用点被注释掉**，配置注释直言"PR-Agent does not approve PRs"。替代通道：`publish_as_check_run`（发成 Check 而非评论，此时持久状态标记失效）。另有 `require_merge_recommendation` 只让**模型输出文本** `no_concerns_found\|needs_review\|changes_required`，**不改变 GitHub review 的 event 类型** | `request_changes_workflow` **默认 false**；开启后发 REQUEST_CHANGES，满足"最新 commit 已审 + 全部 thread resolved + 无失败 pre-merge check"时**自动转 APPROVE**；`allow_author_approval` 控制作者自我批准 | auto-approve 需显式开启，条件是 5/5 审查 + `riskCeiling` + 过滤器。**策略从 PR 的 BASE 分支读取**，故"a PR that edits `.greptile` cannot loosen the policy for itself"；**有新 commit 时撤销自己先前的 approval** | 【未】 | 【社】始终只提交 COMMENTED，从不 APPROVED |
-| M9 | **评论预算与折叠** | 【未】（`max_number_of_suggestions` 未证实） | `reviews.profile` = `quiet`\|`chill`\|`assertive`（默认 `chill`）；`collapse_walkthrough` **默认 true**，walkthrough 包进 `<details>`；`review_details` 控制被抑制评论展示 | sections 支持 `collapsible`/`defaultOpen` | 【未】 | 【未】 |
-| M10 | **成本与可观测** | 【未】（`run_details.py`/`run_output.py`/`telemetry/` 未读） | `disable_cache` 可关缓存，缓存最长 **7 天**；Review Usage 仪表盘定位是运营遥测**非计费账本**；**无单次审查 token 计数** | 【未】 | 支持按作者/路径/label/标题/父分支过滤 PR 来"**Control usage and costs**" | 【未】 |
+| M9 | **评论预算与折叠** | **【源码】**`num_max_findings = 3`（key issues 上限）；**self-reflection 打分通道已证实**：`suggestions_score_threshold = 0`（官方建议**不要高于 8**，否则会剪掉高相关建议）+ `score_on_reflection_failure = 7`（自省失败时给的分，**设到阈值以下即可丢弃未经审查的建议**）。`<details>` 折叠用于 `run_output.py:103,179`、`algo/utils.py:466,687,706,717,1576-1591`、`review_finding_state.py:366` | `reviews.profile` = `quiet`\|`chill`\|`assertive`（默认 `chill`）；`collapse_walkthrough` **默认 true**，walkthrough 包进 `<details>`；`review_details` 控制被抑制评论展示 | sections 支持 `collapsible`/`defaultOpen` | 【未】 | 【未】 |
+| M10 | **成本与可观测** | **【源码】完整且有源码先例**。`run_output.py` 渲染 **opt-in 的 run-details 区块**（model / tokens / time cost / AI calls）：token 分 `prompt`/`completion`/`total`，并**单独列出 `cache_read_tokens` / `cache_creation_tokens`**（`:150-156`）；成本由 `config.output_run_cost` 开关控制，`cost_status` 可为 `unavailable` / `partial`（带 `known_cost_call_count`），`total_cost_usd` 用 `_format_usd` 两位小数且**小于 1 分显示 `<$0.01` 而非 0**，**且按模型拆分 `model_costs_usd`**（`:162-175`）。**注意：它没有自己的 LLM 响应缓存**——`cache_read` 来自 **provider 侧 prompt caching**（`cache_control_injection_points`），另有 repo-context 缓存 | `disable_cache` 可关缓存，缓存最长 **7 天**；Review Usage 仪表盘定位是运营遥测**非计费账本**；**无单次审查 token 计数** | 【未】 | 支持按作者/路径/label/标题/父分支过滤 PR 来"**Control usage and costs**" | 【未】 |
 
 ---
 
@@ -139,6 +139,42 @@ PRReviewIdentity.INCREMENTAL = "<!-- pr-agent:review:incremental -->"
 → **这是一个重要的设计参考**：把"结论"作为**评论正文里的一句话**输出，而不是提交正式 verdict，可以完全避开 branch protection 误伤的风险。我们可以在 R7（verdict）里先提供"文本建议"，把真正的 `create_review(event=...)` 放在开关后面。
 
 ---
+
+### 2.7 补齐 M6 / M9 / M10（此前标为未证实的三个机制）
+
+**M6 跨文件 / 架构级 finding 的落点**（`pr_reviewer.py`）
+- 默认：`key_issues_to_review` **渲染进 review 正文**（正文以普通 issue comment 发出）。
+- **opt-in**：`inline_key_issues` 为真时才转成行内（`pr_reviewer.py:1335-1336` → `_publish_key_issues_as_inline_comments:1489`）。
+- 转换时**只搬走锚定成功的**，剩下的**继续留在正文**（`:1580` 写回 `remaining_issues`，`:1582` 全空时才 pop）。
+- 无行可锚时的降级：**`subject_type="file"`（文件级评论）**，且因为 `create_review` 端点不接受 `subject_type`，要走单条评论接口（`github_provider.py:915-919`）。
+
+→ **可抄的结论：跨文件 finding 的默认归宿是摘要正文，行内只是"能锚定时的增强"。** 这与我们当前"location guard 拒绝后进 Summary"的方向一致，但我们**没有 opt-in 的行内提升**，也没有文件级降级层。
+
+**M9 评论预算与折叠**
+- `num_max_findings = 3`（key issues 上限）。
+- **self-reflection 打分通道证实存在**（此前标为未证实）：
+  - `suggestions_score_threshold = 0`，官方注释建议**不要设到 8 以上**，否则"may clip highly relevant suggestions"
+  - `score_on_reflection_failure = 7` —— 自省失败或反馈无法解析时给的分数；**设到阈值以下即可自动丢弃未经自省审查的建议**
+- `<details>` 折叠用于 `run_output.py:103,179`、`algo/utils.py:466,687,706,717,1576-1591`、`review_finding_state.py:366`。
+
+→ **可抄的结论：给 LLM 输出加一道"自省打分 + 阈值"闸门，并让自省失败默认降级为"丢弃"。** 我们的 `ReviewFindingScoreCalculator` 已经在算分，但**没有"自省失败→低分→丢弃"这条链**。
+
+**M10 成本与可观测（这一条最有价值）**
+`run_output.py` 渲染一个 **opt-in 的 run-details 区块**（model / tokens / time cost / AI calls）：
+
+| 字段 | 源码位置 | 说明 |
+|---|---|---|
+| `prompt_tokens` / `completion_tokens` / `total_tokens` | `:150-153` | 分别标 `in` / `out` / `total` |
+| **`cache_read_tokens` / `cache_creation_tokens`** | `:156` | **单独列出**，标 `read` / `written` |
+| `duration_seconds` | `:159` | 时间成本 |
+| `total_cost_usd` + `cost_status` | `:162-172` | `cost_status` 可为 `unavailable` / `partial`（带 `known_cost_call_count` / 总调用数） |
+| `model_costs_usd` | `:173-175` | **多模型时按模型拆分** |
+| 开关 | `config.output_run_cost` | 成本区块是 **opt-in** |
+
+`_format_usd`（`:125-130`）有一个细节值得抄：两位小数四舍五入后若变成 0 但实际为正，**显示 `<$0.01` 而不是 `$0.00`**——避免把真实成本显示成零。
+
+**一个重要澄清**：PR-Agent **没有自己的 LLM 响应缓存**。它报告的 `cache_read` / `cache_creation` 来自 **provider 侧的 prompt caching**（`cache_control_injection_points`，`:501-506`），另有 repo-context 缓存。
+→ 这与我们的 `ai_review_cache`（**应用级响应缓存**）是**完全不同的东西**。因此我们不能直接照搬 `cache_read` 字段名，但**"把缓存命中单独计量"这个原则完全适用**。
 
 ## 3. CodeRabbit / Greptile / Graphite 值得借鉴的机制
 
@@ -362,9 +398,9 @@ GitHub Copilot code review / Cursor Bugbot / Ellipsis / Sweep 四个系统**也�
 | 系统 / 条目 | 原因 | 影响 |
 |---|---|---|
 | **Sweep 的评审相关格子** | `docs.sweep.dev` / `sweep.dev` **DNS 不可解析**；GitLab 镜像只有归档仓库，其中**不含 PR 评审产品**（`on_review.py` 是桩函数） | **已判定 Sweep 不属于代码审查产品**，从对标范围移除，而非"未核实" |
-| **Cursor Bugbot / Copilot 的评论预算数字** | 官方未公开 | 评论数上限只能参考 Ellipsis（64/64）与 reviewdog（30/10） |
+| **Cursor Bugbot / Copilot 的评论预算数字** | 官方未公开 | 评论数上限只能参考 Ellipsis（64/64）、reviewdog（30/10）与 PR-Agent（`num_max_findings=3`） |
 | **Cursor Bugbot / Copilot / Ellipsis 是否支持"在 diff 行上 @bot"** | 三家均未文档化行级触发 | 无法确认它们是否真的不支持，只能说**文档中没有** |
-| **PR-Agent 的 M6 / M9 / M10** | 配额中断，负责的子 agent 失败 | 跨文件 finding 落点、评论数上限（`max_number_of_suggestions`）、token/cost 上报未证实 |
+| ~~**PR-Agent 的 M6 / M9 / M10**~~ | **已补齐**（见第 2.7 节）——本地 clone 不受网络限制，直接读源码完成 | ~~跨文件 finding 落点、评论数上限、token/cost 上报~~ **全部已证实** |
 | **SonarQube 汇总评论的生命周期** | **官方文档确实未写明**（已用其文档站内建 `?ask=` 端点交叉确认，回答原文："doesn't specify whether its PR summary comment is edited or recreated, or describe a deduplication mechanism"） | 无法得知它是编辑还是新建汇总评论 |
 | SonarQube 旧的五态生命周期 | 常见说法里的 `Open/Confirmed/Reopened/Resolved/Closed` + `Won't Fix` **在当前文档中已不存在**（现为 `Open`/`Accepted`/`False positive`/`Confirmed` + Reopen） | **请勿照抄旧状态名** |
 | Semgrep 是否编辑旧评论、如何识别自己的评论 | 官方文档未写明 | — |
@@ -374,8 +410,8 @@ GitHub Copilot code review / Cursor Bugbot / Ellipsis / Sweep 四个系统**也�
 
 ### 补做计划
 
-1. **PR-Agent 补齐 3 项**（唯一还剩的实质缺口）：`pr_code_suggestions.py`（reflect 打分阈值、`max_number_of_suggestions`）、`algo/run_details.py` + `run_output.py` + `telemetry/`（token/cost 上报与缓存）、`servers/github_app.py` + `agent/pr_agent.py`（事件分发与重复投递防护）。**本地 clone 仍在 `C:\Users\33721\AppData\Local\Temp\pr-agent`，可直接读，不受网络限制。**
+1. **~~PR-Agent 补齐 3 项~~ —— 已完成**（第 2.7 节）。M6 / M9 / M10 全部由源码证实，并据此改写了矩阵与路线图 R10。
 2. **Sweep 若要重新纳入**：需先确认其当前的代码审查产品线是否存在及文档地址（本次 DNS 不可解析，只能读到 2024 末的归档仓库）。
 3. **补 Cursor Bugbot / Copilot 未公开的评论预算数字**：只能等官方文档更新。
 
-**收口结论**：本文件覆盖 **11 个系统 × 10 机制**。原计划的"12 系统"中，**Sweep 经核实不属于代码审查产品**，因此不是"未完成"，而是**范围修正**。
+**收口结论**：本文件覆盖 **11 个系统 × 10 机制**，其中 PR-Agent 的 10 个机制**全部源码级证实**。原计划的"12 系统"中，**Sweep 经核实不属于代码审查产品**，因此不是"未完成"，而是**范围修正**。
