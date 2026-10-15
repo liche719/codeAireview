@@ -247,6 +247,38 @@ CREATE INDEX IF NOT EXISTS idx_review_file_task_skip
 
 ## R3 DLQ 可运维化
 
+> **状态：已完成。**
+>
+> 已实现：
+> - 迁移 **V19**：`dead_letter_message` 表 + `uq_dead_letter_digest_status` 唯一索引 + 状态索引
+> - `DeadLetterConsumer`：两个 DLQ 各一个监听器，使用**手动 ack** 的容器工厂
+>   （`deadLetterListenerContainerFactory`）——**先落库成功再 ack**，落库失败则不 ack，消息留在 DLQ
+> - `DeadLetterService`：落库（含脱敏、sha256 digest、attempt 累加）、分页查询、重放标记、丢弃、任务 id 提取
+> - `DeadLetterController`：`/api/admin/dead-letters` 查询 / 详情 / 重放 / 丢弃，受既有 API Key 过滤器保护
+> - `DeadLetterMaintenanceJob`：`codepilot.dlq.backlog` gauge + 保留期清理
+> - 配置：`CODEPILOT_DLQ_*` 五项，**重放默认关闭**
+>
+> **两处与设计方案的偏离**：
+> 1. **积压指标取自数据库而非 RabbitMQ 管理接口**（原方案写的是 `QueueDeclarePassive`）。
+>    理由：消费者会把消息尽快搬进数据库，所以 PENDING 计数就是真正待处理的工作量；
+>    而且这样不需要额外的管理连接，刷新失败只记 warning，不会影响应用启动。
+> 2. **重放拆成两步**：`DeadLetterService.markReplayed` 只改状态、不负责投递，
+>    投递由控制器完成。拆开是为了让状态变更有单一入口、便于审计。
+>
+> **实现过程中由测试抓到两个自身缺陷**：
+> 1. **`@MapperScan` 是显式列包的**，新包 `module.dlq.mapper` 不在其中 →
+>    整个应用**启动失败**（不只是新功能）。已补上。
+> 2. **mapper 的 `#{now}` 参数不存在**——参数是实体本身，它没有 `now` 属性，
+>    运行期才抛错。已改用 SQL 的 `CURRENT_TIMESTAMP`。
+>    这两个都是"编译通过但运行时才炸"的类型，只有真实 Spring 上下文 + 真实 RabbitMQ 能发现。
+>
+> **验证**：`DeadLetterInfrastructureIntegrationTest`，真实 PostgreSQL/pgvector + RabbitMQ：
+> - 投一条消息进 DLQ → 被消费 → `dead_letter_message` 出现对应记录（`status=PENDING`、digest 64 位）
+> - 同一条消息再投一次 → **只有一行**，`attempt_count` 累加
+>
+> **仍未覆盖**：`DeadLetterController` 的重放/丢弃接口尚无测试（需要开启重放开关并断言重新投递）。
+> 控制器的鉴权路径复用既有过滤器，已有测试覆盖。
+
 ### 问题
 
 死信队列已配置（`RabbitMqConfig:39,82`，`default-requeue-rejected=false`），但全仓库**只有 2 个 `@RabbitListener`，都指向主队列**——DLQ 没有任何消费者。最终失败的消息进入 DLQ 后**永久滞留，无告警、无重放、无可见性**（除 RabbitMQ 管理台）。

@@ -144,6 +144,29 @@ copy .env.example .env
 | `CODEPILOT_AGENT_CONVERSATION_MAX_TURNS` | `5` | 同一 PR 注入的历史 Agent 对话轮数。 |
 | `CODEPILOT_AGENT_CONVERSATION_MAX_CHARS` | `6000` | 注入的历史 Agent 对话总字符上限，运行时下限为 `500`。 |
 
+## 死信队列运维
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CODEPILOT_DLQ_CONSUMER_ENABLED` | `true` | 是否消费 DLQ 并把死信落库到 `dead_letter_message`。**默认开启**——关闭后消息进了 DLQ 就只留在队列里，无法查询与重放。 |
+| `CODEPILOT_DLQ_REPLAY_ENABLED` | `false` | 是否开放重放接口 `POST /api/admin/dead-letters/{id}/replay`。**默认关闭**：重放会把手上有副作用的消息重新投回主链路，属显式运维动作。 |
+| `CODEPILOT_DLQ_RETENTION_DAYS` | `30` | 死信记录保留天数，超期由维护任务清理。 |
+| `CODEPILOT_DLQ_PAYLOAD_MAX_CHARS` | `4000` | 落库前 payload 的最大字符数，超出截断。 |
+| `CODEPILOT_DLQ_MAINTENANCE_INTERVAL_MILLIS` | `30000` | 积压指标刷新与过期清理的间隔。 |
+
+**消费顺序**：死信消费者使用**手动 ack** 的容器工厂，必须先把消息成功落库、再 ack。落库失败时不 ack，消息留在 DLQ 中；`payload_digest + status` 的唯一索引保证重复投递只累加 `attempt_count`，不会产生重复行。宁可有重复记录，也不丢消息。
+
+**积压指标**：`codepilot.dlq.backlog`（gauge）反映 `dead_letter_message` 中 `status='PENDING'` 的数量。该指标取自数据库而非 RabbitMQ 管理接口，因此不引入额外的管理连接；刷新失败只记 warning，不影响主链路。
+
+**运维接口**（受 `/api/**` 的 API Key 过滤器保护）：
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/admin/dead-letters` | 分页查询，支持 `status` / `sourceQueue` 过滤，返回体含 `pendingCount` |
+| `GET /api/admin/dead-letters/{id}` | 查看单条死信详情 |
+| `POST /api/admin/dead-letters/{id}/replay` | 重新投递（需 `CODEPILOT_DLQ_REPLAY_ENABLED=true`）。重放安全：目标任务走既有的 claim + execution token 入口，重复投递不会重复执行 |
+| `POST /api/admin/dead-letters/{id}/discard` | 标记为已处理 |
+
 ## LLM
 
 | 变量 | 默认值 | 说明 |

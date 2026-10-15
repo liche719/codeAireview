@@ -3,6 +3,7 @@ package com.codepilot.common.config;
 import com.codepilot.task.ReviewTaskProducer;
 import com.codepilot.task.PrCommandTaskProducer;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.amqp.core.AcknowledgeMode;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
@@ -129,6 +130,26 @@ public class RabbitMqConfig {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         configurer.configure(factory, connectionFactory);
         factory.setMessageConverter(messageConverter);
+        return factory;
+    }
+
+    /**
+     * 死信队列专用容器工厂：**手动 ack**。
+     *
+     * <p>死信消费者必须先把消息成功落库、再 ack。若沿用自动 ack，落库抛异常时消息会被 reject，
+     * 而 DLQ 自身没有再配死信交换，消息就**直接丢失**——这比重复消费更糟。
+     * 手动 ack 让"落库失败 ⇒ 不 ack ⇒ 消息留在 DLQ"成为可能。</p>
+     */
+    @Bean
+    public RabbitListenerContainerFactory<?> deadLetterListenerContainerFactory(
+            SimpleRabbitListenerContainerFactoryConfigurer configurer,
+            ConnectionFactory connectionFactory,
+            MessageConverter messageConverter
+    ) {
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        configurer.configure(factory, connectionFactory);
+        factory.setMessageConverter(messageConverter);
+        factory.setAcknowledgeMode(AcknowledgeMode.MANUAL);
         return factory;
     }
 }

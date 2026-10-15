@@ -80,6 +80,15 @@ codepilot:
     outbox-retry-max-delay: ${CODEPILOT_COMMAND_OUTBOX_RETRY_MAX_DELAY:1m}
     outbox-max-attempts: ${CODEPILOT_COMMAND_OUTBOX_MAX_ATTEMPTS:10}
     recovery-batch-size: ${CODEPILOT_COMMAND_RECOVERY_BATCH_SIZE:50}
+  # 死信队列运维：把最终失败的消息落库，使其可查询、可重放、可告警。
+  # 此前两个 DLQ 只有声明与绑定、没有消费者，消息进去就永久滞留。
+  dlq:
+    consumer-enabled: ${CODEPILOT_DLQ_CONSUMER_ENABLED:true}
+    # 重放会把有副作用的消息重新投回主链路，因此默认关闭。
+    replay-enabled: ${CODEPILOT_DLQ_REPLAY_ENABLED:false}
+    retention-days: ${CODEPILOT_DLQ_RETENTION_DAYS:30}
+    payload-max-chars: ${CODEPILOT_DLQ_PAYLOAD_MAX_CHARS:4000}
+    maintenance-interval-millis: ${CODEPILOT_DLQ_MAINTENANCE_INTERVAL_MILLIS:30000}
   agent-runtime:
     resumable-enabled: ${CODEPILOT_AGENT_RESUMABLE_ENABLED:true}
     max-model-turns: ${CODEPILOT_AGENT_MAX_MODEL_TURNS:8}
