@@ -391,6 +391,7 @@ class GitHubInlineCommentServiceImplTest {
                     new ReviewCommentBudgetAllocator(new ReviewProperties()),
                     new ReviewFindingRanker(),
                     githubAuthTokenProvider,
+                    new ReviewProperties(),
                     enabled,
                     maxPerTask
             );

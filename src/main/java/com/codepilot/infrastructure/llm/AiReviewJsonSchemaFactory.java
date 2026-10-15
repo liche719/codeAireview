@@ -44,6 +44,11 @@ public class AiReviewJsonSchemaFactory {
         return JsonObjectSchema.builder()
                 .addProperty("filePath", nullableString("Changed file path or null when not applicable."))
                 .addProperty("lineNumber", nullableInteger("Changed line number or null when not applicable."))
+                .addProperty("startLine", nullableInteger(
+                        "First line of the changed range this issue spans, or null when the issue is a single line. "
+                                + "Must be on the same side of the diff as lineNumber and smaller than it."))
+                .addProperty("endLine", nullableInteger(
+                        "Last line of the changed range, matching lineNumber, or null for a single-line issue."))
                 .addEnumProperty("issueType", java.util.List.of(
                         "BUG_RISK",
                         "SECURITY",
@@ -64,6 +69,8 @@ public class AiReviewJsonSchemaFactory {
                 .required(
                         "filePath",
                         "lineNumber",
+                        "startLine",
+                        "endLine",
                         "issueType",
                         "issueTypeZh",
                         "severity",

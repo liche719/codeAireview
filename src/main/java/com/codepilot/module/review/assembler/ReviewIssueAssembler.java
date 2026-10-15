@@ -50,8 +50,7 @@ public class ReviewIssueAssembler {
             "NO ISSUES"
     );
 
-    public List<ReviewIssue> toReviewIssues(Long taskId, String defaultFilePath, AiReviewResult aiReviewResult) {
-        if (aiReviewResult == null || aiReviewResult.getIssues() == null || aiReviewResult.getIssues().isEmpty()) {
+    public List<ReviewIssue> toReviewIssues(Long taskId, String defaultFilePath, AiReviewResult aiReviewResult) {        if (aiReviewResult == null || aiReviewResult.getIssues() == null || aiReviewResult.getIssues().isEmpty()) {
             return List.of();
         }
 
@@ -65,6 +64,12 @@ public class ReviewIssueAssembler {
             reviewIssue.setTaskId(taskId);
             reviewIssue.setFilePath(resolveFilePath(defaultFilePath, issue.getFilePath()));
             reviewIssue.setLineNumber(issue.getLineNumber());
+            // 区间来自模型，发布前还要经 DiffLineMapper.mapRange 本地校验（同侧、在 diff 内、连续）。
+            // 这里只挡掉明显不成立的形状，避免把无意义区间带下去。
+            if (isUsableRange(issue.getLineNumber(), issue.getStartLine(), issue.getEndLine())) {
+                reviewIssue.setStartLine(issue.getStartLine());
+                reviewIssue.setEndLine(issue.getEndLine());
+            }
             reviewIssue.setIssueType(normalizeIssueType(issue.getIssueType()));
             reviewIssue.setIssueTypeZh(cleanText(issue.getIssueTypeZh(), 64));
             reviewIssue.setSeverity(normalizeSeverity(issue.getSeverity()));
@@ -80,6 +85,21 @@ public class ReviewIssueAssembler {
             reviewIssues.add(reviewIssue);
         }
         return reviewIssues;
+    }
+
+    /**
+     * 区间是否具备基本形状：三行号齐全、起点小于终点、且终点与 {@code lineNumber} 一致。
+     *
+     * <p>这只是形状校验。真正的落点合法性（与 lineNumber 同侧、在 diff 内、连续）由
+     * {@code DiffLineMapper.mapRange} 在发布前判定，判定失败会降级为单行评论。</p>
+     */
+    private boolean isUsableRange(Integer lineNumber, Integer startLine, Integer endLine) {
+        return startLine != null
+                && endLine != null
+                && lineNumber != null
+                && startLine > 0
+                && startLine < endLine
+                && endLine.equals(lineNumber);
     }
 
     public String calculateRiskLevel(List<ReviewIssue> reviewIssues) {

@@ -236,6 +236,13 @@ copy .env.example .env
 | `CODEPILOT_REVIEW_SUPPRESS_REPEATED_FINDINGS` | `true` | 记忆中已存在的 finding 是否跳过再次评论。被跳过的 finding **仍会落库并在摘要中计入"已抑制"**，不会静默消失。 |
 | `CODEPILOT_REVIEW_ALLOW_RESOLUTION` | `true` | 是否允许把"本次未再现"的 finding 判为已修复。**即使开启也有两道额外约束**：本次必须是完整审查（无预算跳过、无文件级 LLM 失败），且 head sha 确实变化。详见「审查记忆的安全边界」。 |
 | `CODEPILOT_REVIEW_DISMISSAL_SYNC_ENABLED` | `false` | 是否读取 GitHub review thread 的 resolved 状态做误报抑制（R7）。**默认关闭**：需要 GraphQL 权限，且会改变"提不提某个问题"的行为。 |
+| `CODEPILOT_REVIEW_MULTILINE_COMMENT_ENABLED` | `true` | 是否允许把 finding 发布成**多行区间**评论（R4）。默认开启；区间不合法时自动降级为单行，不会丢失 finding。 |
+
+**多行区间评论（R4）**：一个 finding 常跨多行。开启后，若模型给出了 `startLine` / `endLine`，系统会尝试发布 `start_line..line` 的区间评论。
+
+**降级而非丢弃**：GitHub 对区间有硬约束——起止必须位于 diff **同一侧**、**都在 diff 内**、且构成**连续**一段。`DiffLineMapper.mapRange` 会在本地校验这三条，任何一条不满足就**降级为单行评论**，绝不因此丢掉这个 finding。区间跨 hunk 同样降级。
+
+**单行路径不受影响**：没有区间的 finding 走的调用形态与引入本能力之前**完全一致**，避免"新增能力顺手改动原有行为"。
 
 **误报抑制（R7）**：维护者在 GitHub 上把一个**由本机器人发起**的 review thread resolve 掉，系统就把它对应的 finding 记为 `DISMISSED`，后续审查不再重复提。
 

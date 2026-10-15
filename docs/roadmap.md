@@ -362,6 +362,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_dead_letter_digest_status
 
 ## R4 多行区间评论
 
+> **状态：已完成。**
+>
+> 已实现：
+> - `DiffLineMapping` 增加 `startLine`（单行映射为 null）与 `isRange()`
+> - `DiffLineMapper.mapRange`：要求区间整体落在**同一个 hunk**、且构成**同一侧的连续段**
+> - `GithubClient.createPullRequestInlineComment` 两个区间重载：
+>   完整版（startLine + startSide）与便捷版（startSide 默认与 side 相同）
+> - 迁移 **V21**：`review_issue.start_line` / `end_line` / `line_side`
+> - `AiReviewIssue` + JSON schema 增加 `startLine` / `endLine`（均可空，且进入 required 列表）
+> - `ReviewIssueAssembler.isUsableRange`：只做形状校验（三行号齐全、起点小于终点、终点等于 lineNumber）
+> - `GitHubInlineCommentServiceImpl.resolveMapping`：多行优先、**校验不过降级单行**
+> - 配置：`multiline-comment-enabled`（**true**）
+>
+> **一处刻意的保守设计**：单行路径**保持与引入本能力之前完全一致的调用形态**。
+> 最初我把所有调用都改成走区间重载，结果 8 个既有测试失败——它们验证的是原来的调用。
+> 与其改测试去迁就实现，不如让"没有区间"时走原路径。这样既证明既有行为未被改动，
+> 也避免了"引入新能力顺手改坏旧行为"。
+>
+> **降级而非丢弃**：GitHub 对区间有硬约束（同侧、都在 diff 内、连续、跨 hunk 不行）。
+> 任何一条不满足就退化成单行评论——一个跨行 finding 因此仍然会被提出，只是锚点变成一行。
+>
+> **仍未覆盖**：没有真实 PR 验证区间评论的渲染效果；也没有端到端验证"模型确实会输出区间"。
+
 ### 问题
 
 `GithubClient.createPullRequestInlineComment`(:349-385) 的请求体只写 `line` + `side`(:376-377)，**无 `start_line` / `start_side`** → 所有 inline 评论被压成单行，一个跨多行的 finding 只能锚在其中一行。

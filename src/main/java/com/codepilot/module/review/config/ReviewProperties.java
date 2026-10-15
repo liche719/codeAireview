@@ -59,6 +59,14 @@ public class ReviewProperties {
      */
     private boolean dismissalSyncEnabled = false;
 
+    /**
+     * 是否允许把 finding 发布成<b>多行区间</b>评论（R4）。
+     *
+     * <p>默认开启：他只是一个展示形态的改进，且 {@code DiffLineMapper.mapRange} 校验不过时
+     * 会自动降级为单行，不会丢失 finding。</p>
+     */
+    private boolean multilineCommentEnabled = true;
+
     private int maxPatchCharsPerFile = 12000;
 
     private int maxTotalPatchChars = 80000;

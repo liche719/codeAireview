@@ -6,6 +6,7 @@ import com.codepilot.module.git.auth.GithubAuthTokenProvider;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.git.dto.GithubIssueComment;
 import com.codepilot.module.git.dto.GithubPullRequestDetail;
+import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.diff.DiffLineMapper;
 import com.codepilot.module.review.diff.DiffLineMapping;
 import com.codepilot.module.review.entity.ReviewFile;
@@ -61,6 +62,8 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
 
     private final int inlineCommentMaxPerTask;
 
+    private final ReviewProperties reviewProperties;
+
     public GitHubInlineCommentServiceImpl(
             ReviewTaskMapper reviewTaskMapper,
             ReviewIssueService reviewIssueService,
@@ -70,6 +73,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
             ReviewCommentBudgetAllocator reviewCommentBudgetAllocator,
             ReviewFindingRanker reviewFindingRanker,
             GithubAuthTokenProvider githubAuthTokenProvider,
+            ReviewProperties reviewProperties,
             @Value("${codepilot.github.inline-comment-enabled:false}") boolean inlineCommentEnabled,
             @Value("${codepilot.github.inline-comment-max-per-task:10}") int inlineCommentMaxPerTask
     ) {
@@ -81,6 +85,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
         this.reviewCommentBudgetAllocator = reviewCommentBudgetAllocator;
         this.reviewFindingRanker = reviewFindingRanker;
         this.githubAuthTokenProvider = githubAuthTokenProvider;
+        this.reviewProperties = reviewProperties == null ? new ReviewProperties() : reviewProperties;
         this.inlineCommentEnabled = inlineCommentEnabled;
         this.inlineCommentMaxPerTask = inlineCommentMaxPerTask;
     }
@@ -151,7 +156,7 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                     continue;
                 }
 
-                DiffLineMapping mapping = diffLineMapper.map(issue.getFilePath(), reviewFile.getPatch(), issue.getLineNumber());
+                DiffLineMapping mapping = resolveMapping(issue, reviewFile);
                 if (!mapping.commentable()) {
                     skippedCount++;
                     continue;
@@ -164,16 +169,32 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                 }
 
                 try {
-                    githubClient.createPullRequestInlineComment(
-                            task.getRepoOwner(),
-                            task.getRepoName(),
-                            task.getPrNumber(),
-                            headSha,
-                            issue.getFilePath(),
-                            mapping.line(),
-                            mapping.side(),
-                            commentBodyBuilder.build(issue, fingerprint)
-                    );
+                    if (mapping.isRange()) {
+                        githubClient.createPullRequestInlineComment(
+                                task.getRepoOwner(),
+                                task.getRepoName(),
+                                task.getPrNumber(),
+                                headSha,
+                                issue.getFilePath(),
+                                mapping.line(),
+                                mapping.side(),
+                                mapping.startLine(),
+                                commentBodyBuilder.build(issue, fingerprint)
+                        );
+                    } else {
+                        // 单行路径刻意保持与 R4 之前完全一致的调用形态，
+                        // 避免"引入多行能力"顺手改动了原有单行行为。
+                        githubClient.createPullRequestInlineComment(
+                                task.getRepoOwner(),
+                                task.getRepoName(),
+                                task.getPrNumber(),
+                                headSha,
+                                issue.getFilePath(),
+                                mapping.line(),
+                                mapping.side(),
+                                commentBodyBuilder.build(issue, fingerprint)
+                        );
+                    }
                     existingFingerprints.add(fingerprint);
                     successCount++;
                 } catch (Exception exception) {
@@ -223,5 +244,25 @@ public class GitHubInlineCommentServiceImpl implements GitHubInlineCommentServic
                     exception.getClass().getSimpleName(), SensitiveDataSanitizer.redact(exception.getMessage()));
             return new HashSet<>();
         }
+    }
+
+    /**
+     * 决定这条 finding 锚定成多行区间还是单行。
+     *
+     * <p>多行区间要满足 GitHub 的硬约束（起止同侧、都在 diff 内、连续），所以先用
+     * {@code mapRange} 在本地校验：<b>校验不过就降级为单行</b>，绝不因此丢掉这个 finding。</p>
+     */
+    private DiffLineMapping resolveMapping(ReviewIssue issue, ReviewFile reviewFile) {
+        String patch = reviewFile.getPatch();
+        if (reviewProperties.isMultilineCommentEnabled()
+                && issue.getStartLine() != null
+                && issue.getEndLine() != null) {
+            DiffLineMapping ranged = diffLineMapper.mapRange(
+                    issue.getFilePath(), patch, issue.getStartLine(), issue.getEndLine());
+            if (ranged.isRange()) {
+                return ranged;
+            }
+        }
+        return diffLineMapper.map(issue.getFilePath(), patch, issue.getLineNumber());
     }
 }

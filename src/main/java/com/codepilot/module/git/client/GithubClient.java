@@ -21,6 +21,7 @@ import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.LongConsumer;
@@ -359,6 +360,30 @@ public class GithubClient {
             String side,
             String body
     ) {
+        createPullRequestInlineComment(owner, repo, pullNumber, commitId, path, line, side, null, body);
+    }
+
+    /**
+     * 创建行内评论；{@code startLine} 非空时创建<b>多行区间</b>评论。
+     *
+     * <p>GitHub 的约束：{@code start_line} 与 {@code line} 必须位于 diff 的<b>同一侧</b>、
+     * 且都落在 diff 内。调用方（{@code DiffLineMapper.mapRange}）会先做本地校验，
+     * 校验不过就降级为单行评论，而不是丢弃 finding。</p>
+     *
+     * @param startSide 起始行所在侧；与 {@code startLine} 同时提供，二者要么都给要么都不给
+     */
+    public void createPullRequestInlineComment(
+            String owner,
+            String repo,
+            Integer pullNumber,
+            String commitId,
+            String path,
+            Integer line,
+            String side,
+            Integer startLine,
+            String startSide,
+            String body
+    ) {
         if (!StringUtils.hasText(body)) {
             log.info("Skip GitHub PR inline comment because body is empty, owner={}, repo={}, pullNumber={}, path={}, line={}",
                     owner, repo, pullNumber, path, line);
@@ -368,24 +393,49 @@ public class GithubClient {
             throw new BusinessException("failed to create GitHub PR inline comment: commit_id, path, line and side are required");
         }
 
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("body", body);
+        payload.put("commit_id", commitId);
+        payload.put("path", path);
+        boolean ranged = startLine != null && StringUtils.hasText(startSide) && startLine < line;
+        if (ranged) {
+            payload.put("start_line", startLine);
+            payload.put("start_side", startSide);
+        }
+        payload.put("line", line);
+        payload.put("side", side);
+
         executeGithubRequest("failed to create GitHub PR inline comment", () -> {
             restClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/{pullNumber}/comments", owner, repo, pullNumber)
                     .headers(headers -> setAuthorization(headers, owner, repo))
-                    .body(Map.of(
-                            "body", body,
-                            "commit_id", commitId,
-                            "path", path,
-                            "line", line,
-                            "side", side
-                    ))
+                    .body(payload)
                     .retrieve()
                     .toBodilessEntity();
             return null;
         });
 
-        log.info("GitHub PR inline comment created, owner={}, repo={}, pullNumber={}, path={}, line={}, side={}, bodyLength={}",
-                owner, repo, pullNumber, path, line, side, body.length());
+        log.info("GitHub PR inline comment created, owner={}, repo={}, pullNumber={}, path={}, line={}, side={}, startLine={}, ranged={}, bodyLength={}",
+                owner, repo, pullNumber, path, line, side, startLine, ranged, body.length());
+    }
+
+    /**
+     * 多行区间重载（不带 startSide，默认与 {@code side} 相同）。
+     *
+     * <p>刻意保留一个更短的签名：绝大多数调用点两侧一致，要求调用方重复传 side 只会增加出错面。</p>
+     */
+    public void createPullRequestInlineComment(
+            String owner,
+            String repo,
+            Integer pullNumber,
+            String commitId,
+            String path,
+            Integer line,
+            String side,
+            Integer startLine,
+            String body
+    ) {
+        createPullRequestInlineComment(owner, repo, pullNumber, commitId, path, line, side, startLine, side, body);
     }
 
     private List<GithubChangedFile> requestPullRequestFilesPage(

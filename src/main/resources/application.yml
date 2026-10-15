@@ -178,6 +178,9 @@ codepilot:
     # 误报抑制：读取 GitHub review thread 的 resolved 状态。默认关闭（需要 GraphQL 权限）。
     # 开启后任何失败都只降级为"不抑制"，不会影响审查本身。
     dismissal-sync-enabled: ${CODEPILOT_REVIEW_DISMISSAL_SYNC_ENABLED:false}
+    # 多行区间评论（R4）：finding 跨多行时发布 start_line..line 区间评论。
+    # 区间不满足 GitHub 的约束（同侧/在 diff 内/连续）时自动降级为单行，不会丢失 finding。
+    multiline-comment-enabled: ${CODEPILOT_REVIEW_MULTILINE_COMMENT_ENABLED:true}
     max-patch-chars-per-file: ${CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE:12000}
     max-total-patch-chars: ${CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS:80000}
     max-parallel-files: ${CODEPILOT_REVIEW_MAX_PARALLEL_FILES:2}
