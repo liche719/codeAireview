@@ -229,6 +229,29 @@ curl -X POST http://localhost:8080/api/rules/search ^
   -d "{\"query\":\"代码中通过字符串拼接 SQL 查询用户信息\",\"topK\":3,\"type\":\"SQL_RULE\"}"
 ```
 
+## GitHub 工具 API
+
+这两个接口是运维/调试用的只读工具，不参与审查主链路。
+
+### `POST /api/github/parse-pr`
+
+解析 PR URL，返回 owner / repo / pullNumber。
+
+```json
+{ "prUrl": "https://github.com/owner/repo/pull/123" }
+```
+
+### `GET /api/github/pulls/files`
+
+直接查询某个 PR 的 changed files（含 patch）。
+
+Query 参数：`owner`、`repo`、`pullNumber`（均必填）。
+
+```powershell
+curl "http://localhost:8080/api/github/pulls/files?owner=liche719&repo=codeAireview&pullNumber=12" ^
+  -H "X-CodePilot-Api-Key: change-me-local-dev-key"
+```
+
 ## GitHub Webhook API
 
 ### `POST /api/github/webhook`
