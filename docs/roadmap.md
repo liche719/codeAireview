@@ -1,6 +1,6 @@
 # CodePilot 改进路线图
 
-> 输入：`docs/scenarios.md`（142 场景已核实）+ `docs/benchmark-ai-review-tools.md`（业界机制对标）
+> 输入：[`docs/scenarios.md`](scenarios.md)（**143 个场景已核实**）+ [`docs/benchmark-ai-review-tools.md`](benchmark-ai-review-tools.md)（**11 个业界系统 × 10 机制**对标）
 > **本文件只做设计，不含实现。** 每项都给出：问题 / 方案 / 替代方案与不选理由 / 数据模型与迁移 / 配置开关与默认值 / 测试计划 / 回滚 / 风险。
 >
 > **写操作一律默认关闭**，并按现有 `fix-*` 开关的风格命名。

@@ -303,6 +303,13 @@ powershell -ExecutionPolicy Bypass -File scripts/run-review-reliability-baseline
 - [GitHub sandbox E2E](docs/github-sandbox-e2e.md)
 - [简历证据链与面试讲法](docs/resume-project-evidence.md)
 
+### 演进规划（场景驱动升级）
+
+- [场景矩阵](docs/scenarios.md) —— PR 全生命周期的 143 个场景，逐条核实当前实现，每行带 `类:方法:行号`
+- [业界机制对标](docs/benchmark-ai-review-tools.md) —— 11 个同类系统 × 10 个工程机制的对比与借鉴
+- [改进路线图](docs/roadmap.md) —— 17 个改进项的完整设计（方案 / 替代方案与不选理由 / 迁移 / 开关 / 测试 / 回滚 / 风险）
+- 原始调研：[PR-Agent 源码深读](docs/research/pr-agent-deep-dive.md) · [CodeRabbit/Greptile/Graphite](docs/research/coderabbit-greptile-graphite.md) · [确定性工具组](docs/research/deterministic-review-tools.md) · [AI 原生审查产品](docs/research/ai-native-reviewers.md)
+
 ## 一句话总结
 
 CodePilot AI 的核心价值是：把 AI Code Review 从“模型生成一段评论”升级成“可调度、可并发、可验证、可追踪、可回写 GitHub 的后端审查流水线”。
