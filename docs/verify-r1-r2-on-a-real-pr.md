@@ -258,16 +258,89 @@ CODEPILOT_REVIEW_COVERAGE_REPORT_ENABLED=false
 
 ---
 
-## 5. 当前状态（诚实声明）
+## 5. 验证结果（2026-10-15 实测）
+
+**结论：R1 与 R2 均已通过真实 PR 验证。**
 
 | 项 | 状态 |
 |---|---|
-| R1 / R2 逻辑验证 | ✅ **已完成** —— 562 个测试，含 4 个真实 PostgreSQL/pgvector + Redis + RabbitMQ 集成测试 |
-| R1 / R2 **效果**验证 | ❌ **未做** —— 本机没有任何 GitHub / LLM 凭据（`.env` 不存在，环境变量未设置），无法调用真实 GitHub |
-| 自动化 E2E | ⬜ 现有 `GitHubSandboxE2ETest`（opt-in）覆盖 webhook 发布与 linked issue，**尚未覆盖 R1/R2 的这两个断言** |
+| R1 / R2 逻辑验证 | ✅ 562 个测试，含 4 个真实 PostgreSQL/pgvector + Redis + RabbitMQ 集成测试 |
+| R1 / R2 **效果**验证 | ✅ **已完成**，见下表 |
+| 自动化 E2E | ⬜ 现有 `GitHubSandboxE2ETest`（opt-in）**尚未覆盖** R1/R2 的这两个断言——见后续动作 |
 
-### 建议的后续
+### 5.1 测试环境
 
-1. **拿到凭据后按本文跑一遍**，把结果归档。
-2. 把本文第 2.3 与第 3.2 节的断言**固化成 `GitHubSandboxE2ETest` 的新测试方法**——
-   这样以后每次改动都能自动回归，而不是靠人肉核对。这是本文件最重要的一条后续动作。
+- 仓库：`liche719/codepilot-verify`（private），PR **#1**
+- 3 个变更文件：`UserService.java`（SQL 拼接 + 硬编码密钥）、`application.yml`、`docs/notes.md`
+- 关键配置：`CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE=1`（迫使全部文件被跳过）
+- 本地加速器做了 TLS 中间人，JVM 通过 `scripts/build-local-truststore.ps1` 生成的专用 truststore 访问 GitHub
+- LLM 使用 DeepSeek（`CODEPILOT_LLM_MODEL=deepseek-chat` + `CODEPILOT_LLM_REVIEW_STRUCTURED_OUTPUT_ENABLED=false`）
+
+### 5.2 R2 关键场景实测输出
+
+摘要在 GitHub 上**被 PATCH 原地重写**（长度 2053 → 382），正文：
+
+```
+<!-- codepilot-ai-review:liche719/codeAireview -->
+
+> ⚠️ **未能审查任何变更文件**（共 3 个）。本次结论**不代表 PR 没有问题**，原因见下方「审查覆盖」。
+
+本次没有可报告的问题。
+
+> ⚠️ 但**有 3 个变更文件未被审查**，因此这并不代表 PR 没有问题。未审查的文件与原因见下方「审查覆盖」。
+
+### 审查覆盖
+
+- 本次审查 **0 / 3** 个变更文件（跳过 3 个）
+
+未审查文件（按原因分组）：
+
+- **单文件 patch 超过上限**（3 个）：
+  - `docs/notes.md`
+  - `src/main/java/com/example/UserService.java`
+  - `src/main/resources/application.yml`
+```
+
+✅ 覆盖度区块存在 · ✅ **无「未发现问题」** · ✅ 有明确的"未能审查任何文件"告警
+
+正常路径（`3 / 3` 全部审查）也已验证：输出「全部变更文件均已审查」，且不含告警。
+
+### 5.3 R1 实测
+
+- 先以机器人身份发布一条带 `<!-- codepilot-agent-reply -->` 标记的评论（模拟 Agent 回复）
+- 推送新 commit 使 headSha 变化 → 触发第二次审查 → 摘要**经 PATCH 真实重写**（`3 / 3` → `0 / 3`）
+- ✅ 该 Agent 回复评论在重写后**逐字节不变**，且未被删除
+
+**关键点**：只有当摘要**真的被重写**时，这个断言才有意义。第一次尝试时摘要根本没更新，
+断言"通过"其实是拿旧评论过的——**属于假通过**。本文档在第 5.5 节记录了这个陷阱。
+
+### 5.4 新发现并已修复的既有缺陷
+
+验证过程中发现 `GithubRestClientFactory` 使用 `SimpleClientHttpRequestFactory`（底层 `HttpURLConnection`），
+**不支持 PATCH**，导致摘要评论**只能创建、永远无法更新**：
+
+```
+publish_status = FAILED_FINAL, publish_attempt_count = 5
+publish_error  = I/O error on PATCH request ... Invalid HTTP method: PATCH
+```
+
+修复前："摘要不再更新"——**这也意味着 R1 的覆盖缺陷根本无法触发**（覆盖同样依赖 PATCH）。
+已改用 `JdkClientHttpRequestFactory` 并在同一 PR 上验证生效。详见 `docs/roadmap.md` 的 **F1**。
+
+### 5.5 ⚠️ 这个验证本身踩过的坑（供复用）
+
+**假通过陷阱**：如果摘要**没有被重写**，那么"Agent 回复内容没变"这个断言必然通过——
+但什么都没被验证。第一次跑就出现了这一幕。
+
+因此任何验证脚本都**必须**先断言"目标确实被重写过"（例如摘要内容从 `3 / 3` 变成 `0 / 3`），
+再断言"其他东西没被破坏"。否则测的是空气。
+
+### 5.6 后续动作
+
+1. **把本文第 5.2 与 5.3 的断言固化成 `GitHubSandboxE2ETest` 的新测试方法**——
+   现在依赖人肉核对，且**每一步都可能踩到 5.5 的假通过陷阱**。
+   这是本文件最重要的一条后续动作。
+2. **给 PATCH 支持补回归测试**：现有测试全部用 mock，没有任何测试真的发过 PATCH，
+   所以改回 `SimpleClientHttpRequestFactory` 不会让任何测试失败（见 F1）。
+3. 修复你本地旧数据卷的 Flyway checksum 不一致（`V2`），或继续使用独立库 `codepilot_verify`。
+

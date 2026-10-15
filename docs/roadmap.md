@@ -44,15 +44,16 @@
 
 ## R1 评论身份分离
 
-> **状态：已实现**（commit 见 git log）。实现时的两处偏离：
-> 1. **身份标记刻意不做成配置项**（原方案列了 `agent-reply-marker` / `command-notice-marker` 两个新配置）。
->    理由：身份一致性是这个机制的全部意义，允许配置只会引入"两个标记被配成同一个值"从而互相覆盖的风险——
->    等于把刚修掉的 bug 变成可配置项。标记集中在 `CommentMarkers` 常量类，只有历史上的审查摘要标记保留配置。
-> 2. 新增配置 `codepilot.github.comment-identity-header-lines`（默认 5）**只作用于匹配侧**，写入侧无需配置。
+> **状态：已实现，且已在真实 PR 上验证。**
 >
-> 实现文件：`CommentMarkers`（新增）、`GitHubCommentServiceImpl`、`AgentChatTaskRunner`、
-> `UnavailableCommandHandler`、`FixResultCommenter`、`GitHubWebhookPayloadParser`。
-> 新增 13 个测试，其中 3 个是能捕获回退的回归测试（作者过滤 / 头部匹配 / 标记分离）。
+> 验证（`liche719/codepilot-verify#1`）：在摘要评论**经 PATCH 真实重写**（长度 2053 → 382）之后，
+> 带 `<!-- codepilot-agent-reply -->` 标记的评论**逐字节不变**。这正是缺陷会被触发的条件。
+>
+> ⚠️ **重要更正**：本文件早先称"一旦 `comment-enabled=true` 该覆盖必然发生"。**这个结论是错的**——
+> 覆盖动作本身走 PATCH，而 PATCH 当时因 `SimpleClientHttpRequestFactory` 不支持该方法而**永远失败**。
+> 因此修复前的真实症状是"摘要不再更新"，而不是"Agent 回复被覆盖"。
+> 即 **S1 一直被 PATCH 缺陷遮蔽**，见下方「F1」。R1 的修复方向依然正确（它防止定位到错误的对象），
+> 但在 F1 修复之前，它的用户可见收益为零。
 
 ### 问题
 
@@ -114,7 +115,30 @@
 
 ## R2 审查覆盖度透明化
 
-> **状态：已完成**（实现分两个提交：基础层 + 渲染层）。
+> **状态：已完成，且关键场景已在真实 PR 上验证。**
+>
+> **真实 PR 验证证据**（`liche719/codepilot-verify#1`，把 `max-patch-chars-per-file` 设为 1 迫使 3 个文件全部被跳过）：
+> 摘要**经 PATCH 真实重写**（长度 2053 → 382），正文实际输出：
+>
+> ```
+> <!-- codepilot-ai-review:liche719/codeAireview -->
+>
+> > ⚠️ **未能审查任何变更文件**（共 3 个）。本次结论**不代表 PR 没有问题**，原因见下方「审查覆盖」。
+>
+> 本次没有可报告的问题。
+> > ⚠️ 但**有 3 个变更文件未被审查**，因此这并不代表 PR 没有问题。
+>
+> ### 审查覆盖
+> - 本次审查 **0 / 3** 个变更文件（跳过 3 个）
+> - **单文件 patch 超过上限**（3 个）：
+>   - `docs/notes.md`
+>   - `src/main/java/com/example/UserService.java`
+>   - `src/main/resources/application.yml`
+> ```
+>
+> 断言全部通过：覆盖度区块存在、**无「未发现问题」**、有明确的"未能审查任何文件"告警。
+> 正常路径（3/3 全部审查）也已验证：输出「全部变更文件均已审查」且不含告警。
+
 >
 > 已实现：
 > - `ReviewFileSkipCategory` 枚举（8 类）+ 迁移 **V18**（`review_file.skip_category` + 索引）
@@ -1059,6 +1083,76 @@ PR-Agent 的 self-reflection 打分通道已证实：`suggestions_score_threshol
 **关键分歧点**：PR-Agent 在自省失败时给 **7 分（高于其阈值，即保留）**；**我们默认给 0 分（丢弃）**。
 
 理由：我们的评估基础是 **6 个样本 / Precision 85.71%**，**薄到不足以支撑"失败时放行"**。PR-Agent 有更大的用户基数与反馈闭环来兜底，我们没有。**这是一个"同样的机制、不同的默认值"的典型取舍——机制可以抄，默认值必须按自己的证据强度定。**
+
+---
+
+# F1 已修复的既有缺陷：GitHub PATCH 不受支持
+
+> **状态：已修复，并已在真实 PR 上验证。**（本条目不属于原 18 项设计，是端到端验证过程中新发现的既有缺陷。）
+
+## 问题
+
+`GithubRestClientFactory` 使用 `SimpleClientHttpRequestFactory`，它底层是 `java.net.HttpURLConnection`，
+而后者**不支持 PATCH**，会抛 `ProtocolException: Invalid HTTP method: PATCH`。
+
+GitHub 编辑 issue 评论用的是 `PATCH /repos/{owner}/{repo}/issues/comments/{id}`——正是摘要更新所走的路径。
+
+真实运行时观测到：
+
+```
+publish_status = FAILED_FINAL, publish_attempt_count = 5
+publish_error  = failed to update GitHub PR comment:
+                 I/O error on PATCH request for ".../issues/comments/6194240336":
+                 Invalid HTTP method: PATCH
+```
+
+**后果**：审查摘要评论**第一次能创建，之后永远无法更新**，重试到 `FAILED_FINAL`。
+也就是说 README 与 `docs/architecture.md` 声称的"Summary Comment 使用 marker 幂等更新，避免刷屏"
+**实际上是坏的**。
+
+**并且它遮蔽了 S1**：S1 的覆盖动作同样依赖 PATCH，PATCH 失败时"覆盖"根本无法发生，
+因此 S1 的真实症状被伪装成了"摘要不再更新"。
+
+## 方案
+
+改用 `JdkClientHttpRequestFactory`（JDK 自带的 `java.net.http.HttpClient` 支持 PATCH）。
+超时通过 HttpClient 的 connectTimeout 与 factory 的 readTimeout 保留。
+项目内 `SearxngSearchService` 一直用的就是这个工厂，属于既有先例。
+
+## 替代方案与不选理由
+
+| 方案 | 不选理由 |
+|---|---|
+| 引入 `httpclient5`（Apache HttpClient 5） | 新增一个依赖；JDK 自带能力已足够，项目内也已有先例 |
+| 用 GitHub GraphQL 的 `updateIssueComment` 代替 REST PATCH | 需要把已有的 REST 发布路径整体迁到 GraphQL，改动面远大于收益；且 GraphQL 同样有 mutation 语义 |
+| 绕过更新、改为每次新建评论 | 直接违背"不刷屏"的设计目标 |
+| 只在文档里删掉"幂等更新"的承诺 | 掩盖缺陷而非修复；用户仍会看到摘要永远停在第一次内容 |
+
+## 数据模型与迁移
+
+**无。**
+
+## 配置开关与默认值
+
+**无新增。** 超时沿用 `codepilot.github.connect-timeout`（默认 5s）与 `read-timeout`（默认 30s）。
+
+## 测试计划
+
+- ⬜ **尚未补回归测试**：现有测试全部使用 mock，**没有任何测试真的发过 PATCH**，
+  因此把工厂改回 `SimpleClientHttpRequestFactory` 不会让任何测试失败。
+  需补一个用 JDK 内置 `com.sun.net.httpserver.HttpServer` 起端点、真正接受 PATCH 的测试。
+- ✅ 已有**真实 PR 端到端证据**：修复前 `publish_status` 到 `FAILED_FINAL`；
+  修复后摘要被**原地重写**，长度 2053 → 382，内容从 `3 / 3` 变为 `0 / 3`。
+
+## 回滚
+
+纯代码改动，revert 即可。回滚后摘要将再次无法更新。
+
+## 风险
+
+- **低**：JDK HttpClient 与 HttpURLConnection 的重定向、超时语义略有差异。
+  已通过真实 PR 验证读写路径均正常。
+- **中**：**缺少回归测试**意味着这个缺陷可能被再次引入。列为最高优先级的后续动作。
 
 ---
 
