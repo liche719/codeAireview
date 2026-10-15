@@ -43,7 +43,11 @@ public class AiReviewServiceImpl implements AiReviewService {
             return AiReviewResult.empty();
         }
 
-        String allChangedFilesText = aiReviewContextFormatter.formatForFile(context, filePath);
+        String allChangedFilesText = aiReviewContextFormatter.formatForFile(
+                context,
+                filePath,
+                request == null ? null : request.dismissedFindings()
+        );
         AiReviewResult deterministicResult = deterministicReviewToolRunner.run(
                 filePath,
                 patch,

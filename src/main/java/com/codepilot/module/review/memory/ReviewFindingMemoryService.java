@@ -1,6 +1,8 @@
 package com.codepilot.module.review.memory;
 
 import com.codepilot.common.enums.ReviewFileSkipCategory;
+import com.codepilot.common.util.SensitiveDataSanitizer;
+import com.codepilot.module.agent.dto.DismissedFinding;
 import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
@@ -11,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -44,9 +47,66 @@ public class ReviewFindingMemoryService {
 
     private static final String REASON_DISMISSED = "dismissed by a maintainer";
 
+    /** 单次 prompt 注入的 dismissed finding 条数上限，防止历史累积把 prompt 顶爆。 */
+    private static final int MAX_DISMISSED_PROMPT_FINDINGS = 50;
+
     private final ReviewFindingMemoryMapper reviewFindingMemoryMapper;
 
     private final ReviewProperties reviewProperties;
+
+    /**
+     * 读取本 PR 上已被维护者 dismiss 的 finding，供 prompt 注入。
+     *
+     * <h2>为什么必须挂在 {@code finding-memory-enabled} 上</h2>
+     * 本项目的硬性约定是<b>抑制必须可审计</b>：被抑制的 finding 依然落库、依然在摘要里计数，
+     * 绝不静默消失。prompt 注入恰恰相反——它让模型<b>根本不生成</b>这条 finding，
+     * 于是 {@code review_issue} 里不会有任何记录。
+     *
+     * <p>因此注入只能作为 R6 那套可审计抑制（{@code publishDecision=SUPPRESS}）之上的<b>省 token 优化</b>，
+     * 绝不能是唯一的抑制手段。把它与 {@code finding-memory-enabled} 绑在一起就保证了这一点：
+     * 注入生效时，落库路径一定也生效，审计线索存在于 {@code review_finding_memory} 的 DISMISSED 行里。</p>
+     *
+     * <p>任何异常都降级为"不注入"——这是旁路优化，不该让审查失败。</p>
+     */
+    public List<DismissedFinding> dismissedFindings(ReviewTask task) {
+        if (!reviewProperties.isFindingMemoryEnabled() || task == null) {
+            return List.of();
+        }
+        String repoOwner = task.getRepoOwner();
+        String repoName = task.getRepoName();
+        Integer prNumber = task.getPrNumber();
+        if (!StringUtils.hasText(repoOwner) || !StringUtils.hasText(repoName) || prNumber == null) {
+            return List.of();
+        }
+        List<ReviewFindingMemory> memories;
+        try {
+            memories = reviewFindingMemoryMapper.findByPullRequest(repoOwner, repoName, prNumber);
+        } catch (Exception exception) {
+            log.warn("Skip dismissed finding prompt injection because memory could not be read, "
+                            + "taskId={}, errorType={}, message={}",
+                    task.getId(), exception.getClass().getSimpleName(),
+                    SensitiveDataSanitizer.redact(exception.getMessage()));
+            return List.of();
+        }
+        if (memories == null || memories.isEmpty()) {
+            return List.of();
+        }
+        List<DismissedFinding> dismissed = new ArrayList<>();
+        for (ReviewFindingMemory memory : memories) {
+            if (memory == null || !ReviewFindingMemory.STATE_DISMISSED.equals(memory.getState())) {
+                continue;
+            }
+            DismissedFinding finding = new DismissedFinding(
+                    memory.getFilePath(), memory.getIssueType(), memory.getTitle());
+            if (finding.isUsable()) {
+                dismissed.add(finding);
+            }
+            if (dismissed.size() >= MAX_DISMISSED_PROMPT_FINDINGS) {
+                break;
+            }
+        }
+        return List.copyOf(dismissed);
+    }
 
     /**
      * 把本次审查的 finding 与历史记忆对账，并把重复项标记为不发布。

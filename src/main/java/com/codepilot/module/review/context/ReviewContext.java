@@ -1,6 +1,7 @@
 package com.codepilot.module.review.context;
 
 import com.codepilot.module.agent.dto.AiReviewContext;
+import com.codepilot.module.agent.dto.DismissedFinding;
 import com.codepilot.module.review.planner.ReviewPlan;
 
 import java.util.List;
@@ -22,7 +23,8 @@ public record ReviewContext(
         List<LinkedIssueContext> linkedIssueContexts,
         List<RelatedPatchExcerpt> relatedPatchExcerpts,
         List<RepoSourceExcerpt> repoSourceExcerpts,
-        List<ReviewSignal> reviewSignals
+        List<ReviewSignal> reviewSignals,
+        List<DismissedFinding> dismissedFindings
 ) {
 
     public ReviewContext {
@@ -82,6 +84,11 @@ public record ReviewContext(
                 : reviewSignals.stream()
                 .filter(reviewSignal -> reviewSignal != null && hasText(reviewSignal.type()) && hasText(reviewSignal.message()))
                 .toList();
+        dismissedFindings = dismissedFindings == null
+                ? List.of()
+                : dismissedFindings.stream()
+                .filter(dismissedFinding -> dismissedFinding != null && dismissedFinding.isUsable())
+                .toList();
     }
 
     public static ReviewContext empty() {
@@ -99,6 +106,7 @@ public record ReviewContext(
                 List.of(),
                 ReviewImpactPlan.empty(),
                 ReviewPlan.empty(),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -137,7 +145,8 @@ public record ReviewContext(
                 List.of(),
                 List.of(),
                 List.of(),
-                reviewSignals
+                reviewSignals,
+                List.of()
         );
     }
 
@@ -176,7 +185,8 @@ public record ReviewContext(
                 List.of(),
                 relatedPatchExcerpts,
                 repoSourceExcerpts,
-                reviewSignals
+                reviewSignals,
+                List.of()
         );
     }
 

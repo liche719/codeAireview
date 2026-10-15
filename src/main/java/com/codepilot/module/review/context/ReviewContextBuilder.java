@@ -2,8 +2,10 @@ package com.codepilot.module.review.context;
 
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewTask;
+import com.codepilot.module.agent.dto.DismissedFinding;
 import com.codepilot.module.review.graph.RepositoryGraphSnapshot;
 import com.codepilot.module.review.graph.RepositoryGraphSnapshotBuilder;
+import com.codepilot.module.review.memory.ReviewFindingMemoryService;
 import com.codepilot.module.review.planner.ReviewPlan;
 import com.codepilot.module.review.planner.SemanticReviewPlanner;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +31,15 @@ public class ReviewContextBuilder {
 
     private final ReviewLinkedIssueContextProvider reviewLinkedIssueContextProvider;
 
+    /**
+     * 非空时才读取被 dismiss 的 finding 做 prompt 注入。
+     *
+     * <p><b>允许为 null 是刻意的</b>：这个类的多数构造重载是给测试用的，
+     * 它们关心的是上下文提取逻辑而不是抑制。没有记忆服务 = 没有可注入的 dismissed finding，
+     * 这正是"未配置该能力"应有的语义，而不是一个需要到处补默认值的缺陷。</p>
+     */
+    private final ReviewFindingMemoryService reviewFindingMemoryService;
+
     ReviewContextBuilder() {
         this(
                 new ReviewContextSignalExtractor(),
@@ -37,7 +48,8 @@ public class ReviewContextBuilder {
                 new ReviewRelatedPatchExtractor(),
                 new RepoSourceExcerptExtractor(),
                 new SemanticReviewPlanner(),
-                new ReviewLinkedIssueContextProvider()
+                new ReviewLinkedIssueContextProvider(),
+                null
         );
     }
 
@@ -49,7 +61,8 @@ public class ReviewContextBuilder {
             ReviewRelatedPatchExtractor reviewRelatedPatchExtractor,
             RepoSourceExcerptExtractor repoSourceExcerptExtractor,
             SemanticReviewPlanner semanticReviewPlanner,
-            ReviewLinkedIssueContextProvider reviewLinkedIssueContextProvider
+            ReviewLinkedIssueContextProvider reviewLinkedIssueContextProvider,
+            ReviewFindingMemoryService reviewFindingMemoryService
     ) {
         this.reviewContextSignalExtractor = reviewContextSignalExtractor;
         this.reviewContextRelationshipExtractor = reviewContextRelationshipExtractor;
@@ -58,6 +71,51 @@ public class ReviewContextBuilder {
         this.repoSourceExcerptExtractor = repoSourceExcerptExtractor;
         this.semanticReviewPlanner = semanticReviewPlanner;
         this.reviewLinkedIssueContextProvider = reviewLinkedIssueContextProvider;
+        this.reviewFindingMemoryService = reviewFindingMemoryService;
+    }
+
+    /**
+     * 不带记忆服务的七参重载：等价于"没有可注入的 dismissed finding"。
+     */
+    public ReviewContextBuilder(
+            ReviewContextSignalExtractor reviewContextSignalExtractor,
+            ReviewContextRelationshipExtractor reviewContextRelationshipExtractor,
+            ReviewImpactPlanner reviewImpactPlanner,
+            ReviewRelatedPatchExtractor reviewRelatedPatchExtractor,
+            RepoSourceExcerptExtractor repoSourceExcerptExtractor,
+            SemanticReviewPlanner semanticReviewPlanner,
+            ReviewLinkedIssueContextProvider reviewLinkedIssueContextProvider
+    ) {
+        this(
+                reviewContextSignalExtractor,
+                reviewContextRelationshipExtractor,
+                reviewImpactPlanner,
+                reviewRelatedPatchExtractor,
+                repoSourceExcerptExtractor,
+                semanticReviewPlanner,
+                reviewLinkedIssueContextProvider,
+                null
+        );
+    }
+
+    /**
+     * 灌入记忆服务的构造重载：供需要验证 prompt 注入的测试使用。
+     */
+    public ReviewContextBuilder(
+            ReviewContextSignalExtractor reviewContextSignalExtractor,
+            ReviewContextRelationshipExtractor reviewContextRelationshipExtractor,
+            ReviewFindingMemoryService reviewFindingMemoryService
+    ) {
+        this(
+                reviewContextSignalExtractor,
+                reviewContextRelationshipExtractor,
+                new ReviewImpactPlanner(),
+                new ReviewRelatedPatchExtractor(),
+                new RepoSourceExcerptExtractor(),
+                new SemanticReviewPlanner(),
+                new ReviewLinkedIssueContextProvider(),
+                reviewFindingMemoryService
+        );
     }
 
     public ReviewContextBuilder(
@@ -71,7 +129,8 @@ public class ReviewContextBuilder {
                 new ReviewRelatedPatchExtractor(),
                 new RepoSourceExcerptExtractor(),
                 new SemanticReviewPlanner(),
-                new ReviewLinkedIssueContextProvider()
+                new ReviewLinkedIssueContextProvider(),
+                null
         );
     }
 
@@ -87,7 +146,8 @@ public class ReviewContextBuilder {
                 new ReviewRelatedPatchExtractor(),
                 new RepoSourceExcerptExtractor(),
                 new SemanticReviewPlanner(),
-                new ReviewLinkedIssueContextProvider()
+                new ReviewLinkedIssueContextProvider(),
+                null
         );
     }
 
@@ -104,7 +164,8 @@ public class ReviewContextBuilder {
                 reviewRelatedPatchExtractor,
                 new RepoSourceExcerptExtractor(),
                 new SemanticReviewPlanner(),
-                new ReviewLinkedIssueContextProvider()
+                new ReviewLinkedIssueContextProvider(),
+                null
         );
     }
 
@@ -122,7 +183,8 @@ public class ReviewContextBuilder {
                 reviewRelatedPatchExtractor,
                 repoSourceExcerptExtractor,
                 new SemanticReviewPlanner(),
-                new ReviewLinkedIssueContextProvider()
+                new ReviewLinkedIssueContextProvider(),
+                null
         );
     }
 
@@ -141,7 +203,8 @@ public class ReviewContextBuilder {
                 reviewRelatedPatchExtractor,
                 repoSourceExcerptExtractor,
                 semanticReviewPlanner,
-                new ReviewLinkedIssueContextProvider()
+                new ReviewLinkedIssueContextProvider(),
+                null
         );
     }
 
@@ -216,8 +279,22 @@ public class ReviewContextBuilder {
                 linkedIssueContexts,
                 relatedPatchExcerpts,
                 repoSourceExcerpts,
-                reviewSignals
+                reviewSignals,
+                dismissedFindings(task)
         );
+    }
+
+    /**
+     * 读取本 PR 上已被维护者 dismiss 的 finding。
+     *
+     * <p>没有注入记忆服务（多数构造重载的默认情形）时返回空——语义上等于"没有可注入的抑制信息"。
+     * 服务本身已经把"功能未开启 / 读取失败"都降级为空列表，这里只是兜住 null 依赖。</p>
+     */
+    private List<DismissedFinding> dismissedFindings(ReviewTask task) {
+        if (reviewFindingMemoryService == null) {
+            return List.of();
+        }
+        return reviewFindingMemoryService.dismissedFindings(task);
     }
 
     private int sumAdditions(List<ReviewFile> reviewFiles) {

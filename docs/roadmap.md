@@ -680,7 +680,7 @@ CREATE INDEX IF NOT EXISTS idx_finding_memory_state
 
 ## R7 误报抑制
 
-> **状态：核心已实现（默认关闭）；`prompt 注入` 未实现。**
+> **状态：核心已实现（默认关闭）；`prompt 注入` 已实现。**
 >
 > 已实现：
 > - `GithubClient.listReviewThreads`：用 **GraphQL** 读 `reviewThreads { id isResolved comments(first:1) { author { login } body } }`
@@ -690,6 +690,10 @@ CREATE INDEX IF NOT EXISTS idx_finding_memory_state
 > - 线程 ↔ finding 的关联：行内评论正文新增隐藏标记 `<!-- codepilot-finding:<16位指纹> -->`，
 >   用的是 R6 那个**不含行号**的稳定指纹（原有的 `<!-- codepilot-inline-review:<fp> -->` 含 headSha 与行号，跨 push 会变，不能用于此）
 > - 接进 `ReviewTaskRunner.run`，位于 `refresh(headSha)` 之后、`process` 之前
+> - **prompt 注入**：`ReviewFindingMemoryService.dismissedFindings` 读出 DISMISSED 列表 →
+>   `ReviewContext.dismissedFindings` → `AiReviewRequest.dismissedFindings` →
+>   `AiReviewContextFormatter.appendDismissedFindings` 在每文件 prompt 顶部注入
+>   "Already dismissed by maintainers (do NOT report these again): …"
 > - 配置：`dismissal-sync-enabled`（**false**）
 >
 > **两条硬约束（各有专门测试）**：
@@ -700,12 +704,26 @@ CREATE INDEX IF NOT EXISTS idx_finding_memory_state
 > **另一条保守设计**：线程里取不到 finding 指纹标记时**直接跳过**，绝不退化成用行号或标题去猜——
 > 那会把不相干的线程关联到错误的 finding 上。
 >
-> **未实现：把 DISMISSED 列表注入 prompt。** 原方案的这一项需要把抑制列表穿透到每个文件的 LLM 输入
-> （`ReviewContext` → `AiReviewContextFormatter`），改动面比其余部分大。
-> 现状是：**DISMISSED 已经能阻止重复评论**（R6 的记忆服务会把它标成 `SUPPRESS`），
-> 但模型仍可能重复"生成"这些 finding 然后被丢弃——浪费 token，但不会漏到评论里。
+> **prompt 注入的三处刻意设计**（都不是随手写的）：
+> 1. **挂在 `finding-memory-enabled` 上，而不是只挂 `dismissal-sync-enabled`。**
+>    注入让模型<b>根本不生成</b>这条 finding，于是 `review_issue` 里不会有记录。这与本项目
+>    "抑制必须可审计"的约定相冲突，所以它只能是 R6 那套可审计抑制（`SUPPRESS` + 落库 + 摘要计数）
+>    **之上的省 token 优化**。绑在同一个开关上就保证了：注入生效时落库路径一定也生效，
+>    审计线索存在于 `review_finding_memory` 的 DISMISSED 行里。
+> 2. **放在 prompt 最前面。** `ReviewLlmInputLimiter` 按**头部**截断（`substring(0, limit)`）。
+>    放末尾等于"上下文一长就第一个被丢掉"——而它恰恰是最短、最不该被丢的指令。
+> 3. **每条 finding 压成恰好一行并截断。** 标题最初来自模型对仓库内容的概括，
+>    也就是<b>仓库内容有机会影响到它</b>。若换行能穿透进来，攻击者可在自己代码里埋一段
+>    看似 prompt 结构的文本，借这条通道伪造指令。压单行堵死这条路。
 >
-> **仍未覆盖**：没有真实 PR 验证（默认关闭，需要一个真实的已 resolve 线程才能端到端验证）。
+> **空列表时输出逐字节不变**：prompt 的字节内容同时是 LLM 缓存键（`ReviewLlmCache`），
+> 多一个空行都会让所有既有缓存失效。已有专门测试断言这一点。
+>
+> **仍未覆盖**：
+> - 没有真实 PR 验证（默认关闭，需要一个真实的已 resolve 线程才能端到端验证）。
+> - 原方案第 4 条"摘要中把 DISMISSED 的问题收进折叠区块、标注'已被维护者关闭'"**未单独实现**。
+>   现状是摘要里统一按 `SUPPRESS` 计数上报（"N 条已被抑制"），满足"可审计"的底线，
+>   但不会区分"因为维护者关闭"还是"因为上次已提过"。
 
 ### 问题
 

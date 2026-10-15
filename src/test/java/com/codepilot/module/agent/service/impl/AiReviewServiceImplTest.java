@@ -1,6 +1,9 @@
 package com.codepilot.module.agent.service.impl;
 
 import com.codepilot.infrastructure.llm.LlmProperties;
+import com.codepilot.module.agent.dto.AiReviewContext;
+import com.codepilot.module.agent.dto.AiReviewRequest;
+import com.codepilot.module.agent.dto.DismissedFinding;
 import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.parser.AiReviewResultParser;
 import com.codepilot.module.agent.parser.AiReviewResultSchemaValidator;
@@ -284,6 +287,33 @@ class AiReviewServiceImplTest {
                 .contains("deterministic tool findings only");
         verify(context.reviewLlmClient, never()).review(any());
         verify(context.llmCallLogService, never()).save(any());
+    }
+
+    /**
+     * R7 prompt 注入的端到端证据：走真实的 {@code AiReviewServiceImpl → ReviewLlmReviewer →
+     * ReviewLlmClient} 链路，断言真正送进模型的 {@code changedFilesContext} 里有那段引导。
+     *
+     * <p>只测 formatter 是不够的——那样无法证明这条数据真的从 {@code AiReviewRequest}
+     * 一路走通到了 LLM 调用参数里。</p>
+     */
+    @Test
+    void shouldInjectDismissedFindingsIntoTheLlmPrompt() {
+        TestContext context = new TestContext();
+        when(context.reviewLlmClient.review(any())).thenReturn("{\"issues\":[],\"summary\":\"ok\"}");
+        ArgumentCaptor<ReviewLlmInput> inputCaptor = ArgumentCaptor.forClass(ReviewLlmInput.class);
+
+        context.service.reviewFile(new AiReviewRequest(
+                1L,
+                "src/main/java/Demo.java",
+                "@@ -1,1 +1,2 @@\n+class Demo {}",
+                AiReviewContext.fromChangedFiles(List.of("src/main/java/Demo.java")),
+                List.of(new DismissedFinding("src/main/java/Demo.java", "SQL_RISK", "no longer wanted"))
+        ));
+
+        verify(context.reviewLlmClient).review(inputCaptor.capture());
+        assertThat(inputCaptor.getValue().changedFilesContext())
+                .contains("Already dismissed by maintainers (do NOT report these again):")
+                .contains("- src/main/java/Demo.java: no longer wanted [SQL_RISK]");
     }
 
     private static class TestContext {

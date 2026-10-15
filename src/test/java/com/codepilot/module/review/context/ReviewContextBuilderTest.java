@@ -1,12 +1,17 @@
 package com.codepilot.module.review.context;
 
+import com.codepilot.module.agent.dto.DismissedFinding;
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewTask;
+import com.codepilot.module.review.memory.ReviewFindingMemoryService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ReviewContextBuilderTest {
 
@@ -136,6 +141,51 @@ class ReviewContextBuilderTest {
     void shouldReturnEmptyContextWhenFilesAreMissing() {
         assertThat(builder.build(null).allChangedFiles()).isEmpty();
         assertThat(builder.build(List.of()).allChangedFiles()).isEmpty();
+    }
+
+    /**
+     * R7 的 prompt 注入要靠 {@link ReviewContext} 把 dismissed finding 带到每个文件的 LLM 调用。
+     * 这里验证"带上了"；"带到了以后长什么样"由 {@code AiReviewContextFormatterTest} 验证。
+     */
+    @Test
+    void shouldCarryDismissedFindingsFromMemory() {
+        ReviewFindingMemoryService memoryService = mock(ReviewFindingMemoryService.class);
+        DismissedFinding dismissed = new DismissedFinding("src/main/java/Demo.java", "SQL_RISK", "no longer wanted");
+        when(memoryService.dismissedFindings(any(ReviewTask.class))).thenReturn(List.of(dismissed));
+        ReviewContextBuilder builderWithMemory = new ReviewContextBuilder(
+                new ReviewContextSignalExtractor(),
+                new ReviewContextRelationshipExtractor(),
+                memoryService
+        );
+
+        ReviewContext context = builderWithMemory.build(
+                reviewTask(),
+                List.of(reviewFile("src/main/java/Demo.java", "+code", 2, 1, false, null))
+        );
+
+        assertThat(context.dismissedFindings()).containsExactly(dismissed);
+    }
+
+    /** 没有记忆服务就是"没有可注入的抑制信息"，而不是一个需要补默认值的错误状态。 */
+    @Test
+    void shouldCarryNoDismissedFindingsWithoutMemoryService() {
+        ReviewContext context = builder.build(
+                reviewTask(),
+                List.of(reviewFile("src/main/java/Demo.java", "+code", 2, 1, false, null))
+        );
+
+        assertThat(context.dismissedFindings()).isEmpty();
+        assertThat(context.toAiReviewContext().allChangedFiles()).containsExactly("src/main/java/Demo.java");
+    }
+
+    private static ReviewTask reviewTask() {
+        ReviewTask task = new ReviewTask();
+        task.setId(7L);
+        task.setRepoOwner("liche719");
+        task.setRepoName("codeAireview");
+        task.setPrNumber(1);
+        task.setHeadSha("sha-1");
+        return task;
     }
 
     private static ReviewFile reviewFile(

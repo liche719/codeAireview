@@ -1,6 +1,7 @@
 package com.codepilot.module.review.memory;
 
 import com.codepilot.common.enums.ReviewFileSkipCategory;
+import com.codepilot.module.agent.dto.DismissedFinding;
 import com.codepilot.module.review.config.ReviewProperties;
 import com.codepilot.module.review.entity.ReviewFile;
 import com.codepilot.module.review.entity.ReviewIssue;
@@ -221,6 +222,80 @@ class ReviewFindingMemoryServiceTest {
     }
 
     // ---------- helpers ----------
+
+    // ------------------------------------------------------------------
+    // R7 的 prompt 注入读取路径
+    // ------------------------------------------------------------------
+
+    private static ReviewFindingMemory memory(String state, String filePath, String issueType, String title) {
+        ReviewFindingMemory memory = new ReviewFindingMemory();
+        memory.setState(state);
+        memory.setFilePath(filePath);
+        memory.setIssueType(issueType);
+        memory.setTitle(title);
+        return memory;
+    }
+
+    /**
+     * 注入必须挂在 {@code finding-memory-enabled} 上。
+     *
+     * <p>本项目的硬约定是"抑制必须可审计"。prompt 注入让模型根本不生成这条 finding，
+     * 于是 {@code review_issue} 里不会有任何记录——它只能是 R6 可审计抑制之上的省 token 优化。
+     * 绑在同一个开关上就保证了：注入生效时落库路径也一定生效。</p>
+     */
+    @Test
+    void shouldNotReadDismissedFindingsWhenMemoryIsDisabled() {
+        properties.setFindingMemoryEnabled(false);
+
+        assertThat(service.dismissedFindings(task("sha-1"))).isEmpty();
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
+    void shouldReturnOnlyDismissedFindings() {
+        when(mapper.findByPullRequest(anyString(), anyString(), any())).thenReturn(List.of(
+                memory(ReviewFindingMemory.STATE_DISMISSED, "src/A.java", "SQL_RISK", "keep me out"),
+                memory(ReviewFindingMemory.STATE_ACTIVE, "src/B.java", "BUG_RISK", "still open"),
+                memory(ReviewFindingMemory.STATE_RESOLVED, "src/C.java", "STYLE", "already fixed")
+        ));
+
+        List<DismissedFinding> dismissed = service.dismissedFindings(task("sha-1"));
+
+        assertThat(dismissed).hasSize(1);
+        assertThat(dismissed.get(0).filePath()).isEqualTo("src/A.java");
+        assertThat(dismissed.get(0).title()).isEqualTo("keep me out");
+    }
+
+    /** 旁路优化：读不到记忆就当没有可注入的内容，绝不让审查失败。 */
+    @Test
+    void shouldDegradeToEmptyWhenMemoryCannotBeRead() {
+        when(mapper.findByPullRequest(anyString(), anyString(), any()))
+                .thenThrow(new IllegalStateException("db is down"));
+
+        assertThat(service.dismissedFindings(task("sha-1"))).isEmpty();
+    }
+
+    @Test
+    void shouldCapDismissedFindingsToKeepThePromptBounded() {
+        List<ReviewFindingMemory> memories = new ArrayList<>();
+        for (int index = 0; index < 80; index++) {
+            memories.add(memory(ReviewFindingMemory.STATE_DISMISSED,
+                    "src/F" + index + ".java", "BUG_RISK", "issue " + index));
+        }
+        when(mapper.findByPullRequest(anyString(), anyString(), any())).thenReturn(memories);
+
+        assertThat(service.dismissedFindings(task("sha-1"))).hasSize(50);
+    }
+
+    @Test
+    void shouldNotReadDismissedFindingsWithoutPullRequestIdentity() {
+        ReviewTask withoutPr = task("sha-1");
+        withoutPr.setPrNumber(null);
+
+        assertThat(service.dismissedFindings(withoutPr)).isEmpty();
+        assertThat(service.dismissedFindings(null)).isEmpty();
+        verifyNoInteractions(mapper);
+    }
 
     private void givenKnownMemory(ReviewIssue issue, String state, String lastSeenHeadSha) {
         ReviewFindingMemory memory = new ReviewFindingMemory();

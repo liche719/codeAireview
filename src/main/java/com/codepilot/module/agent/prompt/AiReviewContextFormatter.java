@@ -1,6 +1,7 @@
 package com.codepilot.module.agent.prompt;
 
 import com.codepilot.module.agent.dto.AiReviewContext;
+import com.codepilot.module.agent.dto.DismissedFinding;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -26,6 +27,9 @@ public class AiReviewContextFormatter {
 
     private static final int IMPACT_PLAN_ITEM_LIMIT = 10;
 
+    /** 注入 prompt 的 dismissed finding 条数上限，防止历史累积把上下文顶爆。 */
+    private static final int DISMISSED_FINDING_LIMIT = 50;
+
     private final AiReviewPlanPromptFormatter reviewPlanPromptFormatter = new AiReviewPlanPromptFormatter();
 
     private final AiReviewGraphPromptFormatter graphPromptFormatter = new AiReviewGraphPromptFormatter();
@@ -33,18 +37,30 @@ public class AiReviewContextFormatter {
     private final AiReviewRelatedContextFormatter relatedContextFormatter = new AiReviewRelatedContextFormatter();
 
     public String format(AiReviewContext context) {
-        return formatForFile(context, null);
+        return formatForFile(context, null, List.of());
     }
 
     public String formatForFile(AiReviewContext context, String currentFilePath) {
+        return formatForFile(context, currentFilePath, List.of());
+    }
+
+    /**
+     * @param dismissedFindings 已被维护者 dismiss 的 finding；空列表时输出与不带此参数时<b>逐字节相同</b>
+     */
+    public String formatForFile(
+            AiReviewContext context,
+            String currentFilePath,
+            List<DismissedFinding> dismissedFindings
+    ) {
         AiReviewContext safeContext = context == null ? AiReviewContext.empty() : context;
         List<String> allChangedFiles = safeContext.allChangedFiles();
         if (allChangedFiles.isEmpty()) {
             return "No changed file list was provided.";
         }
 
-        StringBuilder builder = new StringBuilder()
-                .append("Changed files (")
+        StringBuilder builder = new StringBuilder();
+        appendDismissedFindings(builder, dismissedFindings);
+        builder.append("Changed files (")
                 .append(safeContext.totalFileCount())
                 .append(" total, ")
                 .append(safeContext.reviewableFileCount())
@@ -75,6 +91,43 @@ public class AiReviewContextFormatter {
             graphPromptFormatter.appendRepositoryGraphSnapshot(builder, safeContext, currentFilePath);
         }
         return builder.toString();
+    }
+
+    /**
+     * 注入"这些已经被维护者关闭，不要再提"。
+     *
+     * <h2>为什么放在最前面</h2>
+     * {@code ReviewLlmInputLimiter} 是按<b>头部</b>截断上下文的（{@code substring(0, limit)}）。
+     * 把这段放在末尾等于"上下文一长就第一个被丢掉"，而它恰恰是最短的、
+     * 也是最不该被丢的指令——丢了就会重新生成模型本来该跳过的问题。
+     *
+     * <p>空列表时<b>一个字符都不输出</b>，保证未启用该能力时 prompt 与之前逐字节一致，
+     * 既有测试与既有的 LLM 缓存键都不受影响。</p>
+     */
+    private void appendDismissedFindings(StringBuilder builder, List<DismissedFinding> dismissedFindings) {
+        if (dismissedFindings == null || dismissedFindings.isEmpty()) {
+            return;
+        }
+        List<DismissedFinding> usable = dismissedFindings.stream()
+                .filter(finding -> finding != null && finding.isUsable())
+                .limit(DISMISSED_FINDING_LIMIT)
+                .toList();
+        if (usable.isEmpty()) {
+            return;
+        }
+        builder.append("Already dismissed by maintainers (do NOT report these again):\n");
+        for (DismissedFinding finding : usable) {
+            builder.append("- ");
+            if (StringUtils.hasText(finding.filePath())) {
+                builder.append(finding.filePath()).append(": ");
+            }
+            builder.append(StringUtils.hasText(finding.title()) ? finding.title() : "(no title)");
+            if (StringUtils.hasText(finding.issueType())) {
+                builder.append(" [").append(finding.issueType()).append(']');
+            }
+            builder.append('\n');
+        }
+        builder.append('\n');
     }
 
     private void appendLinkedIssueContexts(

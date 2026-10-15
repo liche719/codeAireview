@@ -30,7 +30,8 @@ public class ReviewSingleFileReviewer {
                     taskId,
                     reviewFile.getFilePath(),
                     reviewFile.getPatch(),
-                    reviewContext.toAiReviewContext()
+                    reviewContext.toAiReviewContext(),
+                    reviewContext.dismissedFindings()
             ));
             List<ReviewIssue> reviewIssues = reviewIssueAssembler.toReviewIssues(
                     taskId,
