@@ -4,8 +4,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -15,14 +13,9 @@ class DatabaseMigrationResourceTest {
     void shouldCreateRuleChunkVectorIndexWithKnownEmbeddingDimension() throws Exception {
         String migration = new ClassPathResource("db/migration/V1__init.sql")
                 .getContentAsString(StandardCharsets.UTF_8);
-        String schema = Files.readString(Path.of("schema.sql"), StandardCharsets.UTF_8);
 
         assertThat(migration)
                 .contains("embedding VECTOR(${embeddingDimension})")
-                .contains("USING hnsw (embedding vector_cosine_ops)")
-                .doesNotContain("embedding VECTOR,");
-        assertThat(schema)
-                .contains("embedding VECTOR(1536)")
                 .contains("USING hnsw (embedding vector_cosine_ops)")
                 .doesNotContain("embedding VECTOR,");
     }

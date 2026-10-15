@@ -124,6 +124,10 @@ copy .env.example .env
 | --- | --- | --- |
 | `CODEPILOT_COMMAND_EXECUTION_LEASE` | `15m` | 命令任务单次执行租约；过期后可恢复。 |
 | `CODEPILOT_COMMAND_OUTBOX_BATCH_SIZE` | `20` | 每次命令 outbox 发布批次。 |
+| `CODEPILOT_COMMAND_OUTBOX_LOCK_TIMEOUT` | `2m` | 命令 outbox 发布锁超时；超时后消息可被其他实例重新领取。 |
+| `CODEPILOT_COMMAND_OUTBOX_CONFIRM_TIMEOUT` | `5s` | 等待 RabbitMQ Publisher Confirm 的时间。 |
+| `CODEPILOT_COMMAND_OUTBOX_RETRY_INITIAL_DELAY` | `1s` | 命令消息首次重试延迟。 |
+| `CODEPILOT_COMMAND_OUTBOX_RETRY_MAX_DELAY` | `1m` | 命令消息指数退避上限。 |
 | `CODEPILOT_COMMAND_OUTBOX_MAX_ATTEMPTS` | `10` | 命令消息可靠投递最大重试次数。 |
 | `CODEPILOT_COMMAND_RECOVERY_BATCH_SIZE` | `50` | 单次租约恢复任务数。 |
 | `CODEPILOT_AGENT_RESUMABLE_ENABLED` | `true` | 是否允许异步 Workflow 完成后恢复 Agent。 |
@@ -131,7 +135,10 @@ copy .env.example .env
 | `CODEPILOT_AGENT_MAX_TOOL_CALLS` | `12` | 单次 Agent run 最大 Tool 调用数。 |
 | `CODEPILOT_AGENT_MAX_CONTINUATIONS` | `4` | 单次 Agent run 最大异步恢复次数。 |
 | `CODEPILOT_AGENT_RUN_DEADLINE` | `30m` | Agent run 生命周期截止时间。 |
+| `CODEPILOT_AGENT_CONTINUATION_CONTEXT_MAX_CHARS` | `4000` | 异步 Workflow 结果回注 continuation context 时的截断长度。 |
+| `CODEPILOT_AGENT_WAITING_POLL_BATCH_SIZE` | `50` | 单次扫描恢复的 `WAITING_WORKFLOW` Agent run 数量上限。 |
 | `CODEPILOT_AGENT_CONVERSATION_MAX_TURNS` | `5` | 同一 PR 注入的历史 Agent 对话轮数。 |
+| `CODEPILOT_AGENT_CONVERSATION_MAX_CHARS` | `6000` | 注入的历史 Agent 对话总字符上限，运行时下限为 `500`。 |
 
 ## LLM
 

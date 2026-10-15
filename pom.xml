@@ -155,13 +155,16 @@
                 </configuration>
             </plugin>
             <!--
-                Mockito 5 默认使用 inline mock maker，需要 byte-buddy agent。
-                JDK 9+ 默认禁止 JVM 自附加（jdk.attach.allowAttachSelf=false），
-                仅靠 Mockito 自附加在 JDK 21 上会直接失败：
-                  "Could not self-attach to current VM using external process"
-                这里按 Mockito 官方建议，把 byte-buddy-agent 作为 -javaagent 显式挂到
-                测试 JVM 上。agent 坐标由 dependency-plugin 解析成属性，避免硬编码版本号
-                和本机仓库路径。
+                Mockito 5 默认使用 inline mock maker，需要把 byte-buddy agent 附加到测试 JVM。
+                默认情况下 Mockito 会自行完成这次附加（ByteBuddyAgent.installExternal），
+                但在禁止创建子进程 / 访问命名管道的受限环境（CI 沙箱、部分容器、受管开发环境）中
+                该自附加会失败，表现为所有使用 Mockito 的测试统一报错：
+                  Could not initialize plugin: interface org.mockito.plugins.MockMaker
+                  ... Caused by: Could not self-attach to current VM using external process
+                这里按 Mockito 官方建议，把 byte-buddy-agent 作为 -javaagent 显式挂到测试 JVM 上，
+                使测试不再依赖运行时的自附加能力。Mockito 也明确提示自附加"will no longer work in
+                future releases of the JDK"，因此这也是面向未来 JDK 的兼容写法。
+                agent 坐标由 dependency-plugin 解析成属性，避免硬编码版本号和本机仓库路径。
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

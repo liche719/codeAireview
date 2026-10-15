@@ -163,6 +163,12 @@ CODEPILOT_REVIEW_MAX_FILES_PER_TASK=30
 
 - Webhook 层使用 Redis 30 秒 TTL 去重，避免 GitHub 重试或重复 delivery 造成重复审查。
 - 任务创建层按 repo/pr/headSha/commentMode 复用已有任务，降低重复 LLM 调用成本。
+  - 注意复用要求 `headSha` 非空：`ReviewTaskCreator.findReusableTask` 在 headSha 为空时直接返回 null，
+    而 `V9__dedupe_review_task_head_sha.sql` 的唯一索引条件也是 `WHERE head_sha IS NOT NULL`。
+  - 因此该复用只对 **Webhook 入口**（`pull_request` payload 自带 head sha）生效。
+    `POST /api/reviews` 只传 `prUrl`，创建时 headSha 为 null，head sha 要到消费端
+    `ReviewTaskRunner.run()` 调用 `ReviewTaskHeadShaRefresher.refresh` 时才补上。
+    结论：**手动 API 重复调用同一个 PR 会创建多个任务**，这是当前实现的行为，不是幂等缺口被漏掉。
 - 创建审查任务时在同一数据库事务写入 `review_task_outbox`，后台发布器通过 RabbitMQ Publisher Confirm 确认投递；失败按指数退避重试，发布锁超时后可再次领取。
 - 消费者通过条件更新原子领取任务并写入执行令牌和租约，重复消息只能有一个执行者；实例宕机后，过期租约会恢复为待执行并重新投递。
 - RabbitMQ retry + DLQ 保存最终消费失败消息，便于排查。
@@ -217,7 +223,16 @@ CODEPILOT_REVIEW_MAX_FILES_PER_TASK=30
 - patch verification、location guard、finding ranking。
 - 自动修复 patch 应用、命令白名单和 sandbox 约束。
 
-当前全量测试基线为 540 个测试，0 failures/0 errors。Testcontainers 已使用隔离的 PostgreSQL/pgvector、Redis 和 RabbitMQ 验证命令 outbox、命令任务并发领取、租约恢复和 PR command publisher confirm。
+当前全量测试基线为 `540 tests, 0 failures, 0 errors`（`mvn clean test`，JDK 21）。启动 Docker 时 `2 skipped`，未启动 Docker 时 `6 skipped`；跳过的用例全部是条件依赖而非失败：4 个需要 Docker、1 个需要操作系统支持符号链接、1 个是 opt-in 的 GitHub 沙箱 E2E。
+
+其中 `ReliableReviewInfrastructureIntegrationTest`（`@Testcontainers(disabledWithoutDocker = true)`）用隔离的 PostgreSQL/pgvector、Redis 和 RabbitMQ 真实容器覆盖：
+
+- `shouldUseRealInfrastructureForClaimOutboxRateLimitAndPublisherConfirm`：真实原子领取、outbox 投递、分布式限流和 Publisher Confirm。
+- `shouldDeadLetterRejectedMessagesAndRecoverStalePublicationClaims`：死信路由和 `PUBLISHING` 陈旧状态恢复。
+- `shouldRollbackResultReplacementWhenTaskCompletionLosesOwnership`：执行所有权丢失时结果替换事务回滚。
+- `shouldUseRealInfrastructureForCommandClaimOutboxAndPublisherConfirm`：PR 命令任务的领取、outbox 和发布确认。
+
+该测试类启动真实 Spring 上下文，因此 Flyway 迁移也会在真实 PostgreSQL 上执行。已在真实 `pgvector/pgvector:pg16`、`redis:7-alpine`、`rabbitmq:3.13-management-alpine` 容器上验证通过（`Tests run: 4, Failures: 0, Errors: 0, Skipped: 0`）。
 
 Actuator `metrics` 端点提供以下低基数业务指标：
 

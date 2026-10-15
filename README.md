@@ -260,7 +260,9 @@ mvn test
 
 当前基线：
 
-- 当前全量测试基线为 `540 tests, 0 failures, 0 errors`；Testcontainers 已使用隔离的 PostgreSQL/pgvector、Redis、RabbitMQ 覆盖命令 outbox、原子领取、租约恢复和 publisher confirm。
+- 当前全量测试基线为 `540 tests, 0 failures, 0 errors`（`mvn clean test`，JDK 21）。启动 Docker 时 `2 skipped`（约 3 分钟），未启动 Docker 时 `6 skipped`（约 3 分钟）。
+- 跳过的用例全部是条件依赖，不是失败：4 个 `ReliableReviewInfrastructureIntegrationTest` 用例需要 Docker（`@Testcontainers(disabledWithoutDocker = true)`，未启动 Docker 时整类跳过），1 个需要操作系统支持符号链接，1 个是 opt-in 的 GitHub 沙箱 E2E（需要 `CODEPILOT_GITHUB_SANDBOX_E2E_ENABLED=true`）。
+- Testcontainers 集成测试已在真实 `pgvector/pgvector:pg16`、`redis:7-alpine`、`rabbitmq:3.13-management-alpine` 上验证通过，覆盖原子领取、命令 outbox、分布式限流、Publisher Confirm、死信路由、陈旧发布恢复和所有权丢失时的事务回滚。
 - 离线 AI Review 评估覆盖 SQL 风险、Secret、prompt injection、测试缺失、API 契约变化、配置安全回归、非法 JSON 降级。
 - 当前离线评估：Precision `85.71%`，Recall `100%`，must-not-comment violation rate `0%`。
 
