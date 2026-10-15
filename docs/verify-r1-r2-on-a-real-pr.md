@@ -33,6 +33,53 @@ gh api "repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" \
 
 ## 1. 准备
 
+### 1.0 前置：JVM 能否访问 GitHub API
+
+**先做这一步**，否则后面全部白费。很多国内环境装了网络加速器（Watt Toolkit / 原 Steam++ 等），
+它在本机 443 端口对 `github.com` / `api.github.com` 做 **TLS 中间人**转发。
+
+- **浏览器能开 GitHub、PowerShell 也能调到 API** → 因为它们信任 Windows 证书库
+- **JVM 会失败**：`SSLHandshakeException: unable to find valid certification path to requested target`
+  —— Java 只信任自己的 `cacerts`，**不读 Windows 证书库**
+
+验证方法（用应用实际的客户端，不要用浏览器）：
+
+```powershell
+# 直接跑一个 Java 探测；若 GitHub 那行报 SSLHandshakeException，就是这个原因
+java -e 2>$null; Write-Host "见下方脚本说明"
+```
+
+最简判断：启动应用后调用一次 `POST /api/reviews`，日志里若出现
+`SSLHandshakeException`，即为此问题。
+
+**修法**——生成一份**专用** truststore（不改动 JDK 全局 `cacerts`）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-local-truststore.ps1
+```
+
+启动应用时指向它：
+
+```
+mvn spring-boot:run -Dspring-boot.run.jvmArguments="-Djavax.net.ssl.trustStore=target/codepilot-truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit"
+```
+
+> ⚠️ 这等于**在本次运行中信任一个中间人 CA**。仅限本地调试，不要用于生产。
+> 脚本落在 `target/` 下（已被 gitignore）；`mvn clean` 后需重新生成。
+> 加速器升级或证书轮换后也要重新生成。
+
+**LLM 侧**：`api.openai.com` 在国内常常直接不可达。项目是 OpenAI-compatible 的，
+换成可达的 provider 即可，例如：
+
+```env
+CODEPILOT_LLM_BASE_URL=https://api.deepseek.com/v1
+CODEPILOT_LLM_API_KEY=sk-xxx
+CODEPILOT_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1
+CODEPILOT_EMBEDDING_API_KEY=sk-xxx
+# 若 embedding 暂不可用，可先关掉 RAG 以便跑通其余链路
+CODEPILOT_RAG_ENABLED=false
+```
+
 ### 1.1 环境变量
 
 ```env
