@@ -8,12 +8,19 @@ import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.service.PrCommandTaskService;
 import com.codepilot.module.git.client.GithubClient;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.beans.factory.annotation.Autowired;
 
+/**
+ * 处理兼容命令 {@code /fix} 的入口：在 fix 能力开启时创建 dry-run 修复任务。
+ *
+ * <p>与 {@link ChatCommandHandler} 一样，本类只创建任务，不直接向 RabbitMQ 发送消息；
+ * 投递统一由 command outbox 负责。</p>
+ */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class FixCommandHandler implements GithubCommandHandler {
 
     private final GithubCommandProperties properties;
@@ -21,28 +28,6 @@ public class FixCommandHandler implements GithubCommandHandler {
     private final GithubClient githubClient;
 
     private final PrCommandTaskService prCommandTaskService;
-
-    private final com.codepilot.task.PrCommandTaskProducer legacyProducer;
-
-    @Autowired
-    public FixCommandHandler(GithubCommandProperties properties,
-                             GithubClient githubClient,
-                             PrCommandTaskService prCommandTaskService) {
-        this.properties = properties;
-        this.githubClient = githubClient;
-        this.prCommandTaskService = prCommandTaskService;
-        this.legacyProducer = null;
-    }
-
-    public FixCommandHandler(GithubCommandProperties properties,
-                             GithubClient githubClient,
-                             PrCommandTaskService prCommandTaskService,
-                             com.codepilot.task.PrCommandTaskProducer ignoredProducer) {
-        this.properties = properties;
-        this.githubClient = githubClient;
-        this.prCommandTaskService = prCommandTaskService;
-        this.legacyProducer = ignoredProducer;
-    }
 
     @Override
     public GithubCommandType commandType() {
@@ -68,14 +53,6 @@ public class FixCommandHandler implements GithubCommandHandler {
         }
 
         PrCommandTask task = prCommandTaskService.createFixTask(payload);
-        if (legacyProducer != null && task != null
-                && !isTerminalStatus(task.getStatus())) {
-            legacyProducer.send(task.getId());
-        }
         return GithubCommandHandleResult.processed(task.getId(), payload.getAction());
-    }
-
-    private boolean isTerminalStatus(String status) {
-        return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status);
     }
 }

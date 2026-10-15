@@ -5,30 +5,24 @@ import com.codepilot.module.command.dto.GithubCommandType;
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.service.PrCommandTaskService;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 
+/**
+ * 把 {@code @x-pilotx ...} 自然语言评论转成 {@code CHAT} 类型的 {@code pr_command_task}。
+ *
+ * <p>本类只负责创建任务，不直接向 RabbitMQ 发送消息。任务落库后由 command outbox
+ * （{@code PrCommandTaskOutboxPublisher}）在事务提交后可靠投递，因此这里不存在
+ * "创建成功但消息丢失" 的窗口。</p>
+ */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class ChatCommandHandler implements GithubCommandHandler {
 
     private final PrCommandTaskService prCommandTaskService;
-
-    private final com.codepilot.task.PrCommandTaskProducer legacyProducer;
-
-    @Autowired
-    public ChatCommandHandler(PrCommandTaskService prCommandTaskService) {
-        this.prCommandTaskService = prCommandTaskService;
-        this.legacyProducer = null;
-    }
-
-    public ChatCommandHandler(PrCommandTaskService prCommandTaskService,
-                              com.codepilot.task.PrCommandTaskProducer ignoredProducer) {
-        this.prCommandTaskService = prCommandTaskService;
-        this.legacyProducer = ignoredProducer;
-    }
 
     @Override
     public GithubCommandType commandType() {
@@ -50,10 +44,6 @@ public class ChatCommandHandler implements GithubCommandHandler {
         }
 
         PrCommandTask task = prCommandTaskService.createChatTask(payload);
-        if (legacyProducer != null && task != null
-                && !isTerminalStatus(task.getStatus())) {
-            legacyProducer.send(task.getId());
-        }
         return GithubCommandHandleResult.processed(task.getId(), payload.getAction());
     }
 
@@ -63,9 +53,4 @@ public class ChatCommandHandler implements GithubCommandHandler {
                 && StringUtils.hasText(payload.getRepo())
                 && payload.getPullNumber() != null;
     }
-
-    private boolean isTerminalStatus(String status) {
-        return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status);
-    }
-
 }

@@ -4,13 +4,11 @@ import com.codepilot.module.command.dto.GithubCommandHandleResult;
 import com.codepilot.module.command.entity.PrCommandTask;
 import com.codepilot.module.command.service.PrCommandTaskService;
 import com.codepilot.module.github.webhook.GitHubPullRequestWebhookPayload;
-import com.codepilot.task.PrCommandTaskProducer;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -18,45 +16,42 @@ import static org.mockito.Mockito.when;
 class ChatCommandHandlerTest {
 
     @Test
-    void shouldAlwaysCreateAndEnqueueAgentTask() {
+    void shouldCreateAgentTaskFromNaturalLanguageComment() {
         PrCommandTaskService taskService = mock(PrCommandTaskService.class);
-        PrCommandTaskProducer producer = mock(PrCommandTaskProducer.class);
-        PrCommandTask task = task(42L, "PENDING");
-        when(taskService.createChatTask(any())).thenReturn(task);
-        ChatCommandHandler handler = new ChatCommandHandler(taskService, producer);
+        when(taskService.createChatTask(any())).thenReturn(task(42L, "PENDING"));
+        ChatCommandHandler handler = new ChatCommandHandler(taskService);
 
         GithubCommandHandleResult result = handler.handle(payload());
 
         assertThat(result.getId()).isEqualTo(42L);
         verify(taskService).createChatTask(any());
-        verify(producer).send(42L);
     }
 
     @Test
-    void shouldNotRepublishTerminalAgentTask() {
+    void shouldReturnExistingTaskIdWithoutRepublishing() {
         PrCommandTaskService taskService = mock(PrCommandTaskService.class);
-        PrCommandTaskProducer producer = mock(PrCommandTaskProducer.class);
         when(taskService.createChatTask(any())).thenReturn(task(42L, "SUCCESS"));
-        ChatCommandHandler handler = new ChatCommandHandler(taskService, producer);
+        ChatCommandHandler handler = new ChatCommandHandler(taskService);
 
         GithubCommandHandleResult result = handler.handle(payload());
 
+        // 任务复用与投递幂等由 PrCommandTaskService 和 command outbox 负责，
+        // handler 本身不持有 producer，因此这里只断言它如实返回被复用的任务。
         assertThat(result.getId()).isEqualTo(42L);
-        verify(producer, never()).send(42L);
+        verify(taskService).createChatTask(any());
     }
 
     @Test
     void shouldIgnoreRequestWhenPrIdentityIsIncomplete() {
         PrCommandTaskService taskService = mock(PrCommandTaskService.class);
-        PrCommandTaskProducer producer = mock(PrCommandTaskProducer.class);
-        ChatCommandHandler handler = new ChatCommandHandler(taskService, producer);
+        ChatCommandHandler handler = new ChatCommandHandler(taskService);
         GitHubPullRequestWebhookPayload payload = payload();
         payload.setOwner("");
 
         GithubCommandHandleResult result = handler.handle(payload);
 
         assertThat(result.getReason()).isEqualTo("missing PR identity");
-        verifyNoInteractions(taskService, producer);
+        verifyNoInteractions(taskService);
     }
 
     private PrCommandTask task(Long id, String status) {

@@ -293,6 +293,7 @@ powershell -ExecutionPolicy Bypass -File scripts/run-review-reliability-baseline
 
 ## 文档
 
+- [代码地图](docs/code-map.md) —— 从入口到实现逐条对应，读代码从这里开始
 - [架构说明](docs/architecture.md)
 - [API 文档](docs/api.md)
 - [本地演示流程](docs/demo.md)
