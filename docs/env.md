@@ -242,6 +242,26 @@ copy .env.example .env
 | `CODEPILOT_REVIEW_SUGGESTION_ENABLED` | `false` | 是否给内联评论附 GitHub 的一键应用 ` ```suggestion ` 块（R5）。**默认关闭**：`suggestion` 被点一下就会改用户代码，属写侧交互，必须显式开启。 |
 | `CODEPILOT_REVIEW_SUGGESTION_MAX_LINES` | `20` | 单条建议可生成一键应用的最大行数。超限则不给按钮（降级为 `diff` 块）。防止把一个文件级改写塞进一行评论。 |
 | `CODEPILOT_REVIEW_SUGGESTION_FALLBACK_TO_DIFF` | `true` | 校验不通过时是否仍把建议代码以 ` ```diff ` 块展示。默认 `true`：**降级展示优于直接丢弃**，且 `diff` 围栏不可能被误点。设为 `false` 则连代码块一起省略。 |
+| `CODEPILOT_REVIEW_EXTRA_SKIP_PATTERNS` | 空 | 追加的路径跳过规则（逗号分隔，按子串匹配）。用于补上项目特有的代码生成输出目录。内置规则已覆盖构建产物、锁文件、`vendor/`、`third_party/`、`node_modules/` 与常见生成物后缀。**空白规则会被忽略**——一条空规则若参与匹配会命中所有文件，把整个仓库静默排除在审查之外。 |
+| `CODEPILOT_REVIEW_PATH_INSTRUCTIONS_ENABLED` | `false` | 是否启用仓库内的**路径级审查指令**（R12）。**默认关闭**：它把仓库内容注入 prompt，是一个新的 prompt injection 面。 |
+| `CODEPILOT_REVIEW_PATH_INSTRUCTIONS_FILE` | `.codepilot/rules.md` | 规则文件在仓库中的路径。格式为 Markdown，`## 标题即 glob`，标题下的正文即该路径的审查要求。 |
+| `CODEPILOT_REVIEW_PATH_INSTRUCTIONS_MAX_CHARS` | `8000` | 全部指令合计的字符上限；超出部分丢弃。这份内容会被拼进**每个匹配文件**的 prompt，不设限的话一个被提交进来的巨大规则文件会成倍放大 token 消耗。 |
+
+**路径级审查指令（R12）**：开启后，系统会从仓库里读一份规则文件，按 glob 匹配当前文件并把对应的要求注入该文件的 prompt。
+
+```markdown
+## src/main/java/**/*.java
+所有 public 方法必须有 javadoc。
+
+## **/*.sql
+迁移必须可回滚。
+```
+
+**只从 base 分支读，这一点是安全前提**：规则文件本身在仓库里、会随 PR 变更。若从 PR 的 head 读，一个 PR 只要顺手改掉 `.codepilot/rules.md` 就能**放宽甚至取消对自己的审查**——不需要绕过任何权限，提交一个文件就够了。从 base 读切断了这条路：本 PR 对规则的修改要等合并、成为后续 PR 的 base 之后才生效，而那时它已经被正常 review 过了。
+
+**glob 语义**：`**` 跨目录（含 0 层）；`*` 不跨 `/`；不含 `/` 的模式（如 `*.sql`）按"任意目录下的同名文件"处理——写 `*.sql` 的人想要的是所有 SQL 文件，若只匹配根目录，规则会静默地几乎不生效。
+
+**它是新的 prompt injection 面，因此有三重约束**：正文经不可信内容转义（防止伪造我们的内容块分隔符）；单条、条目数、总长度都有上限；注入文案明确划界——这些规则塑造"找什么"，但**不得**改变输出格式或覆盖系统约束。读不到规则文件一律降级为"没有规则"，绝不让审查失败。
 
 **多行区间评论（R4）**：一个 finding 常跨多行。开启后，若模型给出了 `startLine` / `endLine`，系统会尝试发布 `start_line..line` 的区间评论。
 

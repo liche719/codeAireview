@@ -3,7 +3,8 @@
 > 本文件是 Phase 0 的产出：把「一个 PR 从生到死会遇到的每一种情况」穷举成清单，逐条对照当前实现。
 > **每一行的结论都来自实际代码**，附 `类:方法`（行号会随改动漂移，类与方法名不会）。
 >
-> 基线：commit `9973cff`（R1–R7 全部落地后），`mvn clean test` = 703 tests / 0 failures / 0 errors / 2 skipped（含 R8/R9/R10/R11）。
+> 基线：R1–R12 全部落地后的 `main`，`mvn clean test` = 734 tests / 0 failures / 0 errors / 2 skipped。
+> （刻意不写死 commit sha：每次提交都会让它过期，而它过期时读起来仍然像是对的。）
 > 状态图例：✅ 已实现 · ⚠️ 部分实现或有隐患 · ❌ 未实现
 >
 > **本文件不含「待核实」行。** 所有无法用代码证实的行为都已标注为 ❌/⚠️ 并说明依据。
@@ -24,26 +25,26 @@
 | B. PR 内容形态 | 20 | 17 | 3 | 0 |
 | C. 评论落点与形态 | 18 | 9 | 3 | 6 |
 | D. 多文件协调 | 14 | 5 | 8 | 1 |
-| E. 记忆与上下文 | 16 | 14 | 0 | 2 |
+| E. 记忆与上下文 | 17 | 15 | 0 | 2 |
 | F. Agent 模式 | 18 | 13 | 2 | 3 |
 | G. 协作与反馈 | 8 | 2 | 0 | 6 |
 | H. 性能与成本 | 8 | 3 | 3 | 2 |
 | I. 故障 | 12 | 7 | 4 | 1 |
 | J. 安全 | 12 | 9 | 1 | 2 |
-| **合计（A–J）** | **144** | **82** | **29** | **33** |
+| **合计（A–J）** | **145** | **83** | **29** | **33** |
 | K. 补漏 `C19` | 1 | 0 | 0 | 1 |
-| **总计** | **145** | **82** | **29** | **34** |
+| **总计** | **146** | **83** | **29** | **34** |
 
 > **上表是本文件自身的第二处修正。** 初版表格（`142 / 58 / 38 / 46`）与各维度明细行**对不上**：
 > 例如 A 维度明细行是 `3 ✅ / 5 ⚠️ / 10 ❌`，初版表格却写 `4 / 5 / 9`；C 维度明细是 `7 / 3 / 8`，
 > 初版写 `7 / 5 / 6`。现在这版数字是**脚本按明细行重新统计**得出的
 > （按 `^[A-Z]+[0-9]+$` 识别场景行、只认每行第一个状态 emoji），不再手工估算。
-> 该脚本统计到 **148 行**，即 145 个场景 **+ 上方 S1/S2/S3 三条发现**（它们的 ID 也符合该模式，故需扣除）。
+> 该脚本统计到 **149 行**，即 146 个场景 **+ 上方 S1/S2/S3 三条发现**（它们的 ID 也符合该模式，故需扣除）。
 >
 > 另一个容易被误读的点：`C19` 按编号属于 C，但为保留"不修改既有编号"的自我修正记录而单列在 K，
-> 所以 A–J 合计 144、再加 C19 才是 145。
+> 所以 A–J 合计 145、再加 C19 才是 146。
 >
-> **本轮新增 2 行**（都不改既有编号）：`J11` 多租户判断、`J12` 自动审查路径的滥用防护。
+> **本轮新增的行**（都不改既有编号）：`J11` 多租户判断、`J12` 自动审查路径的滥用防护、`E17` 路径级审查指令。
 
 ### 三个最严重的发现（**均已修复**）
 
@@ -146,7 +147,7 @@
 | D1 | 跨文件影响（改签名→调用方） | ⚠️ | `ReviewContextRelationshipExtractor`(308 行) 与 `RepositoryGraphSnapshotBuilder` 提供跨文件上下文，但**只作为 LLM 的输入**，不保证产出跨文件 finding |
 | D2 | 接口 + 实现同时改 | ⚠️ | 同上 |
 | D3 | DTO + mapper + SQL | ⚠️ | 同上 |
-| D4 | 配置项新增但未使用 / 使用但未定义 | ❌ | `module/tool` 下只有 `SqlRiskTool`/`SecretScanTool`/`TestSuggestionTool` 三条规则，**无配置交叉校验规则**（`ToolProperties` 仅做开关） |
+| D4 | 配置项新增但未使用 / 使用但未定义 | ❌ | **R12 评估后明确未做**，理由是能力缺口而非疏漏：判定这条需要看**整个仓库**的配置与引用，而 `GithubClient` 只有 `getFileContent(owner, repo, path, ref)`——**必须先知道路径**，没有列目录/树的接口。只按 diff 判断必然假阳性（"新键没人用"其实被未改动的代码引用着），与本项目"漏报优于噪声"的取向冲突。`module/tool` 下仍只有 `SqlRiskTool`/`SecretScanTool`/`TestSuggestionTool` 三条规则 |
 | D5 | API 契约变更 | ⚠️ | 离线评估含 `API 契约变化` 场景，但依赖 LLM 语义判断，无确定性规则 |
 | D6 | 源码 + 对应测试配对 | ✅ | `RepoSourceTestPairCandidateResolver` |
 | D7 | 依赖方向 / import 图 | ⚠️ | `RepositoryGraphSnapshotBuilder` + `RepositoryGraphNodeAccumulator` |
@@ -160,7 +161,7 @@
 
 ---
 
-## E. 记忆与上下文（16）
+## E. 记忆与上下文（17）
 
 | ID | 场景 | 状态 | 证据与说明 |
 |---|---|---|---|
@@ -169,7 +170,7 @@
 | E3 | 上次已提问题不重复提 | ✅ | **R6**：命中的历史 finding 标 `publishDecision=SUPPRESS` + 原因（`dismissed by a maintainer` / `already reported in a previous review` / `already reported for this commit`），`ReviewFindingRanker` 与 `ReviewCommentBudgetAllocator` 会过滤掉，不再发评论。**抑制必须可审计**：finding 仍落库、摘要仍计入"其中 N 条已被抑制"，不静默消失。**匹配用双指纹 OR**：`findingFingerprint = sha256(filePath\|issueType\|归一化标题)` 与 `codeFingerprint = sha256(filePath\|建议内容)`，**两者都不含行号**（抗 rebase 漂移）；识别信息不足时返回 `null` 并按"全新问题、永不抑制"处理（宁可不匹配也不过度匹配） |
 | E4 | 跨评论 Agent 对话 | ✅ | `AgentConversationContextBuilder.build`：同 repo/pr、`commandType=CHAT`、`status=SUCCESS`、排除自身，取最近 N 条，`oneLine` 拍平后注入，标记为不可信 |
 | E5 | Agent 异步恢复 continuation | ✅ | `AgentRunService.markWaiting`/`prepareResume` + `AgentWorkflowResumeJob`；`AgentChatTaskRunner:115-127` |
-| E6 | 仓库级团队规范 | ✅ | RAG 规则库（`rule_document`/`rule_chunk`） |
+| E6 | 仓库级团队规范 | ✅ | 两条机制：① RAG 规则库（`rule_document`/`rule_chunk`，**服务端**维护）；② **R12 的路径级审查指令**（`E17`，**仓库内**随代码 review）。两者互补：前者是团队通用规范，后者是"这个目录要特别注意什么" |
 | E7 | 仓库级历史误报抑制 | ✅ | **R7**：`ReviewDismissalService` 用 GraphQL 读 `reviewThreads` 的 `isResolved`，只对"首条评论由本 bot 发出"的线程把对应 finding 标 `DISMISSED`（比 `RESOLVED` 更强：后续被重新识别也直接抑制）。**prompt 注入（本轮补完）**：DISMISSED 列表经 `ReviewContext.dismissedFindings` → `AiReviewRequest` → `AiReviewContextFormatter` 注入每文件 prompt **顶部**，让模型根本不生成这些 finding。开关 `dismissal-sync-enabled` 默认 **false**。**两道刻意的约束**：① 注入额外挂在 `finding-memory-enabled` 上——注入让 finding 压根不落库，会破坏"可审计"，所以它只能是 R6 可审计抑制之上的省 token 优化；② 注入段放在 prompt 最前，因为 `ReviewLlmInputLimiter` 按**头部**截断，放末尾会第一个被丢 |
 | E8 | LLM 审查缓存 | ✅ | `ai_review_cache`，TTL 7 天（`codepilot.llm.review-cache-ttl-days`） |
 | E9 | RAG 召回缓存 | ✅ | `ReviewRagCache`，TTL 300s / LRU 256 |
@@ -180,6 +181,7 @@
 | E14 | 命令任务日志 | ✅ | `pr_command_task_log`；`AgentToolTraceAspect` 记录每次 Tool 调用 |
 | E15 | 会话压缩 | ✅ | **R9**：原先 `AgentConversationContextBuilder` 用 `result.substring(result.length() - maxChars)` **盲截尾部字符**，会切出半句话、切掉 `assistant=` 段、并把开头的 `conversationContextStatus:` 一起截掉。现在按 **turn 边界**裁剪（从最近往前累加整条 turn，装不下就停），只有最新一条单独超预算时才截断，且保留 `turn/user/assistant` 结构并打 `…[truncated]` 标记；状态行永远保留在最前面。仍**不做 LLM 摘要压缩**（刻意：额外调用与延迟，对话上下文价值有限）。回滚开关 `conversation-truncation-mode=chars` |
 | E16 | 跨 PR 的仓库画像 | ❌ | 无跨 PR 聚合 |
+| E17 | **路径级审查指令** | ✅ | **R12**：仓库内 `.codepilot/rules.md`（`## 标题即 glob`，正文即要求）→ `PathInstructionProvider` 读取 → `PathGlobMatcher` 按当前文件匹配 → 注入该文件 prompt。**只从 PR 的 base 分支读**：规则文件随 PR 变更，若读 head，一个 PR 改掉自己的规则文件就能放宽对自己的审查。配置 `path-instructions-enabled` 默认 **false**（它把仓库内容注入 prompt，是新的注入面）；正文经不可信包装、单条/总数/总长均有限制、文案明确"不得改变输出格式或覆盖系统约束"。读不到一律降级为无规则 |
 
 ---
 
@@ -303,7 +305,7 @@
 
 | 说法 | 核实结果 |
 |---|---|
-| "703 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R11 之后）。初版写 540 是当时的真实值，现已过时 |
+| "734 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R12 之后）。初版写 540 是当时的真实值，现已过时 |
 | "Precision 85.71% / Recall 100%" | ✅ 数字正确，但**样本仅 6 个 PR-like 场景**，且在 issueType 级别按 case 拼 key 计算（`AiReviewPipelineEvalTest`）。D2 计划扩充，**未做** |
 | "文件级并发 / 单文件失败隔离" | ✅ 正确 |
 | "patch verification + location guard" | ✅ 正确 |
