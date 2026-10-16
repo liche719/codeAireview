@@ -1123,6 +1123,27 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 
 ## R16 修正误导性文案与分类错位
 
+> **状态：已完成（三处已核实的不一致全部修正）。**
+>
+> - 第 1 处（`skip_reason` 写"generated path"但代码无生成物判定）：**R11 已修**，
+>   现在 reason 按分类分别是 build output / vendored / generated，且生成物有了独立的 skip 分类。
+> - 第 2 处（`pnpm-lock.yaml` 不被跳过）：**R11 已修**，同类漏判的 `poetry.lock`、`go.sum` 一并补上。
+> - 第 3 处（location guard 的 reason 与 `DiffLineMapper` 实际判定范围不符）：**本轮修**——
+>   改成 `"line is not part of the diff for this file (no matching added, deleted or context line)"`，
+>   并提为 `ReviewIssueLocationGuard.REASON_NOT_IN_DIFF` 常量，让"文案说了什么"有个可被引用的锚点。
+> - 顺带修掉一处**分类描述与覆盖范围错位**：`PATH_EXCLUDED` 的枚举描述原为"生成物或锁文件路径"，
+>   但"生成物"在 R11 已拆到 `GENERATED`，描述不改就会与它实际覆盖的范围不符。
+>
+> **测试策略（刻意的）**：把"删除侧行号不会被清空"单独固化成一个断言。
+> 这不是重复既有测试，而是针对<b>文案曾说过的那件事</b>——
+> 旧文案只提"added diff line"，读起来像"只有新增行可评论"。
+> 有了这条断言，那句文案不可能再被改回去。
+>
+> **仍未覆盖（C12 的另一半）**：reason 目前**只 `log.debug`，不进摘要**，
+> 所以用户仍然不知道"这条本想在 X 行说、但定位失败"。
+> 要补这一半需要把 reason 带到摘要——那需要给 `ReviewIssue` 加一个
+> （非持久化的）字段并在 formatter 里渲染，属独立改动，不在本项范围内。
+
 **问题**（三处已核实的不一致）：
 1. `ReviewFilePlanner:138` 的 skip_reason 写 `"file type or generated path skipped"`，但**代码中不存在生成物判定**
 2. `pnpm-lock.yaml` 因以 `.yaml` 结尾而**不被 `.lock` 命中、因此不被跳过**，却已被 `isDependencyManifestPath` 分类为依赖清单

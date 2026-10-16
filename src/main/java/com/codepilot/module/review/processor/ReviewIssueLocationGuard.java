@@ -15,6 +15,19 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ReviewIssueLocationGuard {
 
+    /**
+     * 行号落在 diff 之外时的原因。
+     *
+     * <p>文案必须与 {@link DiffLineMapper#map} 的<b>实际</b>判定范围一致：它同时接受
+     * 新增行（RIGHT）、删除行（LEFT）与上下文行（RIGHT）。早先这里写的是
+     * {@code "line is not a commentable added diff line"}，只提"新增行"，
+     * 让人以为删除行与上下文行也会被拒——而测试
+     * {@code shouldKeepLineNumberWhenIssueTargetsContextOrDeletedLine} 证明它们是被保留的。
+     * 误导性文案最容易被读成"实现就是这样"。</p>
+     */
+    static final String REASON_NOT_IN_DIFF =
+            "line is not part of the diff for this file (no matching added, deleted or context line)";
+
     private final DiffLineMapper diffLineMapper;
 
     public List<ReviewIssue> keepOnlyCommentableChangedLines(
@@ -45,7 +58,7 @@ public class ReviewIssueLocationGuard {
 
         DiffLineMapping mapping = diffLineMapper.map(issue.getFilePath(), patch, issue.getLineNumber());
         if (!mapping.commentable()) {
-            clearLineNumber(issue, "line is not a commentable added diff line");
+            clearLineNumber(issue, REASON_NOT_IN_DIFF);
         }
     }
 

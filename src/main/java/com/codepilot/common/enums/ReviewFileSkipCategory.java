@@ -17,8 +17,14 @@ public enum ReviewFileSkipCategory {
     /** 文件路径为空，无法定位。 */
     INVALID_PATH("文件路径缺失"),
 
-    /** 生成物 / 锁文件 / 构建产物等按路径排除。 */
-    PATH_EXCLUDED("生成物或锁文件路径"),
+    /**
+     * 构建产物 / 锁文件 / 压缩资源等按路径排除。
+     *
+     * <p>描述里刻意<b>不再提"生成物"</b>：生成代码已在 R11 拆到 {@link #GENERATED}，
+     * 两者处置意图不同（这里只是"不用看"，生成物是"去改生成源"）。
+     * 留着旧措辞会让这个分类的描述与它实际覆盖的范围不符。</p>
+     */
+    PATH_EXCLUDED("构建产物、锁文件或压缩资源路径"),
 
     /** 第三方 vendor 代码（`vendor/`、`third_party/`、`node_modules/`）——不审，不是我们的代码。 */
     VENDORED("第三方 vendor 代码"),

@@ -3,7 +3,7 @@
 > 本文件是 Phase 0 的产出：把「一个 PR 从生到死会遇到的每一种情况」穷举成清单，逐条对照当前实现。
 > **每一行的结论都来自实际代码**，附 `类:方法`（行号会随改动漂移，类与方法名不会）。
 >
-> 基线：R1–R12 全部落地后的 `main`，`mvn clean test` = 734 tests / 0 failures / 0 errors / 2 skipped。
+> 基线：R1–R12 全部落地后的 `main`，`mvn clean test` = 735 tests / 0 failures / 0 errors / 2 skipped。
 > （刻意不写死 commit sha：每次提交都会让它过期，而它过期时读起来仍然像是对的。）
 > 状态图例：✅ 已实现 · ⚠️ 部分实现或有隐患 · ❌ 未实现
 >
@@ -130,7 +130,7 @@
 | C9 | resolve / unresolve thread | ❌ | 无 GraphQL `resolveReviewThread` 调用 |
 | C10 | **正式 Review verdict** | ❌ | 全仓库无 `APPROVE`/`REQUEST_CHANGES` review event（搜到的 `approve*` 全部属于 Fix 审批链路 `FixApprovalService`） |
 | C11 | inline 预算超限（10） | ⚠️ | `ReviewCommentBudgetAllocator` 存在并有测试；Summary 会追加「另外还有 N 条问题未展示」，且**R6 之后**额外给出「其中 M 条已被抑制」（`ReviewReportFormatter:123-130`）。**仍未解决的部分**：不列出被丢弃的**具体是哪几条、为什么**——R2 的「审查覆盖」说的是**文件**维度，不是 inline 评论预算维度（roadmap 把 C11 列在 R2 的覆盖场景里，实际只部分兑现） |
-| C12 | location guard 拒绝 | ⚠️ | 被拒绝的问题不落 inline，仍进 Summary 列表；`ReviewIssue.commentChannel` 记录渠道。但用户不会知道"这条本想在 X 行说但定位失败"。**注**：置空行号时写的 reason 是 `"line is not a commentable added diff line"`（`ReviewIssueLocationGuard:48`，且该 reason **只 log.debug，不进摘要**），而 `DiffLineMapper.map` 实际也接受 LEFT 与 context 行 → **文案与实际判定范围不符**（本轮重新核对代码，该不符仍存在）。R2 的覆盖度区块是**文件**维度，不解决这条 |
+| C12 | location guard 拒绝 | ⚠️ | 被拒绝的问题不落 inline，仍进 Summary 列表；`ReviewIssue.commentChannel` 记录渠道。**R16 修掉了文案与实际判定范围不符**：旧 reason 写 `"line is not a commentable added diff line"`（只提新增行，读起来像"只有新增行可评论"），实际 `DiffLineMapper.map` 同时接受新增行（RIGHT）、删除行（LEFT）与上下文行（RIGHT）；现在改为 `"line is not part of the diff for this file (no matching added, deleted or context line)"`，并提为 `ReviewIssueLocationGuard.REASON_NOT_IN_DIFF` 常量。**仍未解决的另一半**：该 reason **只 `log.debug`，不进摘要**，所以用户仍不知道"这条本想在 X 行说但定位失败"——补它需要给 `ReviewIssue` 加字段并在 formatter 渲染，属独立改动。R2 的覆盖度区块是**文件**维度，不解决这条 |
 | C13 | fingerprint 重复 | ✅ | `GitHubInlineCommentFingerprintBuilder`/`Extractor`；测试 `shouldSkipIssueWhenExistingInlineFingerprintWasAlreadyPosted` |
 | C14 | 行已过期（outdated） | ❌ | 不检测已发评论是否 outdated，也不清理/收敛。**注**：roadmap 把 C14 列在 R6 的覆盖场景里，但 R6 解决的是"**同一问题**不要重复评论"（指纹匹配，且指纹**不含行号**所以能抗行号漂移），并**不是**"检测某条已发评论的锚点行消失了"——后者属 R15。本轮重新核对：全仓库仍无 `outdated`/`isOutdated` 相关代码 |
 | C15 | 编辑/更新已发评论 | ⚠️ | Summary 走 update；inline 只新建，无编辑 |
@@ -305,7 +305,7 @@
 
 | 说法 | 核实结果 |
 |---|---|
-| "734 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R12 之后）。初版写 540 是当时的真实值，现已过时 |
+| "735 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R16 之后）。初版写 540 是当时的真实值，现已过时 |
 | "Precision 85.71% / Recall 100%" | ✅ 数字正确，但**样本仅 6 个 PR-like 场景**，且在 issueType 级别按 case 拼 key 计算（`AiReviewPipelineEvalTest`）。D2 计划扩充，**未做** |
 | "文件级并发 / 单文件失败隔离" | ✅ 正确 |
 | "patch verification + location guard" | ✅ 正确 |
