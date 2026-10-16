@@ -3,10 +3,14 @@
 > 本文件是 Phase 0 的产出：把「一个 PR 从生到死会遇到的每一种情况」穷举成清单，逐条对照当前实现。
 > **每一行的结论都来自实际代码**，附 `类:方法`（行号会随改动漂移，类与方法名不会）。
 >
-> 基线：commit `7f932dd`，`mvn clean test` = 540 tests / 0 failures / 0 errors。
+> 基线：commit `9973cff`（R1–R7 全部落地后），`mvn clean test` = 648 tests / 0 failures / 0 errors / 2 skipped。
 > 状态图例：✅ 已实现 · ⚠️ 部分实现或有隐患 · ❌ 未实现
 >
 > **本文件不含「待核实」行。** 所有无法用代码证实的行为都已标注为 ❌/⚠️ 并说明依据。
+>
+> **修订记录（2026-10）**：初版基线为 `7f932dd`（540 tests）。R1–R7 与本轮 R7 prompt 注入落地后，
+> 下方行状态已逐条重新对照代码更新。**同时修正了本文件自身的一个统计错误**——
+> 初版的「0. 汇总」表数字与各维度明细行对不上（详见该表下方注）。
 >
 > 相关文档：[业界机制对标](benchmark-ai-review-tools.md) · [改进路线图](roadmap.md)（本文件是路线图的**事实输入**）
 
@@ -16,25 +20,45 @@
 
 | 维度 | 场景数 | ✅ | ⚠️ | ❌ |
 |---|---|---|---|---|
-| A. PR 生命周期 | 18 | 4 | 5 | 9 |
-| B. PR 内容形态 | 20 | 9 | 7 | 4 |
-| C. 评论落点与形态 | 18 | 7 | 5 | 6 |
-| D. 多文件协调 | 14 | 5 | 7 | 2 |
-| E. 记忆与上下文 | 16 | 8 | 2 | 6 |
-| F. Agent 模式 | 18 | 10 | 3 | 5 |
-| G. 协作与反馈 | 8 | 0 | 0 | 8 |
-| H. 性能与成本 | 8 | 1 | 3 | 4 |
-| I. 故障 | 12 | 7 | 3 | 2 |
-| J. 安全 | 10 | 7 | 3 | 0 |
-| **合计** | **142** | **58** | **38** | **46** |
+| A. PR 生命周期 | 18 | 3 | 5 | 10 |
+| B. PR 内容形态 | 20 | 13 | 5 | 2 |
+| C. 评论落点与形态 | 18 | 9 | 3 | 6 |
+| D. 多文件协调 | 14 | 5 | 8 | 1 |
+| E. 记忆与上下文 | 16 | 13 | 1 | 2 |
+| F. Agent 模式 | 18 | 11 | 4 | 3 |
+| G. 协作与反馈 | 8 | 2 | 0 | 6 |
+| H. 性能与成本 | 8 | 2 | 3 | 3 |
+| I. 故障 | 12 | 7 | 4 | 1 |
+| J. 安全 | 12 | 9 | 1 | 2 |
+| **合计（A–J）** | **144** | **74** | **34** | **36** |
+| K. 补漏 `C19` | 1 | 0 | 0 | 1 |
+| **总计** | **145** | **74** | **34** | **37** |
 
-### 三个最严重的发现
+> **上表是本文件自身的第二处修正。** 初版表格（`142 / 58 / 38 / 46`）与各维度明细行**对不上**：
+> 例如 A 维度明细行是 `3 ✅ / 5 ⚠️ / 10 ❌`，初版表格却写 `4 / 5 / 9`；C 维度明细是 `7 / 3 / 8`，
+> 初版写 `7 / 5 / 6`。现在这版数字是**脚本按明细行重新统计**得出的
+> （按 `^[A-Z]+[0-9]+$` 识别场景行、只认每行第一个状态 emoji），不再手工估算。
+> 该脚本统计到 **148 行**，即 145 个场景 **+ 上方 S1/S2/S3 三条发现**（它们的 ID 也符合该模式，故需扣除）。
+>
+> 另一个容易被误读的点：`C19` 按编号属于 C，但为保留"不修改既有编号"的自我修正记录而单列在 K，
+> 所以 A–J 合计 144、再加 C19 才是 145。
+>
+> **本轮新增 2 行**（都不改既有编号）：`J11` 多租户判断、`J12` 自动审查路径的滥用防护。
 
-| # | 发现 | 影响 | 证据 |
+### 三个最严重的发现（**均已修复**）
+
+| # | 发现 | 状态 | 修复 |
 |---|---|---|---|
-| **S1** | **Agent 回复与审查摘要在 GitHub 上互相覆盖** | 静默丢失用户可见内容 | `ReviewReportFormatter.DEFAULT_COMMENT_MARKER`(:18) 与 `application.yml:117` 的 `comment-marker` 默认值是同一字符串；`AgentChatTaskRunner.publishAndComplete`(:159) 用它给 Agent 回复加前缀；`GitHubCommentServiceImpl.findExistingCommentId`(:95-105) 只按 marker 过滤 + 取 `updatedAt` 最大，**无作者、无类型过滤** → 后写者覆盖先写者 |
-| **S2** | **覆盖度完全不透明，且可输出假的"没问题"** | 大 PR 只审了部分文件，摘要读起来像全审过；若规划器跳过全部文件，摘要会输出「未发现问题。」 | `ReviewReportFormatter.formatMarkdown`(:44-76) 只渲染 issue，**从不提及被跳过的文件**；`:51-54` 在 `visibleIssues.isEmpty()` 时直接返回「未发现问题。」。跳过数据其实已持久化（`review_file.skipped`/`skip_reason`、`review_task.total_files`），formatter 未使用 |
-| **S3** | **DLQ 只进不出** | 最终失败的任务消息永久滞留，无告警、无重放、无可见性 | 全仓库仅 2 个 `@RabbitListener`（`ReviewTaskConsumer`、`PrCommandTaskConsumer`），均指向主队列；DLQ 仅被声明与绑定（`RabbitMqConfig:39,82`） |
+| **S1** | Agent 回复与审查摘要在 GitHub 上互相覆盖 | **✅ 已修复（R1）** | `CommentMarkers` 成为身份标记的唯一来源（摘要 / Agent 回复 / 命令提示 / 修复结果四类互不相同，有测试断言四者不相等）；`findExistingCommentId` 增加**作者过滤**（`isOwnSummaryComment`），只更新"本机器人发的 **且** 带摘要标记"的评论。**注**：该缺陷的完整修复还依赖 F1（PATCH 不可用）——只做身份分离而发不出 PATCH 的话，摘要仍无法更新 |
+| **S2** | 覆盖度完全不透明，且可输出假的"没问题" | **✅ 已修复（R2）** | `ReviewReportFormatter` 新增「审查覆盖」区块（按原因分组列出未审查文件）与**前置**告警；一个文件都没审时输出"本次结论**不代表 PR 没有问题**"而非「未发现问题。」；`min-coverage-ratio`（默认 0.5）触发醒目告警 |
+| **S3** | DLQ 只进不出 | **✅ 已修复（R3）** | `dead_letter_message` 表 + 手动 ack 的死信消费者 + `/api/admin/dead-letters` 查看/重放/丢弃 + 维护任务。重放受 `dlq.replay-enabled`（默认 **false**）门控 |
+
+> 三项各有能捕获回退的回归测试；R1/R2 已在真实 PR 上端到端验证（见 `verify-r1-r2-on-a-real-pr.md`）。
+
+> **端到端验证中新发现的既有缺陷（F1，不在原 18 项设计内）**：`SimpleClientHttpRequestFactory` 基于
+> `HttpURLConnection`，**不支持 PATCH**，导致摘要评论永远无法更新（`Invalid HTTP method: PATCH`）——
+> 即 S1 的"更新而非新建"路径实际不可用。改用 `JdkClientHttpRequestFactory` 后已在真实 PR 上验证
+> （摘要长度 2053 → 382）。
 
 ---
 
@@ -43,12 +67,12 @@
 | ID | 场景 | 状态 | 证据与说明 |
 |---|---|---|---|
 | A1 | PR opened 首次审查 | ✅ | `GitHubWebhookPayloadParser.PULL_REQUEST_EVENT`(:18) + `SUPPORTED_ACTIONS`(:22) 含 `opened`；`GitHubWebhookService.resolveReviewCommentMode` 对 `opened` 返回 `INLINE_ONLY` |
-| A2 | synchronize 新 commit | ⚠️ | `synchronize` 在受支持动作内；但按新 headSha 建**新任务**并**全量重审整个 PR diff**，无增量、无跨次记忆（见 E2/E3） |
+| A2 | synchronize 新 commit | ⚠️ | `synchronize` 在受支持动作内；仍按新 headSha 建**新任务**并**全量重审整个 PR diff**（增量审查 D1 未做）。**但 R6 落地后不再是"失忆重审"**：`review_finding_memory` 跨 headSha 记住已提过的 finding，重复项标 `SUPPRESS` 不再评论；旧的未再现 finding 在"完整审查 + headSha 确实变化"双条件下才标 `RESOLVED`。配置 `finding-memory-enabled` 默认 **false** |
 | A3 | reopened | ✅ | 在 `SUPPORTED_ACTIONS`(:22) 内 |
 | A4 | closed / merged | ❌ | 无 `closed` 处理；`GitHubWebhookPayloadParser` 会以 `unsupported action` 忽略。无结案评论、无指标回收 |
 | A5 | draft → ready_for_review | ❌ | `ready_for_review` 不在 `SUPPORTED_ACTIONS`，被忽略 |
 | A6 | ready → draft | ❌ | 同上 |
-| A7 | force push / rebase | ⚠️ | headSha 变 → 新任务（正确）；但旧的 inline 评论变 outdated，无检测、无收敛（见 C14） |
+| A7 | force push / rebase | ⚠️ | headSha 变 → 新任务（正确）。**R6 的指纹刻意不含行号**（`ReviewFindingFingerprint` 只用 `filePath\|issueType\|归一化标题`），所以 rebase 导致的行号漂移不会让去重失效。但旧的 inline 评论变 outdated 后**仍无检测、无收敛**（见 C14，属 R15 范围） |
 | A8 | base branch 变更 | ❌ | `GitHubWebhookPayloadParser` 不读 `pull_request.base`；`edited` 动作也不在受支持集合 |
 | A9 | PR 标题/描述编辑 | ❌ | 解析器只读 `pull_request.title`(:55) 作为任务标题，**不读 body**，也不触发重审 |
 | A10 | 添加/移除 label | ❌ | 无 `labeled`/`unlabeled` 处理，无 `skip-review` 类开关 |
@@ -68,8 +92,8 @@
 | ID | 场景 | 状态 | 证据与说明 |
 |---|---|---|---|
 | B1 | 单文件小改 | ✅ | 正常路径 |
-| B2 | 大 PR（>30 文件） | ⚠️ | `ReviewFilePlanner.applyReviewLimits` 按 `max-files-per-task`（默认 30）贪心截断；未入选文件标 `skipped` + skip_reason。**用户看不到**（见 S2） |
-| B3 | 单文件超大 patch | ⚠️ | 超 `max-patch-chars-per-file`（默认 12000）→ `markSkipped("patch exceeds per-file review limit")`。同样不可见 |
+| B2 | 大 PR（>30 文件） | ✅ | `ReviewFilePlanner.applyReviewLimits` 按 `max-files-per-task`（默认 30）贪心截断；未入选文件标 `skipped` + skip_reason。**R2 之后用户看得到**：摘要前置覆盖告警 + 「审查覆盖」区块按原因分组列出未审查文件，覆盖率低于 `min-coverage-ratio`（0.5）时醒目提示。截断本身是刻意的预算行为，不是缺陷 |
+| B3 | 单文件超大 patch | ✅ | 超 `max-patch-chars-per-file`（默认 12000）→ `markSkipped("patch exceeds per-file review limit")`。同 B2，R2 后该跳过对用户可见并计入覆盖率 |
 | B4 | 二进制/生成文件 | ✅ | `ReviewFilePlanner.toReviewFile` patch 为空 → `skipped=true`，reason `"patch is empty or file is binary/too large"` |
 | B5 | 纯改名/移动 | ⚠️ | `GithubChangedFile` 字段只有 `filename/status/additions/deletions/changes/patch/rawUrl/blobUrl`，**无 `previous_filename`** → 改名来源不读取。无内容变更的改名通常 patch 为空 → 被 B4 规则跳过；有内容变更则按普通文件审 |
 | B6 | 纯删除 | ✅ | 删除有 patch → 正常审查；`DiffLineMapper` 支持 LEFT side（测试 `GitHubInlineCommentServiceImplTest.shouldCommentOnDeletedLineOnLeftSide`） |
@@ -97,17 +121,17 @@
 | C1 | 新增行（RIGHT）inline | ✅ | `GithubClient.createPullRequestInlineComment(owner, repo, pullNumber, commitId, path, line, side, body)`(:349-385) |
 | C2 | 删除行（LEFT）inline | ✅ | 同上，`side` 参与请求体；有测试覆盖 |
 | C3 | 上下文行 inline | ✅ | 测试 `shouldCommentOnContextLine` |
-| C4 | **多行区间评论** | ❌ | 请求体只写 `line` + `side`(`GithubClient:376-377`)，**无 `start_line` / `start_side`** |
-| C5 | **`suggestion` 一键应用块** | ❌ | `GitHubInlineCommentBodyBuilder` 不生成 ` ```suggestion ` 围栏；全仓库无 `suggestion` 关键字 |
+| C4 | 多行区间评论 | ✅ | **R4**：`DiffLineMapping` 增加 `startLine`/`isRange()`；`DiffLineMapper.mapRange` 要求区间整体落在**同一 hunk** 且是**同一侧连续段**；`GithubClient` 增加带 `start_line`/`start_side` 的重载；迁移 V21 存 `start_line`/`end_line`/`line_side`。**区间不合法（跨 hunk / 越界 / 异侧）一律降级为单行，绝不丢 finding**。开关 `multiline-comment-enabled` 默认 **true** |
+| C5 | `suggestion` 一键应用块 | ✅ | **R5**：`AiReviewIssue.suggestedCode` + JSON schema 字段 + 迁移 V22 `review_issue.suggested_code`；`ReviewSuggestionValidator` 在**发布时**判定能否一键应用（非空 / 落点可评论 / 必须是 diff **新侧** RIGHT / 行数 ≤ `suggestion-max-lines`）。**不通过不丢弃**：代码块从 ` ```suggestion ` 降级为 ` ```diff ` 并附说明。开关 `suggestion-enabled` 默认 **false**（写侧交互）。**未做**：422 兜底重试；以及"发出的 suggestion 真的能被 GitHub 应用"的真机验证 |
 | C6 | 非 diff 文件的问题（如"缺测试"） | ✅ | `ReviewIssueLocationGuard` 拦下后只能进 Summary（见 `ReviewCommentPublisher.publish`） |
-| C7 | Summary marker 幂等更新 | ✅ | `GitHubCommentServiceImpl.findExistingCommentId`(:95) + `updateIssueComment` |
+| C7 | Summary marker 幂等更新 | ✅ | `GitHubCommentServiceImpl.findExistingCommentId` + `updateIssueComment`。**R1 之后**：标记来源统一到 `CommentMarkers`（四类互不相同），并增加**作者过滤**（`isOwnSummaryComment`：必须带摘要标记**且**是本机器人发的），两道过滤缺一不可。S1 覆盖缺陷已消除；实际能更新还依赖 F1 的 PATCH 修复 |
 | C8 | 回复已有 review thread | ❌ | 只调用 `createPullRequestComment` / `createPullRequestInlineComment`，无 `in_reply_to` 参数 |
 | C9 | resolve / unresolve thread | ❌ | 无 GraphQL `resolveReviewThread` 调用 |
 | C10 | **正式 Review verdict** | ❌ | 全仓库无 `APPROVE`/`REQUEST_CHANGES` review event（搜到的 `approve*` 全部属于 Fix 审批链路 `FixApprovalService`） |
-| C11 | inline 预算超限（10） | ⚠️ | `ReviewCommentBudgetAllocator` 存在并有测试；Summary 会追加「另外还有 N 条问题未展示。」(`ReviewReportFormatter:61-64`)，但**不指出被丢弃的是哪些、为什么** |
-| C12 | location guard 拒绝 | ⚠️ | 被拒绝的问题不落 inline，仍进 Summary 列表；`ReviewIssue.commentChannel`(:45) 记录渠道。但用户不会知道"这条本想在 X 行说但定位失败"。**注**：置空行号时写的 reason 是 `"line is not a commentable added diff line"`（`ReviewIssueLocationGuard:46-55`），而 `DiffLineMapper` 实际也接受 LEFT 与 context 行 → **文案与实际判定范围不符** |
+| C11 | inline 预算超限（10） | ⚠️ | `ReviewCommentBudgetAllocator` 存在并有测试；Summary 会追加「另外还有 N 条问题未展示」，且**R6 之后**额外给出「其中 M 条已被抑制」（`ReviewReportFormatter:123-130`）。**仍未解决的部分**：不列出被丢弃的**具体是哪几条、为什么**——R2 的「审查覆盖」说的是**文件**维度，不是 inline 评论预算维度（roadmap 把 C11 列在 R2 的覆盖场景里，实际只部分兑现） |
+| C12 | location guard 拒绝 | ⚠️ | 被拒绝的问题不落 inline，仍进 Summary 列表；`ReviewIssue.commentChannel` 记录渠道。但用户不会知道"这条本想在 X 行说但定位失败"。**注**：置空行号时写的 reason 是 `"line is not a commentable added diff line"`（`ReviewIssueLocationGuard:48`，且该 reason **只 log.debug，不进摘要**），而 `DiffLineMapper.map` 实际也接受 LEFT 与 context 行 → **文案与实际判定范围不符**（本轮重新核对代码，该不符仍存在）。R2 的覆盖度区块是**文件**维度，不解决这条 |
 | C13 | fingerprint 重复 | ✅ | `GitHubInlineCommentFingerprintBuilder`/`Extractor`；测试 `shouldSkipIssueWhenExistingInlineFingerprintWasAlreadyPosted` |
-| C14 | 行已过期（outdated） | ❌ | 不检测已发评论是否 outdated，也不清理/收敛 |
+| C14 | 行已过期（outdated） | ❌ | 不检测已发评论是否 outdated，也不清理/收敛。**注**：roadmap 把 C14 列在 R6 的覆盖场景里，但 R6 解决的是"**同一问题**不要重复评论"（指纹匹配，且指纹**不含行号**所以能抗行号漂移），并**不是**"检测某条已发评论的锚点行消失了"——后者属 R15。本轮重新核对：全仓库仍无 `outdated`/`isOutdated` 相关代码 |
 | C15 | 编辑/更新已发评论 | ⚠️ | Summary 走 update；inline 只新建，无编辑 |
 | C16 | 评论到 PR 描述 | ❌ | 不做 |
 | C17 | 评论到 commit | ❌ | 不做 |
@@ -141,17 +165,17 @@
 | ID | 场景 | 状态 | 证据与说明 |
 |---|---|---|---|
 | E1 | 任务内共享 Context | ✅ | `ReviewFileReviewer.review` 构建一次 `ReviewContext` 供所有文件共享 |
-| E2 | **跨评审复用上次结论** | ❌ | 无任何跨 headSha 的 finding 复用。仅 `FixableIssueSelector:75,91` 用 headSha 防止 stale fix |
-| E3 | **上次已提问题不重复提** | ❌ | 无实现。新 headSha = 全新任务、全新问题集 |
+| E2 | 跨评审复用上次结论 | ✅ | **R6**：`review_finding_memory`（唯一键 `repo_owner + repo_name + pr_number + finding_fingerprint`）按 PR 维度累积 finding 状态。`ReviewFindingMemoryService.reconcile` 在保存 `review_issue` 的**同一事务**内对账。开关 `finding-memory-enabled` 默认 **false**（灰度） |
+| E3 | 上次已提问题不重复提 | ✅ | **R6**：命中的历史 finding 标 `publishDecision=SUPPRESS` + 原因（`dismissed by a maintainer` / `already reported in a previous review` / `already reported for this commit`），`ReviewFindingRanker` 与 `ReviewCommentBudgetAllocator` 会过滤掉，不再发评论。**抑制必须可审计**：finding 仍落库、摘要仍计入"其中 N 条已被抑制"，不静默消失。**匹配用双指纹 OR**：`findingFingerprint = sha256(filePath\|issueType\|归一化标题)` 与 `codeFingerprint = sha256(filePath\|建议内容)`，**两者都不含行号**（抗 rebase 漂移）；识别信息不足时返回 `null` 并按"全新问题、永不抑制"处理（宁可不匹配也不过度匹配） |
 | E4 | 跨评论 Agent 对话 | ✅ | `AgentConversationContextBuilder.build`：同 repo/pr、`commandType=CHAT`、`status=SUCCESS`、排除自身，取最近 N 条，`oneLine` 拍平后注入，标记为不可信 |
 | E5 | Agent 异步恢复 continuation | ✅ | `AgentRunService.markWaiting`/`prepareResume` + `AgentWorkflowResumeJob`；`AgentChatTaskRunner:115-127` |
 | E6 | 仓库级团队规范 | ✅ | RAG 规则库（`rule_document`/`rule_chunk`） |
-| E7 | **仓库级历史误报抑制** | ❌ | 无实现。`ReviewIssue` 有 `publishDecision`(:41)/`suppressionReason`(:43) 字段，但只用于单次任务内的过滤，不跨任务累积 |
+| E7 | 仓库级历史误报抑制 | ✅ | **R7**：`ReviewDismissalService` 用 GraphQL 读 `reviewThreads` 的 `isResolved`，只对"首条评论由本 bot 发出"的线程把对应 finding 标 `DISMISSED`（比 `RESOLVED` 更强：后续被重新识别也直接抑制）。**prompt 注入（本轮补完）**：DISMISSED 列表经 `ReviewContext.dismissedFindings` → `AiReviewRequest` → `AiReviewContextFormatter` 注入每文件 prompt **顶部**，让模型根本不生成这些 finding。开关 `dismissal-sync-enabled` 默认 **false**。**两道刻意的约束**：① 注入额外挂在 `finding-memory-enabled` 上——注入让 finding 压根不落库，会破坏"可审计"，所以它只能是 R6 可审计抑制之上的省 token 优化；② 注入段放在 prompt 最前，因为 `ReviewLlmInputLimiter` 按**头部**截断，放末尾会第一个被丢 |
 | E8 | LLM 审查缓存 | ✅ | `ai_review_cache`，TTL 7 天（`codepilot.llm.review-cache-ttl-days`） |
 | E9 | RAG 召回缓存 | ✅ | `ReviewRagCache`，TTL 300s / LRU 256 |
 | E10 | 👍/👎 反馈学习 | ❌ | 无 reaction 处理 |
 | E11 | LLM 调用日志 | ✅ | `llm_call_log` + `LlmCallLogCleanupJob`（保留 30 天） |
-| E12 | 评论 resolution 跟踪 | ❌ | 无 |
+| E12 | 评论 resolution 跟踪 | ✅ | **R7**：`GithubClient.listReviewThreads` 用 **GraphQL** 读 `reviewThreads { id isResolved comments(first:1) { author { login } body } }`（REST 不暴露 resolve 状态）。只认**首条**评论作者是本机，并通过行内评论正文里的 `<!-- codepilot-finding:<16hex> -->` 把线程关联回 finding。**任何失败都降级为"不抑制"**（GraphQL 权限不足/限流/拿不到 bot 登录名 → 一条都不抑制，只记 warning），绝不让审查失败。**注**：只是"读状态做抑制"，不做 `resolveReviewThread` 反向写（C9 仍 ❌） |
 | E13 | 已发 inline 指纹去重 | ✅ | `GitHubInlineCommentFingerprintExtractor`（同 headSha 内有效） |
 | E14 | 命令任务日志 | ✅ | `pr_command_task_log`；`AgentToolTraceAspect` 记录每次 Tool 调用 |
 | E15 | 会话压缩 | ⚠️ | **无摘要压缩**：`AgentConversationContextBuilder:57` 为 `result.substring(result.length() - maxChars)`，盲截尾部字符，会把一条消息切成半句 |
@@ -184,20 +208,22 @@
 
 ---
 
-## G. 协作与反馈（8）— 整维度空白
+## G. 协作与反馈（8）— 由"整维度空白"变为部分覆盖
 
 | ID | 场景 | 状态 | 证据 |
 |---|---|---|---|
-| G1 | 人回复 bot 评论 | ❌ | 全仓库无 `in_reply_to` / reaction / dismiss / resolve 处理 |
-| G2 | 人 resolve / dismiss | ❌ | 同上 |
-| G3 | 人 👍/👎 | ❌ | 同上 |
-| G4 | 人手动编辑 bot 评论 | ❌ | Summary 会被下次审查覆盖回去（marker 命中），无检测 |
+| G1 | 人回复 bot 评论 | ❌ | 仍无 `in_reply_to`、无 reaction 处理。**R7 靠近了一半**：`listReviewThreads` 会读到线程里的评论正文（用于解析 finding 标记），但不解析"人在回复里说了什么"，也不回帖 |
+| G2 | 人 resolve / dismiss | ✅ | **R7**：`ReviewDismissalService.syncResolvedThreads` 把"已 resolved **且** 首条评论由本 bot 发出"的线程对应 finding 标 `DISMISSED`。只看发起者这一条是硬约束：任何人都能开个线程再 resolve，照单全收等于让人用 resolve 别人的讨论来关掉我们的 finding。开关 `dismissal-sync-enabled` 默认 **false**（需 GraphQL 权限） |
+| G3 | 人 👍/👎 | ❌ | 仍无 reaction 处理。**这是 R7 的刻意选择**：对标里 Greptile 用 reaction，我们选 resolve thread——人在看代码时更自然的动作是 resolve，且 reaction 语义模糊（"这评论有用"≠"这是误报"） |
+| G4 | 人手动编辑 bot 评论 | ❌ | Summary 仍会被下次审查**按标记命中并覆盖回去**，无"人改过"检测。**注意 R1 并没有改变这一点**：R1 修的是"别覆盖错**用途**的评论"（Agent 回复 vs 摘要），不是"别覆盖**人**的编辑"——摘要被更新本身是设计意图（幂等更新），问题在于不感知人工修改 |
 | G5 | 人无视 bot 直接合并 | ❌ | 无 `closed`/`merged` 事件处理，无复盘数据 |
 | G6 | 多 reviewer | ❌ | 不做 reviewer 维度区分 |
-| G7 | 人反馈"这是误报" | ❌ | 无入口 |
+| G7 | 人反馈"这是误报" | ✅ | **R7**：唯一入口是"在 GitHub 上 resolve 掉 bot 开的那个 review thread"——用 GitHub 原生状态而非自然语言，确定且可查询。抑制是**持续有效**的（人的 resolve 不会过期释放）。**可审计**：finding 仍落库并计入摘要的"已被抑制"条数。默认 **false** |
 | G8 | 人要求只重审某个文件 | ❌ | `/review` 无参数化能力 |
 
-> 验证方式：`grep -r 'reaction|dismiss|resolveThread|unresolve|in_reply_to' src/main/java` → 0 命中。
+> **验收方式的更新**：初版这里写的是 `grep -r 'reaction|dismiss|resolveThread|unresolve|in_reply_to' src/main/java` → 0 命中。
+> 该断言**现在不再成立**：R7 引入了 `ReviewDismissalService`、`GithubClient.listReviewThreads`、
+> `ReviewFindingMemory.STATE_DISMISSED`。仍有命中缺口的只有 `reaction` / `in_reply_to` / `resolveReviewThread`（写方向）。
 
 ---
 
@@ -230,14 +256,14 @@
 | I6 | DB 不可用 | ❌ | 未引入熔断或 DB 级重试（`grep 'CircuitBreaker\|@Retryable\|resilience4j'` → 0 命中）；连接池耗尽时任务直接失败并进 MQ 重试 |
 | I7 | worker 崩溃 | ✅ | 执行租约 `execution-lease=15m` + `ReviewTaskExecutionRecovery`（30s 扫描）+ `claimForExecution` 的条件更新 |
 | I8 | 部分发布成功 | ⚠️ | `publish_status` 记录终态，但**不记录具体哪几条 inline 评论已发出**，重试粒度是整个任务 |
-| I9 | **毒消息 → DLQ** | ⚠️ | 死信路由已配置（`default-requeue-rejected=false`），但**DLQ 无消费者**，无查看/重放/告警工具（见 S3） |
+| I9 | 毒消息 → DLQ | ✅ | **R3**：死信路由（`default-requeue-rejected=false`）+ `dead_letter_message` 表（`uq_dead_letter_digest_status` 去重）+ **手动 ack 的死信消费者** + `/api/admin/dead-letters`（查看 / 重放 / 丢弃）+ 维护任务，attempt 会累积。重放是写侧动作，受 `dlq.replay-enabled`（默认 **false**）门控 |
 | I10 | Flyway 迁移失败 | ✅ | `validate-on-migrate: true` + `clean-disabled: true` |
 | I11 | App token 过期 | ⚠️ | `app-token-cache-skew-seconds=60` 提前刷新；但长任务（`run-deadline=30m`）中途过期后的重取行为无专门测试 |
 | I12 | 日志/磁盘 | ⚠️ | LLM 调用日志有 30 天清理；应用日志无轮转配置（`.gitignore` 忽略 `logs/`，但无 size/rotate 策略） |
 
 ---
 
-## J. 安全（10）
+## J. 安全（12）
 
 | ID | 场景 | 状态 | 证据与说明 |
 |---|---|---|---|
@@ -247,10 +273,12 @@
 | J4 | 不可信网页内容 | ✅ | `WebDocumentFetchService` + `AgentWebResourceService`：HTTPS、域名白名单、拒绝私网 DNS/重定向/非文本/超大响应 |
 | J5 | 审批伪造 | ✅ | `FixApprovalService` 以持久化原始评论 + 用户 + repo/PR + head SHA + patch SHA-256 + 允许路径 + 开关共同校验 |
 | J6 | allowlist 绕过 | ✅ | `GithubRepositoryPolicy` 在 webhook 与命令路由两处校验 |
-| J7 | 非协作者评论 | ✅ | `GithubCommandRouter.isAllowedCommentAuthor:74`，association ∈ `OWNER,MEMBER,COLLABORATOR` |
+| J7 | 非协作者通过 @bot 触发动作 | ✅ | **多道门，且默认 fail-closed**：① 命令只走 `issue_comment`（`GitHubWebhookService:111`），其他事件不经过 `route`；② `GithubCommandRouter.isAllowedCommentAuthor` 要求 `author_association` ∈ `OWNER,MEMBER,COLLABORATOR`（默认，可配），**允许列表为空时一律拒绝**；③ association 取自 `comment.author_association`（`GitHubWebhookPayloadParser:114`），由 GitHub 服务端签发；④ bot 自己的评论被 `isBotAuthoredIssueComment` 过滤，不会自激；⑤ 写侧动作另有四道门（见 J12）。**弱点**：`COLLABORATOR` 不区分读写权限，只读协作者也能发命令（写侧仍有额外门） |
 | J8 | bot 自我循环 | ✅ | `GitHubWebhookService.isBotAuthoredIssueComment:157` + `GitHubWebhookPayloadParser:88` 的 marker 自过滤 |
 | J9 | 日志泄露 | ✅ | `SensitiveDataSanitizer.redact` / `redactAndTruncate` |
 | J10 | 评论里回显敏感信息 | ⚠️ | `SecretScanTool` 只输出行号与关键词上下文（`normalizeKeywordText`/`QUOTED_LITERAL` 均用于**匹配**，不写入消息体），构建 issue 文本时未发现直接拼接原始 secret；但缺少"禁止回显原文"的显式测试断言，属**未加固**而非已知漏洞 |
+| J11 | 不同 GitHub 用户 / 组织的租户隔离 | ❌ | **刻意未做，不是疏漏。** 现状是**单租户自托管**设计：① 无任何 user/tenant 表（全部 16 张表都没有 owner 外键）；② API 侧只有**单个全局** `ApiKeyAuthFilter` key，无用户维度、无按 key 分租户；③ `GithubAuthTokenProvider` 在 `APP` 模式下**已按 `owner/repo` 解析 installation**（`installationIdByRepo`，每 installation 一个 token）——但若配置了 `appInstallationId` 则退化为单一安装，隔离消失。真正的准入控制是 `GithubRepositoryPolicy` 仓库白名单。**判断依据**：GitHub 的租户边界是 **App installation / 组织**，不是 user；且当前形态下不存在第二个租户，加隔离是纯负债。要做的话工作量在**数据层**（新增 installation 映射表 + 各表加租户列 + 所有查询加谓词 + webhook 入口绑定 installation），估 M–L。**附带的小问题**：`CommentMarkers.REVIEW_SUMMARY` 默认值硬编码了 `<!-- codepilot-ai-review:liche719/codeAireview -->`，功能上无害（查找是 PR 作用域），但换仓库部署时每条摘要评论里都会嵌着作者自己的仓库名 |
+| J12 | **自动审查路径的资源滥用** | ❌ | `GitHubWebhookService:127` 的自动审查路径**不做任何作者校验**——`opened/synchronize/reopened` 直接建任务，唯一门槛是仓库白名单（默认为空 = 不限制）。**后果**：公开仓库上任何人都能 fork 后开 PR，触发完整 LLM 审查，烧 token 与 GitHub API 配额；`allowedCommentAuthorAssociations` **管不到这条路径**（它只管 `issue_comment` 命令，见 J7）。**也没有任何 per-user / per-repo 的审查配额或速率限制**——`ApiRateLimitFilter` 只保护 REST API，不覆盖 webhook 触发的审查。**这是与"别的用户通过 bot 做事"最相关的真实缺口**，但性质是**滥用防护**而非多租户数据隔离（见 J11）。缓解手段：配 `allowed-repositories` 白名单、或用 GitHub 侧的 fork PR workflow 审批 |
 
 ---
 
@@ -268,14 +296,22 @@
 
 ---
 
-## K. 与简历/文档口径的对齐（供后续引用）
+## L. 与简历/文档口径的对齐（供后续引用）
+
+> 初版这里误用了 `## K.`，与上一节编号撞车，现改为 `L`。
 
 | 说法 | 核实结果 |
 |---|---|
-| "540 个自动化测试" | ✅ 正确（`mvn clean test`），Docker 开 2 skipped / 不开 6 skipped |
-| "Precision 85.71% / Recall 100%" | ✅ 数字正确，但**样本仅 6 个 PR-like 场景**，且在 issueType 级别按 case 拼 key 计算（`AiReviewPipelineEvalTest`） |
+| "648 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R7 之后）。初版写 540 是当时的真实值，现已过时 |
+| "Precision 85.71% / Recall 100%" | ✅ 数字正确，但**样本仅 6 个 PR-like 场景**，且在 issueType 级别按 case 拼 key 计算（`AiReviewPipelineEvalTest`）。D2 计划扩充，**未做** |
 | "文件级并发 / 单文件失败隔离" | ✅ 正确 |
 | "patch verification + location guard" | ✅ 正确 |
-| "Summary marker 幂等 / inline fingerprint 去重" | ✅ 正确，**但 marker 被 Agent 回复复用，存在 S1 覆盖缺陷** |
+| "Summary marker 幂等 / inline fingerprint 去重" | ✅ 正确，且**S1 覆盖缺陷已由 R1 修复**（初版此处标注"但 marker 被 Agent 回复复用，存在 S1 缺陷"，已过时） |
+| "支持多行区间评论 / 一键应用建议" | ✅ 正确（R4 / R5），但 `suggestion-enabled` **默认 false**，且"建议真能被应用"**未做真机验证** |
+| "跨 push 记住已提过的问题 / 支持忽略误报" | ✅ 正确（R6 / R7），但 `finding-memory-enabled` 与 `dismissal-sync-enabled` **都默认 false**，属未灰度能力 |
 | "p95 157ms" | ❌ **不属于本项目**，实际来自隔壁 `letchat` |
-| "DLQ 便于排查" | ⚠️ 死信路由存在，但**无消费者与工具**，实际不可运营 |
+| "DLQ 便于排查" | ✅ 现在成立（R3 落地后可查看/重放/丢弃）。初版标注"⚠️ 无消费者与工具，实际不可运营"已过时 |
+| "非协作者无法用 @bot 做事情" | ✅ 成立，且是**多层 fail-closed**（J7）。但**不要说成"完全不能滥用"**：自动审查路径不校验作者，公开仓库上外人 fork 开 PR 仍能触发审查烧 token（J12）。被问到时区分清楚——**命令授权做了，资源滥用防护没做** |
+| "做了多租户隔离" | ❌ **不能这么说**。是单租户自托管设计，无 user/tenant 表（J11）。可以说的是"权限边界在 installation / 仓库白名单这一层" |
+
+> 重新统计场景数的脚本：`scripts/count-scenarios.sh`（本轮新增，供后续改动后复核，避免再次出现表格与明细不一致）。
