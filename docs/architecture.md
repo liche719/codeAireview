@@ -243,3 +243,20 @@ Actuator `metrics` 端点提供以下低基数业务指标：
 - `codepilot.review.model.file`：文件级模型审查成功数和失败数，可计算模型失败率。
 - `codepilot.review.outbox.publish`：本地消息发布成功、重试和最终失败数。
 - `codepilot.review.github.publish`：GitHub 评论成功、跳过、重试和最终失败数。
+- `codepilot.review.llm.cache`：**应用级** LLM 响应缓存的命中 / 未命中次数（tag `result=hit|miss`）。
+- `codepilot.review.rag.cache`：RAG 召回缓存的命中 / 未命中次数（tag `result=hit|miss`）。
+- `codepilot.review.llm.tokens`：真实模型调用的 token 数（tag `kind=input|output`）。
+- `codepilot.review.cost`：按模型累计的估算金额（tag `model`），**仅在配置了单价后出现**。
+- `codepilot.review.cost.status`：成本可算性（tag `status=estimated|unavailable`）；
+  `unavailable` 表示缺该模型单价，**不代表金额为 0**。
+- `codepilot.agent.model.turns`：Agent 模型轮次计数。
+- `codepilot.agent.tool.calls`：Agent Tool 调用计数（tag `result=success|failed`）。
+- `codepilot.agent.run.transitions`：Agent run 状态迁移计数（tag `state`）。
+- `codepilot.agent.workflow.wait`：等待异步 Workflow 的时长。
+
+> 完整清单、每个指标的含义与"没有 Prometheus 时怎么查"，见 [`observability.md`](observability.md)。
+>
+> **刻意未暴露的两个指标**（不是遗漏）：`cache_read` / `cache_creation` token tag——当前
+> provider 抽象是 LangChain4j 的 `TokenUsage`，只有 input / output / total，拿不到就不发
+> （**恒为 0 的序列看起来像"缓存从未命中"，而真相是"不知道"**）；
+> 以及内置模型单价表——单价会变，内置一份必然某天变成错的，而错的钱数比没有钱数更可信。

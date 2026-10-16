@@ -175,6 +175,7 @@ copy .env.example .env
 | `CODEPILOT_LLM_API_KEY` | 空 | Chat model API Key。 |
 | `CODEPILOT_LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible base URL。 |
 | `CODEPILOT_LLM_MODEL` | `gpt-4o-mini` | Chat model 名称。 |
+| `codepilot.llm.pricing.<model>.input-per-million` / `.output-per-million` | **未设置** | 模型单价（美元 / 百万 token），用于把 token 数换算成 `codepilot.review.cost`。**刻意不内置任何默认单价**：单价随厂商调价变化，内置一份必然某天变成错的，而错的钱数比没有钱数更可信、因而更危险。未配置时 `codepilot.review.cost` **根本不出现**，只有 `codepilot.review.cost.status{status="unavailable"}`——**不要把它读成 0**。详见 [`observability.md`](observability.md)。 |
 | `CODEPILOT_LLM_REVIEW_STRUCTURED_OUTPUT_ENABLED` | `true` | 是否启用 provider-native JSON schema。 |
 | `CODEPILOT_LLM_MAX_REVIEW_PATCH_CHARS` | `12000` | 单文件传给 LLM 的 patch 上限。 |
 | `CODEPILOT_LLM_MAX_REVIEW_RULES_CHARS` | `4000` | 规则上下文上限。 |

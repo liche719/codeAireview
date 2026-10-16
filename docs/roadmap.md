@@ -890,6 +890,48 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 
 ## R10 指标补全
 
+> **状态：部分完成（核心已落地；3 个子项明确未做，逐条说明）。**
+>
+> 已实现：
+> - `codepilot.review.llm.cache`（`result=hit|miss`）与 `codepilot.review.rag.cache`（同）——
+>   **分成两条序列**，因为只看 token 下降无法归因"省下的 token 来自响应缓存还是 RAG 少召回"
+> - `codepilot.review.llm.tokens`（`kind=input|output`），数据来自 LangChain4j
+>   `Result.tokenUsage()`——**这个值原本就被取到了、然后被丢掉**（`result.content()`），属零成本补全
+> - `codepilot.review.cost`（tag `model`）+ `codepilot.review.cost.status`
+>   （`status=estimated|unavailable`）
+> - `codepilot.agent.*` 四个指标补进 `docs/architecture.md` 的指标清单
+> - 新增 `docs/observability.md`：完整清单 + 含义 + **没有 Prometheus 时的查询方式** + 已知缺口
+>
+> **与初版方案的三处偏离（都是刻意的）**：
+>
+> 1. **不做 `cache_read` / `cache_creation` token tag。**
+>    初版方案直接抄 PR-Agent 的字段设计，但 PR-Agent 面向 Anthropic 的 provider 侧 prompt caching，
+>    而我们的 provider 抽象是 LangChain4j 的 `TokenUsage`——**只有 input / output / total**。
+>    拿不到就是拿不到：**发一条恒为 0 的序列比不发更糟**，因为它看起来像"缓存一次都没命中"，
+>    而真相是"我们不知道"。这条已写进 `docs/observability.md` 的"刻意缺失"。
+> 2. **不内置模型单价表。** 单价会变，内置一份必然在某天变成错的，而**错的钱数比没有钱数更可信、
+>    因而更危险**。改为让运维通过 `codepilot.llm.pricing.<model>.input-per-million` 显式配置；
+>    未配置时 cost 状态为 `unavailable` 且 `codepilot.review.cost` **根本不出现**——
+>    绝不出现一条恒为 0 的金额序列（那会被读成"不花钱"）。
+> 3. **区分"拿不到用量"与"缺单价"。** provider 一个 token 数都没返回时不记任何 cost 状态，
+>    因为 `unavailable` 的语义是"缺单价"，不是"缺用量"；把两者混成一个 tag 会得出错误结论。
+>
+> **明确未做（三个子项，各有理由）**：
+> - **`codepilot.review.queue.backlog`（RabbitMQ 队列深度 gauge）。** 方案里自己就写了
+>   "失败时必须降级为不暴露而不是让应用启动失败"——这个降级设计本身需要单独验证
+>   （管理连接不可用、权限不足、队列不存在三种情况），不宜顺手带过。
+>   目前只能用 `task.queue.wait` 间接推断积压。
+> - **dry-run 模式（`codepilot.review.publish-dry-run`）。** 它改的是**写接口调用路径**，
+>   与"补指标"是两件不同的事，风险面也不同（要保证 dry-run 下绝不产生任何 GitHub 写调用）。
+>   应作为独立一项，配独立的回归测试。
+> - **per-PR 的 token/成本分解。** 现在的 token 计数是全局按方向累加，回答不了"这个 PR 花了多少"。
+>
+> **仍未覆盖**：没有真机验证指标（需要跑一次真实审查并查 Actuator 端点）。
+>
+> **测试**：`ReviewLlmMetricsTest`（9 例，含"无单价不产生 cost 序列""无用量不记任何状态"
+> 两条反向断言）+ `LangChain4jReviewLlmClientTest` 3 例接线断言（`Result` 上的 usage 真的被上报、
+> provider 不给 usage 时不上报、缺指标依赖时仍返回内容）。
+
 **问题**：无缓存命中率（H3）、无队列积压（H6）、无 token 成本（H2/H8）；`AgentMetrics` 的三个指标（`codepilot.agent.model.turns` / `.tool.calls` / `.run.transitions`）**未出现在 `docs/architecture.md` 的指标清单里**。
 
 **方案**：

@@ -6,8 +6,10 @@ import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.service.ReviewRagService;
 import com.codepilot.module.rag.dto.RuleSearchRecord;
 import com.codepilot.module.rag.service.RuleSearchService;
+import com.codepilot.module.review.metrics.ReviewLlmMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -15,7 +17,7 @@ import java.util.List;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class ReviewRagServiceImpl implements ReviewRagService {
 
     private final RagProperties ragProperties;
@@ -29,6 +31,18 @@ public class ReviewRagServiceImpl implements ReviewRagService {
     private final ReviewRagCache cache = new ReviewRagCache();
 
     private final ReviewRagRuleSelector ruleSelector = new ReviewRagRuleSelector();
+
+    /**
+     * 可为 null：手工 new 出来的测试不需要指标，此时跳过上报而不是失败。
+     */
+    private final ReviewLlmMetrics reviewLlmMetrics;
+
+    /**
+     * 不带指标的便捷构造：手工 new 的场景（测试）不需要上报。
+     */
+    public ReviewRagServiceImpl(RagProperties ragProperties, RuleSearchService ruleSearchService) {
+        this(ragProperties, ruleSearchService, null);
+    }
 
     @Override
     public List<ReviewRuleContext> retrieveRelevantRules(String filePath, String patch) {
@@ -55,6 +69,10 @@ public class ReviewRagServiceImpl implements ReviewRagService {
             List<String> ruleTypes = inferRuleTypes(filePath, patch);
             String cacheKey = cacheKeyBuilder.build(query, topK, maxContextChars, ruleTypes);
             List<ReviewRuleContext> cachedContexts = cache.get(cacheKey, ragProperties);
+            if (reviewLlmMetrics != null) {
+                // 与 LLM 缓存分开计数：两者命中率一起看才能判断"省下的 token 是不是真来自缓存"。
+                reviewLlmMetrics.recordRagCache(cachedContexts != null);
+            }
             if (cachedContexts != null) {
                 log.info("RAG cache hit, filePath={}, ruleTypes={}, ruleCount={}, contextChars={}",
                         filePath, ruleTypes, cachedContexts.size(), ruleSelector.totalContentLength(cachedContexts));

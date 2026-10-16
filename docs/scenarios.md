@@ -3,7 +3,7 @@
 > 本文件是 Phase 0 的产出：把「一个 PR 从生到死会遇到的每一种情况」穷举成清单，逐条对照当前实现。
 > **每一行的结论都来自实际代码**，附 `类:方法`（行号会随改动漂移，类与方法名不会）。
 >
-> 基线：commit `9973cff`（R1–R7 全部落地后），`mvn clean test` = 679 tests / 0 failures / 0 errors / 2 skipped（含 R8/R9）。
+> 基线：commit `9973cff`（R1–R7 全部落地后），`mvn clean test` = 691 tests / 0 failures / 0 errors / 2 skipped（含 R8/R9/R10）。
 > 状态图例：✅ 已实现 · ⚠️ 部分实现或有隐患 · ❌ 未实现
 >
 > **本文件不含「待核实」行。** 所有无法用代码证实的行为都已标注为 ❌/⚠️ 并说明依据。
@@ -27,12 +27,12 @@
 | E. 记忆与上下文 | 16 | 14 | 0 | 2 |
 | F. Agent 模式 | 18 | 13 | 2 | 3 |
 | G. 协作与反馈 | 8 | 2 | 0 | 6 |
-| H. 性能与成本 | 8 | 2 | 3 | 3 |
+| H. 性能与成本 | 8 | 3 | 3 | 2 |
 | I. 故障 | 12 | 7 | 4 | 1 |
 | J. 安全 | 12 | 9 | 1 | 2 |
-| **合计（A–J）** | **144** | **77** | **31** | **36** |
+| **合计（A–J）** | **144** | **78** | **31** | **35** |
 | K. 补漏 `C19` | 1 | 0 | 0 | 1 |
-| **总计** | **145** | **77** | **31** | **37** |
+| **总计** | **145** | **78** | **31** | **36** |
 
 > **上表是本文件自身的第二处修正。** 初版表格（`142 / 58 / 38 / 46`）与各维度明细行**对不上**：
 > 例如 A 维度明细行是 `3 ✅ / 5 ⚠️ / 10 ❌`，初版表格却写 `4 / 5 / 9`；C 维度明细是 `7 / 3 / 8`，
@@ -231,16 +231,17 @@
 
 | ID | 场景 | 状态 | 证据与说明 |
 |---|---|---|---|
-| H1 | 首评延迟 | ⚠️ | 有 `codepilot.review.task.duration` Timer，但无 Prometheus registry，**无 SLO、无分位直出** |
-| H2 | 单 PR token 成本 | ⚠️ | 仅离线评估里统计 `estimatedPromptTokens`（`AiReviewPipelineEvalTest`），**生产不统计** |
-| H3 | 缓存命中率 | ❌ | 无命中率指标。`grep 'cache.hit\|cacheHit'` → 0 命中 |
+| H1 | 首评延迟 | ⚠️ | 有 `codepilot.review.task.duration` Timer，但无 Prometheus registry，**无 SLO、无分位直出**。R10 新增 `docs/observability.md` 说明查询方式（只能取当前累计值，算速率要自己采样两次） |
+| H2 | 单 PR token 成本 | ⚠️ | **R10 起生产有 token 计数**：`codepilot.review.llm.tokens{kind=input\|output}`，数据取自 LangChain4j `Result.tokenUsage()`。**但仍是全局按方向累加，没有 per-PR / per-task 分解**——回答不了"这个 PR 花了多少"。另：未配置 `codepilot.llm.pricing` 时**不产生任何金额指标**（`cost.status=unavailable`），这是刻意的，见 `observability.md` |
+| H3 | 缓存命中率 | ✅ | **R10**：`codepilot.review.llm.cache{result=hit\|miss}`（应用级响应缓存）与 `codepilot.review.rag.cache{result=hit\|miss}`。**刻意分成两条**：只看 token 下降无法归因"省下的 token 来自响应缓存还是 RAG 少召回" |
 | H4 | 并发背压 | ✅ | listener `concurrency=2`/`max=4`/`prefetch=1` + `max-parallel-files=2` |
 | H5 | GitHub rate limit | ✅ | `GithubRequestExecutor` + `rate-limit-max-attempts=3` 指数退避 |
-| H6 | 队列积压 | ❌ | 无队列深度指标。`grep 'queue.depth\|queueDepth'` → 0 命中 |
+| H6 | 队列积压 | ❌ | 仍无队列深度指标。计划中的 `codepilot.review.queue.backlog`（RabbitMQ `QueueDeclarePassive` 读 message count）**本轮未做**——方案自己要求"失败时降级为不暴露而不是让启动失败"，该降级设计需单独验证。目前只能用 `task.queue.wait` 间接推断 |
 | H7 | 大 PR 审查时长 | ⚠️ | 有 Timer，但无按文件数/跳过数的分解 |
-| H8 | Embedding 成本 | ❌ | 不统计 |
+| H8 | Embedding 成本 | ❌ | 仍不统计 |
 
-> `AgentMetrics` 额外暴露 `codepilot.agent.model.turns`、`codepilot.agent.tool.calls`、`codepilot.agent.run.transitions`，但 `docs/architecture.md` 的指标清单**一个都没列**。
+> R10 之后，`docs/architecture.md` 的指标清单已补齐全部 `codepilot.*` 指标（含 `codepilot.agent.*`），
+> 并新增 `docs/observability.md` 作为指标的唯一完整来源（含义 + 无 Prometheus 时的查询方式 + 已知缺口）。
 
 ---
 
@@ -302,7 +303,7 @@
 
 | 说法 | 核实结果 |
 |---|---|
-| "679 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R9 之后）。初版写 540 是当时的真实值，现已过时 |
+| "691 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R10 之后）。初版写 540 是当时的真实值，现已过时 |
 | "Precision 85.71% / Recall 100%" | ✅ 数字正确，但**样本仅 6 个 PR-like 场景**，且在 issueType 级别按 case 拼 key 计算（`AiReviewPipelineEvalTest`）。D2 计划扩充，**未做** |
 | "文件级并发 / 单文件失败隔离" | ✅ 正确 |
 | "patch verification + location guard" | ✅ 正确 |

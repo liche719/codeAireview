@@ -9,9 +9,11 @@ import com.codepilot.module.agent.dto.ReviewRuleContext;
 import com.codepilot.module.agent.parser.AiReviewResultParser;
 import com.codepilot.module.agent.prompt.ReviewPromptBuilder;
 import com.codepilot.module.agent.review.cache.ReviewLlmCache;
+import com.codepilot.module.review.metrics.ReviewLlmMetrics;
 import com.codepilot.module.agent.service.ReviewRagService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -20,7 +22,7 @@ import java.util.Optional;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class ReviewLlmReviewer {
 
     private final ReviewLlmClientRegistry reviewLlmClientRegistry;
@@ -36,6 +38,28 @@ public class ReviewLlmReviewer {
     private final ReviewLlmCallLogger reviewLlmCallLogger;
 
     private final ReviewLlmCache reviewLlmCache;
+
+    /**
+     * 可为 null：手工 new 出来的测试不需要指标，此时跳过上报而不是失败。
+     */
+    private final ReviewLlmMetrics reviewLlmMetrics;
+
+    /**
+     * 不带指标的便捷构造：手工 new 的场景（测试）不需要上报。
+     * 缺依赖时只降级为不上报，而不是构造失败。
+     */
+    public ReviewLlmReviewer(
+            ReviewLlmClientRegistry reviewLlmClientRegistry,
+            AiReviewResultParser aiReviewResultParser,
+            ReviewRagService reviewRagService,
+            ReviewPromptBuilder reviewPromptBuilder,
+            ReviewLlmInputLimiter reviewLlmInputLimiter,
+            ReviewLlmCallLogger reviewLlmCallLogger,
+            ReviewLlmCache reviewLlmCache
+    ) {
+        this(reviewLlmClientRegistry, aiReviewResultParser, reviewRagService, reviewPromptBuilder,
+                reviewLlmInputLimiter, reviewLlmCallLogger, reviewLlmCache, null);
+    }
 
     public Optional<AiReviewResult> review(
             AiReviewRequest request,
@@ -77,6 +101,10 @@ public class ReviewLlmReviewer {
 
         ReviewLlmInput promptSafeInput = promptSafe(limitedInput);
         Optional<AiReviewResult> cachedResult = reviewLlmCache.find(reviewLlmClient.providerName(), promptSafeInput);
+        if (reviewLlmMetrics != null) {
+            // 只在上报点计数，缓存实现本身不需要知道指标的存在。
+            reviewLlmMetrics.recordLlmCache(cachedResult.isPresent());
+        }
         if (cachedResult.isPresent()) {
             return cachedResult;
         }
