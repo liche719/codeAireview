@@ -93,6 +93,21 @@ public class ReviewProperties {
      */
     private List<String> extraSkipPatterns = new ArrayList<>();
 
+    /**
+     * 是否启用仓库内的路径级审查指令（R12）。
+     *
+     * <p><b>默认关闭</b>：这条能力本质是<b>把仓库内容注入 prompt</b>，是一个新的 prompt injection 面。
+     * 虽然已经做了"只从 base 分支读 + 按不可信内容包装 + 限长"三重约束，
+     * 但它仍然是新增的输入通道，应当显式开启。</p>
+     */
+    private boolean pathInstructionsEnabled = false;
+
+    /** 规则文件在仓库中的路径（相对仓库根）。 */
+    private String pathInstructionsFile = ".codepilot/rules.md";
+
+    /** 全部指令合计的字符上限；超出部分丢弃，避免规则文件成倍放大每个文件的 prompt。 */
+    private int pathInstructionsMaxChars = 8000;
+
     private int maxPatchCharsPerFile = 12000;
 
     private int maxTotalPatchChars = 80000;

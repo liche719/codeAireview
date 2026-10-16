@@ -5,6 +5,8 @@ import com.codepilot.module.review.entity.ReviewTask;
 import com.codepilot.module.agent.dto.DismissedFinding;
 import com.codepilot.module.review.graph.RepositoryGraphSnapshot;
 import com.codepilot.module.review.graph.RepositoryGraphSnapshotBuilder;
+import com.codepilot.module.review.instruction.PathInstruction;
+import com.codepilot.module.review.instruction.PathInstructionProvider;
 import com.codepilot.module.review.memory.ReviewFindingMemoryService;
 import com.codepilot.module.review.planner.ReviewPlan;
 import com.codepilot.module.review.planner.SemanticReviewPlanner;
@@ -40,6 +42,11 @@ public class ReviewContextBuilder {
      */
     private final ReviewFindingMemoryService reviewFindingMemoryService;
 
+    /**
+     * 非空时才从 base 分支读取路径级审查指令（R12）。与记忆服务同理，允许为 null。
+     */
+    private final PathInstructionProvider pathInstructionProvider;
+
     ReviewContextBuilder() {
         this(
                 new ReviewContextSignalExtractor(),
@@ -49,6 +56,7 @@ public class ReviewContextBuilder {
                 new RepoSourceExcerptExtractor(),
                 new SemanticReviewPlanner(),
                 new ReviewLinkedIssueContextProvider(),
+                null,
                 null
         );
     }
@@ -62,7 +70,8 @@ public class ReviewContextBuilder {
             RepoSourceExcerptExtractor repoSourceExcerptExtractor,
             SemanticReviewPlanner semanticReviewPlanner,
             ReviewLinkedIssueContextProvider reviewLinkedIssueContextProvider,
-            ReviewFindingMemoryService reviewFindingMemoryService
+            ReviewFindingMemoryService reviewFindingMemoryService,
+            PathInstructionProvider pathInstructionProvider
     ) {
         this.reviewContextSignalExtractor = reviewContextSignalExtractor;
         this.reviewContextRelationshipExtractor = reviewContextRelationshipExtractor;
@@ -72,6 +81,7 @@ public class ReviewContextBuilder {
         this.semanticReviewPlanner = semanticReviewPlanner;
         this.reviewLinkedIssueContextProvider = reviewLinkedIssueContextProvider;
         this.reviewFindingMemoryService = reviewFindingMemoryService;
+        this.pathInstructionProvider = pathInstructionProvider;
     }
 
     /**
@@ -94,6 +104,7 @@ public class ReviewContextBuilder {
                 repoSourceExcerptExtractor,
                 semanticReviewPlanner,
                 reviewLinkedIssueContextProvider,
+                null,
                 null
         );
     }
@@ -114,7 +125,30 @@ public class ReviewContextBuilder {
                 new RepoSourceExcerptExtractor(),
                 new SemanticReviewPlanner(),
                 new ReviewLinkedIssueContextProvider(),
-                reviewFindingMemoryService
+                reviewFindingMemoryService,
+                null
+        );
+    }
+
+    /**
+     * 同时灌入记忆服务与路径指令 provider：R12 的测试需要。
+     */
+    public ReviewContextBuilder(
+            ReviewContextSignalExtractor reviewContextSignalExtractor,
+            ReviewContextRelationshipExtractor reviewContextRelationshipExtractor,
+            ReviewFindingMemoryService reviewFindingMemoryService,
+            PathInstructionProvider pathInstructionProvider
+    ) {
+        this(
+                reviewContextSignalExtractor,
+                reviewContextRelationshipExtractor,
+                new ReviewImpactPlanner(),
+                new ReviewRelatedPatchExtractor(),
+                new RepoSourceExcerptExtractor(),
+                new SemanticReviewPlanner(),
+                new ReviewLinkedIssueContextProvider(),
+                reviewFindingMemoryService,
+                pathInstructionProvider
         );
     }
 
@@ -130,6 +164,7 @@ public class ReviewContextBuilder {
                 new RepoSourceExcerptExtractor(),
                 new SemanticReviewPlanner(),
                 new ReviewLinkedIssueContextProvider(),
+                null,
                 null
         );
     }
@@ -147,6 +182,7 @@ public class ReviewContextBuilder {
                 new RepoSourceExcerptExtractor(),
                 new SemanticReviewPlanner(),
                 new ReviewLinkedIssueContextProvider(),
+                null,
                 null
         );
     }
@@ -165,6 +201,7 @@ public class ReviewContextBuilder {
                 new RepoSourceExcerptExtractor(),
                 new SemanticReviewPlanner(),
                 new ReviewLinkedIssueContextProvider(),
+                null,
                 null
         );
     }
@@ -184,6 +221,7 @@ public class ReviewContextBuilder {
                 repoSourceExcerptExtractor,
                 new SemanticReviewPlanner(),
                 new ReviewLinkedIssueContextProvider(),
+                null,
                 null
         );
     }
@@ -204,6 +242,7 @@ public class ReviewContextBuilder {
                 repoSourceExcerptExtractor,
                 semanticReviewPlanner,
                 new ReviewLinkedIssueContextProvider(),
+                null,
                 null
         );
     }
@@ -280,8 +319,21 @@ public class ReviewContextBuilder {
                 relatedPatchExcerpts,
                 repoSourceExcerpts,
                 reviewSignals,
-                dismissedFindings(task)
+                dismissedFindings(task),
+                pathInstructions(task)
         );
+    }
+
+    /**
+     * 从 <b>base 分支</b>读取路径级审查指令（R12）。
+     *
+     * <p>没有注入 provider（多数构造重载的默认情形）时返回空——语义上等于"本仓库没有配置规则"。</p>
+     */
+    private List<PathInstruction> pathInstructions(ReviewTask task) {
+        if (pathInstructionProvider == null) {
+            return List.of();
+        }
+        return pathInstructionProvider.load(task);
     }
 
     /**

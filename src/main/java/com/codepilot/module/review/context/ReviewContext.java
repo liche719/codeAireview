@@ -2,6 +2,7 @@ package com.codepilot.module.review.context;
 
 import com.codepilot.module.agent.dto.AiReviewContext;
 import com.codepilot.module.agent.dto.DismissedFinding;
+import com.codepilot.module.review.instruction.PathInstruction;
 import com.codepilot.module.review.planner.ReviewPlan;
 
 import java.util.List;
@@ -24,7 +25,8 @@ public record ReviewContext(
         List<RelatedPatchExcerpt> relatedPatchExcerpts,
         List<RepoSourceExcerpt> repoSourceExcerpts,
         List<ReviewSignal> reviewSignals,
-        List<DismissedFinding> dismissedFindings
+        List<DismissedFinding> dismissedFindings,
+        List<PathInstruction> pathInstructions
 ) {
 
     public ReviewContext {
@@ -89,6 +91,13 @@ public record ReviewContext(
                 : dismissedFindings.stream()
                 .filter(dismissedFinding -> dismissedFinding != null && dismissedFinding.isUsable())
                 .toList();
+        pathInstructions = pathInstructions == null
+                ? List.of()
+                : pathInstructions.stream()
+                .filter(instruction -> instruction != null
+                        && hasText(instruction.glob())
+                        && hasText(instruction.instruction()))
+                .toList();
     }
 
     public static ReviewContext empty() {
@@ -106,6 +115,7 @@ public record ReviewContext(
                 List.of(),
                 ReviewImpactPlan.empty(),
                 ReviewPlan.empty(),
+                List.of(),
                 List.of(),
                 List.of(),
                 List.of(),
@@ -146,6 +156,7 @@ public record ReviewContext(
                 List.of(),
                 List.of(),
                 reviewSignals,
+                List.of(),
                 List.of()
         );
     }
@@ -186,6 +197,7 @@ public record ReviewContext(
                 relatedPatchExcerpts,
                 repoSourceExcerpts,
                 reviewSignals,
+                List.of(),
                 List.of()
         );
     }

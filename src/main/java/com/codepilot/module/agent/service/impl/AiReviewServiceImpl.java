@@ -46,7 +46,8 @@ public class AiReviewServiceImpl implements AiReviewService {
         String allChangedFilesText = aiReviewContextFormatter.formatForFile(
                 context,
                 filePath,
-                request == null ? null : request.dismissedFindings()
+                request == null ? null : request.dismissedFindings(),
+                request == null ? null : request.pathInstructions()
         );
         AiReviewResult deterministicResult = deterministicReviewToolRunner.run(
                 filePath,

@@ -194,6 +194,11 @@ codepilot:
     suggestion-fallback-to-diff: ${CODEPILOT_REVIEW_SUGGESTION_FALLBACK_TO_DIFF:true}
     # 追加的路径跳过规则（逗号分隔），用于补上项目特有的代码生成输出目录等。默认空。
     extra-skip-patterns: ${CODEPILOT_REVIEW_EXTRA_SKIP_PATTERNS:}
+    # 仓库内的路径级审查指令（R12）。默认关闭：它把仓库内容注入 prompt，是新的 prompt injection 面。
+    # 规则只从 PR 的 **base 分支** 读取，因此一个 PR 无法通过改自己的规则文件来放宽对自己的审查。
+    path-instructions-enabled: ${CODEPILOT_REVIEW_PATH_INSTRUCTIONS_ENABLED:false}
+    path-instructions-file: ${CODEPILOT_REVIEW_PATH_INSTRUCTIONS_FILE:.codepilot/rules.md}
+    path-instructions-max-chars: ${CODEPILOT_REVIEW_PATH_INSTRUCTIONS_MAX_CHARS:8000}
     max-patch-chars-per-file: ${CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE:12000}
     max-total-patch-chars: ${CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS:80000}
     max-parallel-files: ${CODEPILOT_REVIEW_MAX_PARALLEL_FILES:2}
