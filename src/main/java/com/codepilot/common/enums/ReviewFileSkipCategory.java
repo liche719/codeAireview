@@ -20,6 +20,18 @@ public enum ReviewFileSkipCategory {
     /** 生成物 / 锁文件 / 构建产物等按路径排除。 */
     PATH_EXCLUDED("生成物或锁文件路径"),
 
+    /** 第三方 vendor 代码（`vendor/`、`third_party/`、`node_modules/`）——不审，不是我们的代码。 */
+    VENDORED("第三方 vendor 代码"),
+
+    /**
+     * 生成代码（protobuf / gRPC / 代码生成器产物）。
+     *
+     * <p>与 {@link #PATH_EXCLUDED} 分开，是因为两者的处置意图不同：
+     * 生成物应当改<b>生成源</b>（.proto / 模板），而不是改产物；
+     * 看到这个分类就该去上游找问题。</p>
+     */
+    GENERATED("生成代码（应改生成源）"),
+
     /** 单文件 patch 超过 max-patch-chars-per-file。 */
     PATCH_TOO_LARGE("单文件 patch 超过上限"),
 

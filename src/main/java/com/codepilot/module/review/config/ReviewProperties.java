@@ -5,6 +5,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 @Data
 @Component
@@ -80,6 +82,16 @@ public class ReviewProperties {
 
     /** 校验不通过时，是否把 suggestion 降级成 diff 块展示。关闭则完全不展示建议代码。 */
     private boolean suggestionFallbackToDiff = true;
+
+    /**
+     * 运维追加的路径跳过规则（R11），逗号分隔，默认空。
+     *
+     * <p>按<b>子串</b>匹配归一化后的路径。内置规则覆盖常见的构建产物 / 锁文件 /
+     * vendor / 生成物；这个开关用于补上项目特有的目录（例如自研的代码生成输出目录）。</p>
+     *
+     * <p>空规则会被忽略——一条空白规则若参与匹配会命中所有文件，把整个仓库静默排除掉。</p>
+     */
+    private List<String> extraSkipPatterns = new ArrayList<>();
 
     private int maxPatchCharsPerFile = 12000;
 

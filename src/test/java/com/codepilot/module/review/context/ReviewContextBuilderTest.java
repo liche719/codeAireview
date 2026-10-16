@@ -27,7 +27,7 @@ class ReviewContextBuilderTest {
         ReviewContext context = builder.build(List.of(
                 reviewFile("src/main/java/Demo.java", "+code", 2, 1, false, null),
                 reviewFile(" ", "+ignored", 1, 0, false, null),
-                reviewFile("package-lock.json", "+lock", 10, 3, true, "file type or generated path skipped"),
+                reviewFile("package-lock.json", "+lock", 10, 3, true, "build output, lock file or minified asset skipped"),
                 reviewFile("src/test/java/DemoTest.java", "+test", 4, 0, false, null)
         ));
 
@@ -43,7 +43,7 @@ class ReviewContextBuilderTest {
                 .singleElement()
                 .satisfies(skippedFile -> {
                     assertThat(skippedFile.filePath()).isEqualTo("package-lock.json");
-                    assertThat(skippedFile.reason()).isEqualTo("file type or generated path skipped");
+                    assertThat(skippedFile.reason()).isEqualTo("build output, lock file or minified asset skipped");
                 });
         assertThat(context.fileSummaries())
                 .extracting(ReviewContext.FileSummary::filePath)

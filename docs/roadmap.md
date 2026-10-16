@@ -954,6 +954,45 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 
 ## R11 内容分类补全
 
+> **状态：已完成（首期方案）。`linguist-generated` 增强未做。**
+>
+> 已实现：
+> - `ReviewFileClassifier.isI18nPath`：`/i18n/`、`/locale(s)/`、`/lang/`、`/translations/`、
+>   `/messages/`、`messages*`、`*.po`、`*.pot`、`*.xliff`、`*.xlf`
+> - `ReviewFileClassifier.isVendoredPath`：`vendor/`、`third_party/`、`third-party/`、
+>   `node_modules/`、`bower_components/`
+> - `ReviewFileClassifier.isGeneratedPath`：`.pb.go`、`.pb.grpc.go`、`_pb2.py`、`_pb2_grpc.py`、
+>   `.g.dart`、`.freezed.dart`、`.designer.cs`、`.generated.{cs,java,ts,kt}`、`zz_generated.*`
+> - 新 skip 分类 `VENDORED` 与 `GENERATED`（见下）
+> - `extra-skip-patterns` 配置
+> - 顺手修掉 **B18**：`pnpm-lock.yaml` 原先既不被 `.lock` 命中、又被归为依赖清单，
+>   于是会被当普通文件送审（同类还有 `poetry.lock`、`go.sum`）
+>
+> **三处需要说明的判断**：
+>
+> 1. **`VENDORED` / `GENERATED` 独立于 `PATH_EXCLUDED`，而不只是加几条路径规则。**
+>    因为三者的<b>处置意图不同</b>：构建产物和锁文件是"不用看"；vendor 是"不是我们的代码"；
+>    生成物是"**应当去改生成源**"。摘要里的「审查覆盖」按分类分组展示，
+>    如果全塞进 `PATH_EXCLUDED`，用户看到 vendor 文件时不会知道该干什么。
+> 2. **vendor/生成物用整段目录匹配与命名约定，不用子串。**
+>    `contains("vendor")` 会把 `src/main/java/**/vendored/License.java` 误判成第三方；
+>    只看路径里有没有 "generated" 会把 `CodeGenerator.java` 和 `tools/generators/`
+>    这些**生成器本身的代码**排除掉——而生成器恰恰最该审。
+>    这两类误判都会导致<b>静默漏审</b>，所以都写了反向断言。
+> 3. **测试发现的一处真实反转（值得记）**：仅给 i18n 加一个负分是**不够的**。
+>    `messages_zh_CN.properties` 会命中 `isConfigurationPath`（+700），
+>    再叠加 `src/main/` 带来的源码加成（+600），总分 **900 > 普通源码的 600**——
+>    也就是说"只降优先级"的意图会被两条既有规则完全反转，**i18n 反而先被审**。
+>    修法是让 i18n 与"配置文件"加成**互斥**，而不是再去减一个更大的数抵消。
+>    这个问题只有在断言"源码确实赢过 i18n"时才会暴露，单测分类函数是发现不了的。
+>
+> **仍未覆盖**：
+> - **`linguist-generated` 增强未做。** 方案里自己标注了"实现前必须核实 REST
+>   `pulls/{n}/files` 是否返回该字段"，我没有核实，因此不做——用未经验证的字段做判断
+>   比不做更糟。首期按路径/命名的方案已覆盖常见生成器。
+> - `src/main/resources/**` 下的非 i18n `.properties` 仍会被 `isSourcePath`
+>   （`src/main/` 前缀）判为源码并 +600，这是既有行为，本轮未动。
+
 **问题**：i18n/资源包无分类（B13）；生成代码只靠 `dist/`/`target/`/`build/` 目录名（B14）；`vendor/`、`third_party/`、`node_modules/` **完全不在跳过列表**（B15）。
 
 **方案**：

@@ -85,7 +85,7 @@ class ReviewTaskProcessorTest {
                 .singleElement()
                 .satisfies(skippedFile -> {
                     assertThat(skippedFile.filePath()).isEqualTo("package-lock.json");
-                    assertThat(skippedFile.reason()).isEqualTo("file type or generated path skipped");
+                    assertThat(skippedFile.reason()).isEqualTo("build output, lock file or minified asset skipped");
                 });
         assertThat(result.reviewFiles())
                 .extracting(ReviewFile::getSkipped)

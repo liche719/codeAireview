@@ -42,8 +42,8 @@ class ReviewFilePlannerTest {
         assertThat(reviewFiles).extracting(ReviewFile::getSkipped).containsExactly(true, true, true);
         assertThat(reviewFiles).extracting(ReviewFile::getSkipReason).containsExactly(
                 "patch is empty or file is binary/too large",
-                "file type or generated path skipped",
-                "file type or generated path skipped"
+                "build output, lock file or minified asset skipped",
+                "build output, lock file or minified asset skipped"
         );
     }
 
@@ -198,12 +198,12 @@ class ReviewFilePlannerTest {
                 .filteredOn(reviewFile -> "dist/app.bundle.js".equals(reviewFile.getFilePath()))
                 .singleElement()
                 .extracting(ReviewFile::getSkipReason)
-                .isEqualTo("file type or generated path skipped");
+                .isEqualTo("build output, lock file or minified asset skipped");
         assertThat(reviewFiles)
                 .filteredOn(reviewFile -> "frontend/package-lock.json".equals(reviewFile.getFilePath()))
                 .singleElement()
                 .extracting(ReviewFile::getSkipReason)
-                .isEqualTo("file type or generated path skipped");
+                .isEqualTo("build output, lock file or minified asset skipped");
         assertThat(reviewFiles)
                 .filteredOn(reviewFile -> "docs/guide-0.md".equals(reviewFile.getFilePath()))
                 .singleElement()
@@ -304,5 +304,130 @@ class ReviewFilePlannerTest {
         }
 
         return changedFiles;
+    }
+
+    // ------------------------------------------------------------------
+    // R11：vendor / 生成物跳过，i18n 只降优先级
+    // ------------------------------------------------------------------
+
+    @Test
+    void shouldSkipVendoredAndGeneratedFilesWithTheirOwnCategories() {
+        ReviewFilePlanner planner = new ReviewFilePlanner(new ReviewProperties());
+
+        List<ReviewFile> reviewFiles = planner.plan(1L, List.of(
+                changedFile("frontend/node_modules/left-pad/index.js", "modified", "+vendor"),
+                changedFile("third_party/zlib/zlib.c", "modified", "+vendor"),
+                changedFile("api/service.pb.go", "modified", "+generated"),
+                changedFile("proto/user_pb2.py", "modified", "+generated")
+        ));
+
+        assertThat(reviewFiles).extracting(ReviewFile::getSkipped).containsExactly(true, true, true, true);
+        assertThat(reviewFiles).extracting(ReviewFile::getSkipCategory).containsExactly(
+                ReviewFileSkipCategory.VENDORED.name(),
+                ReviewFileSkipCategory.VENDORED.name(),
+                ReviewFileSkipCategory.GENERATED.name(),
+                ReviewFileSkipCategory.GENERATED.name()
+        );
+        // 生成物的 reason 必须指向"去改生成源"，否则用户不知道该往哪修。
+        assertThat(reviewFiles.get(2).getSkipReason()).contains("generator source");
+    }
+
+    /** pnpm-lock.yaml 原先漏判：以 .yaml 结尾既不命中 .lock，又被归为依赖清单。 */
+    @Test
+    void shouldSkipPnpmLockFile() {
+        ReviewFilePlanner planner = new ReviewFilePlanner(new ReviewProperties());
+
+        List<ReviewFile> reviewFiles = planner.plan(1L, List.of(
+                changedFile("frontend/pnpm-lock.yaml", "modified", "+lock"),
+                changedFile("backend/poetry.lock", "modified", "+lock"),
+                changedFile("backend/go.sum", "modified", "+sum")
+        ));
+
+        assertThat(reviewFiles).extracting(ReviewFile::getSkipped).containsExactly(true, true, true);
+    }
+
+    /**
+     * i18n <b>只降优先级、不跳过</b>。
+     *
+     * <p>翻译错误（占位符不匹配、漏翻）是真实缺陷，跳过等于漏审。
+     * 因此断言两件事：它有资格进审查，且在预算竞争时排在普通源码之后。</p>
+     */
+    @Test
+    void shouldLowerI18nPriorityWithoutSkippingIt() {
+        ReviewProperties properties = new ReviewProperties();
+        properties.setMaxFilesPerTask(1);
+        ReviewFilePlanner planner = new ReviewFilePlanner(properties);
+
+        List<ReviewFile> reviewFiles = planner.plan(1L, List.of(
+                changedFile("src/main/resources/i18n/messages.properties", "modified", "+greeting=hi"),
+                changedFile("src/main/java/com/example/Service.java", "modified", "+void run() {}")
+        ));
+
+        ReviewFile i18n = byPath(reviewFiles, "src/main/resources/i18n/messages.properties");
+        ReviewFile source = byPath(reviewFiles, "src/main/java/com/example/Service.java");
+
+        // 优先级真的起作用了：唯一的预算名额给了普通源码。
+        assertThat(source.getSkipped()).isFalse();
+        // 关键性质不是"是哪个预算分类"，而是 i18n 属于「预算」类跳过而非「路径排除」——
+        // 它仍然是可审对象，只是这轮没轮到。
+        assertThat(i18n.getSkipped()).isTrue();
+        assertThat(ReviewFileSkipCategory.valueOf(i18n.getSkipCategory()).isBudgetRelated())
+                .as("i18n must be skipped for budget reasons, never because we refuse to review it")
+                .isTrue();
+        assertThat(i18n.getSkipCategory())
+                .isNotIn(ReviewFileSkipCategory.PATH_EXCLUDED.name(),
+                        ReviewFileSkipCategory.VENDORED.name(),
+                        ReviewFileSkipCategory.GENERATED.name());
+    }
+
+    private static ReviewFile byPath(List<ReviewFile> reviewFiles, String filePath) {
+        return reviewFiles.stream()
+                .filter(reviewFile -> filePath.equals(reviewFile.getFilePath()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no planned file for path " + filePath));
+    }
+
+    @Test
+    void shouldNotSkipI18nFilesWhenBudgetIsAvailable() {
+        ReviewFilePlanner planner = new ReviewFilePlanner(new ReviewProperties());
+
+        List<ReviewFile> reviewFiles = planner.plan(1L, List.of(
+                changedFile("src/main/resources/i18n/messages.properties", "modified", "+greeting=hi")
+        ));
+
+        assertThat(reviewFiles.getFirst().getSkipped()).isFalse();
+    }
+
+    @Test
+    void shouldApplyExtraSkipPatterns() {
+        ReviewProperties properties = new ReviewProperties();
+        properties.setExtraSkipPatterns(new ArrayList<>(List.of("src/generated-client/")));
+        ReviewFilePlanner planner = new ReviewFilePlanner(properties);
+
+        List<ReviewFile> reviewFiles = planner.plan(1L, List.of(
+                changedFile("src/generated-client/Api.java", "modified", "+code"),
+                changedFile("src/main/java/com/example/Service.java", "modified", "+code")
+        ));
+
+        assertThat(reviewFiles).extracting(ReviewFile::getSkipped).containsExactly(true, false);
+    }
+
+    /**
+     * 空白规则必须被忽略。
+     *
+     * <p>一条空白规则如果参与匹配会命中<b>所有</b>文件——把整个仓库静默排除在审查之外，
+     * 而且在配置里看起来"生效了"。这是配置类功能里最危险的一种默认行为。</p>
+     */
+    @Test
+    void shouldIgnoreBlankExtraSkipPatterns() {
+        ReviewProperties properties = new ReviewProperties();
+        properties.setExtraSkipPatterns(new ArrayList<>(List.of("", "   ")));
+        ReviewFilePlanner planner = new ReviewFilePlanner(properties);
+
+        List<ReviewFile> reviewFiles = planner.plan(1L, List.of(
+                changedFile("src/main/java/com/example/Service.java", "modified", "+code")
+        ));
+
+        assertThat(reviewFiles.getFirst().getSkipped()).isFalse();
     }
 }

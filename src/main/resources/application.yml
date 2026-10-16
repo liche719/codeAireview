@@ -192,6 +192,8 @@ codepilot:
     # 不可一键应用时，是否仍把建议代码降级成 diff 块展示。false 则连代码块一起省略。
     # 默认为 true：降级展示比直接丢弃信息更有用，且 diff 块不可能被误点。
     suggestion-fallback-to-diff: ${CODEPILOT_REVIEW_SUGGESTION_FALLBACK_TO_DIFF:true}
+    # 追加的路径跳过规则（逗号分隔），用于补上项目特有的代码生成输出目录等。默认空。
+    extra-skip-patterns: ${CODEPILOT_REVIEW_EXTRA_SKIP_PATTERNS:}
     max-patch-chars-per-file: ${CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE:12000}
     max-total-patch-chars: ${CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS:80000}
     max-parallel-files: ${CODEPILOT_REVIEW_MAX_PARALLEL_FILES:2}

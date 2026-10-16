@@ -3,7 +3,7 @@
 > 本文件是 Phase 0 的产出：把「一个 PR 从生到死会遇到的每一种情况」穷举成清单，逐条对照当前实现。
 > **每一行的结论都来自实际代码**，附 `类:方法`（行号会随改动漂移，类与方法名不会）。
 >
-> 基线：commit `9973cff`（R1–R7 全部落地后），`mvn clean test` = 691 tests / 0 failures / 0 errors / 2 skipped（含 R8/R9/R10）。
+> 基线：commit `9973cff`（R1–R7 全部落地后），`mvn clean test` = 703 tests / 0 failures / 0 errors / 2 skipped（含 R8/R9/R10/R11）。
 > 状态图例：✅ 已实现 · ⚠️ 部分实现或有隐患 · ❌ 未实现
 >
 > **本文件不含「待核实」行。** 所有无法用代码证实的行为都已标注为 ❌/⚠️ 并说明依据。
@@ -21,7 +21,7 @@
 | 维度 | 场景数 | ✅ | ⚠️ | ❌ |
 |---|---|---|---|---|
 | A. PR 生命周期 | 18 | 3 | 5 | 10 |
-| B. PR 内容形态 | 20 | 13 | 5 | 2 |
+| B. PR 内容形态 | 20 | 17 | 3 | 0 |
 | C. 评论落点与形态 | 18 | 9 | 3 | 6 |
 | D. 多文件协调 | 14 | 5 | 8 | 1 |
 | E. 记忆与上下文 | 16 | 14 | 0 | 2 |
@@ -30,9 +30,9 @@
 | H. 性能与成本 | 8 | 3 | 3 | 2 |
 | I. 故障 | 12 | 7 | 4 | 1 |
 | J. 安全 | 12 | 9 | 1 | 2 |
-| **合计（A–J）** | **144** | **78** | **31** | **35** |
+| **合计（A–J）** | **144** | **82** | **29** | **33** |
 | K. 补漏 `C19` | 1 | 0 | 0 | 1 |
-| **总计** | **145** | **78** | **31** | **36** |
+| **总计** | **145** | **82** | **29** | **34** |
 
 > **上表是本文件自身的第二处修正。** 初版表格（`142 / 58 / 38 / 46`）与各维度明细行**对不上**：
 > 例如 A 维度明细行是 `3 ✅ / 5 ⚠️ / 10 ❌`，初版表格却写 `4 / 5 / 9`；C 维度明细是 `7 / 3 / 8`，
@@ -103,12 +103,12 @@
 | B10 | 数据库迁移 SQL | ✅ | `isDatabasePath`(:41) → +900，且 `SqlRiskTool` 覆盖 |
 | B11 | 配置/密钥文件 | ✅ | `isConfigurationPath`(:59) → +700；`isSecuritySensitivePath`(:49) → +1000 |
 | B12 | 仅文档 | ✅ | `isDocumentationPath`(:111) → −250 |
-| B13 | i18n / 资源包 | ❌ | `ReviewFileClassifier` **无 i18n/资源包判定**；`ReviewFilePlanner.shouldSkipPath` 也不含。`.properties` 会被 `isConfigurationPath` 误判为配置（+700），`.json` 语言包得不到任何分类 → 优先级 0 |
-| B14 | 生成代码（protobuf/openapi） | ⚠️ | 只靠目录名跳过：`ReviewFilePlanner.shouldSkipPath` 仅含 `dist/`、`target/`、`build/`。`src/main/java/**/generated/` 下的 protobuf 产物**不会被跳过**；`.proto` 本身被 `isPublicApiPath`(:106) 归为公共 API(+800)。**注**：该分支的 skip_reason 文案写作 `"file type or generated path skipped"`(:138)，但代码里**并不存在生成物判定**（检索 `generated|\.pb\.` 无匹配）——文案与实现不符 |
-| B15 | vendored 第三方 | ❌ | 跳过列表（`shouldSkipPath`）**不含 `vendor/`、`third_party/`、`node_modules/`** → 若被提交会全量进入审查并消耗预算 |
+| B13 | i18n / 资源包 | ✅ | **R11**：`ReviewFileClassifier.isI18nPath` 覆盖 `/i18n/`、`/locale(s)/`、`/lang/`、`/translations/`、`/messages/`、`messages*`、`*.po`、`*.pot`、`*.xliff`、`*.xlf`。**只降优先级（−400）、不跳过**——翻译错误（占位符不匹配、漏翻）是真实缺陷。**关键修正**：仅在原基础上减分是不够的，`*.properties` 会命中 `isConfigurationPath`(+700) 再叠加 `src/main/` 源码加成(+600)，总分反而**高于**普通源码。因此 i18n 与"配置文件"加成改为**互斥**，否则"降优先级"的意图会被完全反转 |
+| B14 | 生成代码（protobuf/openapi） | ✅ | **R11**：`isGeneratedPath` 按生成器命名约定判定（`.pb.go`、`.pb.grpc.go`、`_pb2.py`、`_pb2_grpc.py`、`.g.dart`、`.freezed.dart`、`.designer.cs`、`.generated.{cs,java,ts,kt}`、`zz_generated.*`），跳过并归入**独立的** `GENERATED` 分类——reason 指向"去改生成源"，而不是笼统的路径排除。**只看路径里有没有 "generated" 是错的**：那会把 `CodeGenerator.java`、`tools/generators/` 这些**生成器本身**排除掉（有反向断言）。初版 skip_reason 文案 "file type or generated path skipped" 与实现不符的问题随本轮一并修掉（现在文案按分类分别是 build output / vendored / generated） |
+| B15 | vendored 第三方 | ✅ | **R11**：`isVendoredPath` 覆盖 `vendor/`、`third_party/`、`third-party/`、`node_modules/`、`bower_components/`，跳过并归入 `VENDORED` 分类。**用整段目录匹配而非子串**：`contains("vendor")` 会把 `src/main/java/**/vendored/License.java` 这类手写代码误判成第三方（有反向断言）。该误判的后果是静默漏审，所以必须收紧 |
 | B16 | submodule 变更 | ⚠️ | submodule 指针变更的 patch 为空 → 恰好被 B4 规则跳过；但无显式识别，且 `.gitmodules` 会按普通文件处理 |
 | B17 | CI / workflow 文件变更 | ⚠️ | `.github/workflows/` 被 `isConfigurationPath`(:70) 归为配置(+700)，**但没有任何 CI 专用安全规则**（如 `pull_request_target` 注入、权限提升、secret 外泄） |
-| B18 | 锁文件 | ⚠️ | `shouldSkipPath` 含 `.lock`、`package-lock.json`、`yarn.lock`、`.min.js`。**但有错位**：`pnpm-lock.yaml` 因以 `.yaml` 结尾而**不被 `.lock` 命中、因此不被跳过**，尽管它被 `isDependencyManifestPath`(:87) 分类为依赖清单 |
+| B18 | 锁文件 | ✅ | `shouldSkipPath` 含 `.lock`、`package-lock.json`、`yarn.lock`、`.min.js`、`.min.css`。**R11 修掉错位**：`pnpm-lock.yaml` 原先以 `.yaml` 结尾，既不被 `.lock` 命中、又被 `isDependencyManifestPath` 归为依赖清单，于是会被当普通文件送审；同类漏判的 `poetry.lock`、`go.sum` 一并补上 |
 | B19 | 混合内容 | ✅ | 按 `reviewPriority` 降序贪心分配预算（`ReviewFilePlanner.applyReviewLimits`） |
 | B20 | 空 diff | ✅ | `ReviewFileReviewer.review` 对空列表直接返回 `List.of()` |
 
@@ -303,7 +303,7 @@
 
 | 说法 | 核实结果 |
 |---|---|
-| "691 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R10 之后）。初版写 540 是当时的真实值，现已过时 |
+| "703 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R11 之后）。初版写 540 是当时的真实值，现已过时 |
 | "Precision 85.71% / Recall 100%" | ✅ 数字正确，但**样本仅 6 个 PR-like 场景**，且在 issueType 级别按 case 拼 key 计算（`AiReviewPipelineEvalTest`）。D2 计划扩充，**未做** |
 | "文件级并发 / 单文件失败隔离" | ✅ 正确 |
 | "patch verification + location guard" | ✅ 正确 |

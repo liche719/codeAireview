@@ -163,10 +163,24 @@ public class ReviewFilePlanner {
         if (!StringUtils.hasText(reviewFile.getFilePath())) {
             return new SkipDecision(ReviewFileSkipCategory.INVALID_PATH, "file path is empty");
         }
+        // 生成物先判：它的处置意图（去改生成源）与普通路径排除不同，
+        // 分成两个 skip 分类才能让摘要里的「审查覆盖」给出正确指引。
+        if (ReviewFileClassifier.isGeneratedPath(reviewFile.getFilePath())) {
+            return new SkipDecision(
+                    ReviewFileSkipCategory.GENERATED,
+                    "generated code skipped; change the generator source instead"
+            );
+        }
+        if (ReviewFileClassifier.isVendoredPath(reviewFile.getFilePath())) {
+            return new SkipDecision(
+                    ReviewFileSkipCategory.VENDORED,
+                    "vendored third-party code skipped"
+            );
+        }
         if (shouldSkipPath(reviewFile.getFilePath())) {
             return new SkipDecision(
                     ReviewFileSkipCategory.PATH_EXCLUDED,
-                    "file type or generated path skipped"
+                    "build output, lock file or minified asset skipped"
             );
         }
         return null;
@@ -227,7 +241,14 @@ public class ReviewFilePlanner {
         if (ReviewFileClassifier.isPublicApiPath(path)) {
             score += 800;
         }
-        if (ReviewFileClassifier.isConfigurationPath(path)) {
+        // i18n / 资源包先判定，并且**与"配置文件"加成互斥**。
+        //
+        // 关键：`messages_zh_CN.properties` 会命中 isConfigurationPath（+700），
+        // 再叠加 `src/main/` 带来的源码加成（+600），总分会**高于**普通源码——
+        // 也就是说"只降优先级"的意图会被这两条既有规则完全反转，i18n 反而先被审。
+        // 因此这里必须让两者互斥，而不是简单地再减一个数去抵消。
+        boolean i18n = ReviewFileClassifier.isI18nPath(path);
+        if (!i18n && ReviewFileClassifier.isConfigurationPath(path)) {
             score += 700;
         }
         if (ReviewFileClassifier.isDependencyManifestPath(path)) {
@@ -242,6 +263,11 @@ public class ReviewFilePlanner {
         if (ReviewFileClassifier.isDocumentationPath(path)) {
             score -= 250;
         }
+        // 翻译错误（占位符不匹配、漏翻、键名拼错）是真实缺陷，所以**不跳过**；
+        // 但这类文件通常量大、单文件价值低于生产代码，因此降优先级，让预算先给别处。
+        if (i18n) {
+            score -= 400;
+        }
         return score;
     }
 
@@ -251,13 +277,42 @@ public class ReviewFilePlanner {
         return normalizedPath.endsWith(".lock")
                 || normalizedPath.endsWith("package-lock.json")
                 || normalizedPath.endsWith("yarn.lock")
+                // pnpm-lock.yaml 原先漏掉了：它以 .yaml 结尾，既不被 .lock 命中，
+                // 又被 isDependencyManifestPath 归为依赖清单，于是会被当成普通配置送审。
+                || normalizedPath.endsWith("pnpm-lock.yaml")
+                || normalizedPath.endsWith("poetry.lock")
+                || normalizedPath.endsWith("go.sum")
                 || normalizedPath.endsWith(".min.js")
+                || normalizedPath.endsWith(".min.css")
+                || matchesExtraSkipPattern(normalizedPath)
                 || normalizedPath.startsWith("dist/")
                 || normalizedPath.contains("/dist/")
                 || normalizedPath.startsWith("target/")
                 || normalizedPath.contains("/target/")
                 || normalizedPath.startsWith("build/")
                 || normalizedPath.contains("/build/");
+    }
+
+    /**
+     * 运维追加的自定义跳过规则（R11）。
+     *
+     * <p>只在<b>路径</b>上做 {@code contains} 匹配，且规则本身为空时直接跳过——
+     * 一个空白规则如果参与匹配会命中所有文件，把整个仓库静默排除掉。</p>
+     */
+    private boolean matchesExtraSkipPattern(String normalizedPath) {
+        if (reviewProperties == null || reviewProperties.getExtraSkipPatterns() == null) {
+            return false;
+        }
+        for (String pattern : reviewProperties.getExtraSkipPatterns()) {
+            if (!StringUtils.hasText(pattern)) {
+                continue;
+            }
+            String needle = ReviewFileClassifier.normalizePath(pattern);
+            if (StringUtils.hasText(needle) && normalizedPath.contains(needle)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean containsAny(String content, String... needles) {
