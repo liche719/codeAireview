@@ -28,4 +28,19 @@ public class AgentRuntimeProperties {
     private int conversationMaxTurns = 5;
 
     private int conversationMaxChars = 6000;
+
+    /**
+     * 对话上下文的裁剪方式（R9）。
+     *
+     * <p>{@link ConversationTruncationMode#TURN}（默认）按<b>整条 turn</b> 裁剪，
+     * 宁可少留几条也不把一条消息切成半句；{@link ConversationTruncationMode#CHARS}
+     * 是引入本能力之前的盲截尾部字符行为，保留作为回滚开关。</p>
+     */
+    private ConversationTruncationMode conversationTruncationMode = ConversationTruncationMode.TURN;
+
+    /** 对话上下文的裁剪方式。 */
+    public enum ConversationTruncationMode {
+        TURN,
+        CHARS
+    }
 }

@@ -852,6 +852,31 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 
 ## R9 对话上下文结构化截断
 
+> **状态：已完成。**
+>
+> 已实现：`AgentConversationContextBuilder` 改为**按 turn 边界**裁剪——从最近往前累加整条
+> turn，装不下就停（越旧越先丢）；只有"最新一条单独超预算"时才截断它，且
+> {@code renderOversizedTurn} 会**保留 `turn / user / assistant` 结构**、只按比例截短两侧正文，
+> 并追加显式 `…[truncated]`。状态行永远在最前面。
+> 配置新增 `conversation-truncation-mode`（`turn` 默认 / `chars` 兼容旧行为）。
+>
+> **修旧实现时发现的两个额外缺陷**（原方案只提到"切成半句"）：
+> 1. **会切出一条没有 `assistant=` 的残缺 turn**——切口若落在 `user=` 与 `assistant=` 之间，
+>    留下的是一条结构上讲不通的记录；
+> 2. **会把开头的 `conversationContextStatus:` 一起截掉**——而下游正是靠这一行判断
+>    "上下文是否可用"。这比切成半句更严重：截断越狠，状态行越必然丢失。
+>
+> **测试里差点踩的坑（值得记）**：最初用"按 `turn:\n` 切分后每段是否都含 user/assistant"
+> 来断言"不出现半句"，结果**旧的盲截实现也能通过**——因为切口通常落在某条 turn 中间，
+> 那段孤儿残片不含 `turn:\n`，被切分逻辑静默丢掉了。
+> 补上"第一条 turn 之前只能是状态行"这一条后才真正能捕获回退。
+> 验证方式：把默认模式改回 `CHARS` 跑一遍，13 个测试里挂 6 个（含这一条），然后才改回来。
+>
+> **刻意的取舍**：同样字符预算下，按 turn 裁剪能容纳的**信息量更少**（例如 5 条各 131 字符的
+> turn，500 字符预算下只剩 3 条，而盲截能塞进 3 条半）。完整性优先于信息量。
+>
+> **仍未覆盖**：没有真机验证（需要跑到多轮对话超预算）。
+
 **问题**：`AgentConversationContextBuilder:57` 用 `result.substring(result.length() - maxChars)` **盲截尾部字符**，会把一条消息切成半句；无摘要、无消息边界感知。
 
 **方案**：改为**按 turn 边界**裁剪——从最近往前累加整条 turn，直到超出预算；**最后一条**若单独超预算，才对它做截断并加显式 `…[truncated]` 标记。预算不足时在开头标注 `conversationContextStatus: PARTIAL (N of M turns)`。

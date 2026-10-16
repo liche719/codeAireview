@@ -143,6 +143,7 @@ copy .env.example .env
 | `CODEPILOT_AGENT_WAITING_POLL_BATCH_SIZE` | `50` | 单次扫描恢复的 `WAITING_WORKFLOW` Agent run 数量上限。 |
 | `CODEPILOT_AGENT_CONVERSATION_MAX_TURNS` | `5` | 同一 PR 注入的历史 Agent 对话轮数。 |
 | `CODEPILOT_AGENT_CONVERSATION_MAX_CHARS` | `6000` | 注入的历史 Agent 对话总字符上限，运行时下限为 `500`。 |
+| `CODEPILOT_AGENT_CONVERSATION_TRUNCATION_MODE` | `turn` | 对话上下文的裁剪方式。`turn`（默认）按**整条 turn** 裁剪：从最近往前累加，装不下就停，宁可少留几条也不把一条消息切成半句。`chars` 是引入 R9 之前的**盲截尾部字符**行为，保留用于回滚——它会切出半句话、切掉 `assistant=` 段、并把开头的 `conversationContextStatus:` 一起截掉，不建议长期使用。 |
 
 ## 死信队列运维
 

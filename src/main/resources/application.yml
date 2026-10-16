@@ -99,6 +99,9 @@ codepilot:
     waiting-poll-batch-size: ${CODEPILOT_AGENT_WAITING_POLL_BATCH_SIZE:50}
     conversation-max-turns: ${CODEPILOT_AGENT_CONVERSATION_MAX_TURNS:5}
     conversation-max-chars: ${CODEPILOT_AGENT_CONVERSATION_MAX_CHARS:6000}
+    # 对话上下文的裁剪方式（R9）：turn = 按整条 turn 裁剪（默认），chars = 旧的盲截尾部字符行为。
+    # 保留 chars 只为回滚；它会把一条消息切成半句，不建议长期使用。
+    conversation-truncation-mode: ${CODEPILOT_AGENT_CONVERSATION_TRUNCATION_MODE:turn}
   scheduling:
     enabled: ${CODEPILOT_SCHEDULING_ENABLED:true}
   api-auth:
