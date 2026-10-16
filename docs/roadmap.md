@@ -806,6 +806,38 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 
 ## R8 Agent 限额的用户可见语义
 
+> **状态：已完成。**
+>
+> 已实现：
+> - `AgentLimitExceededException`（含嵌套 `LimitType` 枚举：`MODEL_TURNS` / `TOOL_CALLS` /
+>   `CONTINUATIONS` / `RUN_DEADLINE`），携带 `currentValue` / `limitValue`，
+>   并提供 `userFacingMessage()`——一次说清**撞了哪个上限、上限是多少、接下来怎么办**，
+>   末尾再明确一句"本次不会自动重试"
+> - `AgentRunService` 四处抛点全部改为抛该异常（原先都是 `IllegalStateException`
+>   加一句 `"... limit exceeded"`）
+> - `PrCommandTaskFailureHandler.handleAgentNonRetryable`：终态处理，**末尾不 throw**
+>   （这正是与 `handleAgentRetryable` 的唯一区别——抛出去会被 MQ 重投）
+> - `AgentChatTaskRunner` 在通用 catch 内先查上限异常，命中则走终态并回帖
+>
+> **两个实现细节值得记一笔**：
+>
+> 1. **不只匹配顶层异常类型，而是沿 cause 链下钻（上限 8 层 + 自引用保护）。**
+>    工具调用上限是在 `@Tool` 方法里由 `AgentToolTraceAspect` 抛出的，
+>    要穿过 LangChain4j 的工具调用栈才能回到 runner，**中间可能被框架包装**。
+>    只判顶层类型会漏掉这条路径——而它恰恰是默认限额（12 次）下最常撞到的那一个。
+>    有专门测试覆盖"三层包装后仍被识别为终态"。
+> 2. **测试用"`run` 正常返回"来表达"不重试"**，而不是断言 mock 的调用次数：
+>    可重试路径末尾必 throw，所以"没有异常逃出"等价于"没走重试"。这个断言绑在可观测行为上，
+>    更难被误改。（反向保护同样有测试：普通 `IllegalStateException` 必须仍走可重试路径，
+>    否则"LLM 抖一下"就变成永久失败。）
+>
+> **仍未覆盖**：
+> - `AgentWorkflowResumeJob` 里"等待 workflow 期间超时"那条路径（`:46-53`）**只标失败不回帖**，
+>   用户看不到任何说明。它不在本次四处抛点内，需要 `GithubClient` 才能回帖，属独立的小改动。
+> - 没有真机验证（需要把 Agent 真的跑到撞上限）。
+> - **不能断言** LangChain4j 一定会把工具异常往上抛而不吞掉它；cause 链下钻是对这一不确定性的
+>   防御，但缺少端到端证据证明框架行为。
+
 **问题**：模型轮次 / 工具调用 / continuation / 截止时间超限，全部抛 `IllegalStateException`（`AgentRunService:60,73,90,135`），被 `AgentChatTaskRunner:132-151` 捕获后用户只看到通用文案「暂时无法完成本次 Agent 请求，请稍后重试」，**不说明真实原因**；且这类错误被当作可重试处理，重试仍会撞同一上限。
 
 **方案**：定义 `AgentLimitExceededException`（携带 `limitType` 与 `currentValue`/`limitValue`），在 `AgentChatTaskRunner` 中单独 catch，输出**明确且可行动**的回复，例如"本次请求已达到工具调用上限（12 次），请把问题拆小后重试"；并把该异常标记为**不可重试**（`PrCommandTaskFailureHandler` 需增加终态判定）。

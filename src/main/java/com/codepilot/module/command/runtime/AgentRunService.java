@@ -2,6 +2,7 @@ package com.codepilot.module.command.runtime;
 
 import com.codepilot.common.util.SensitiveDataSanitizer;
 import com.codepilot.module.command.config.AgentRuntimeProperties;
+import com.codepilot.module.command.runtime.AgentLimitExceededException.LimitType;
 import com.codepilot.module.command.entity.AgentRun;
 import com.codepilot.module.command.entity.AgentStep;
 import com.codepilot.module.command.entity.PrCommandTask;
@@ -57,8 +58,9 @@ public class AgentRunService {
     public void beginModelTurn(AgentRun run) {
         requireWithinLimits(run);
         int turns = safe(run.getModelTurnCount()) + 1;
-        if (turns > Math.max(1, properties.getMaxModelTurns())) {
-            throw new IllegalStateException("Agent model turn limit exceeded");
+        int maxTurns = Math.max(1, properties.getMaxModelTurns());
+        if (turns > maxTurns) {
+            throw new AgentLimitExceededException(LimitType.MODEL_TURNS, turns, maxTurns);
         }
         run.setModelTurnCount(turns);
         run.setStatus("RUNNING");
@@ -70,8 +72,9 @@ public class AgentRunService {
 
     public void recordToolCall(AgentRun run, String name, String inputSummary) {
         int calls = safe(run.getToolCallCount()) + 1;
-        if (calls > Math.max(1, properties.getMaxToolCalls())) {
-            throw new IllegalStateException("Agent tool call limit exceeded");
+        int maxCalls = Math.max(1, properties.getMaxToolCalls());
+        if (calls > maxCalls) {
+            throw new AgentLimitExceededException(LimitType.TOOL_CALLS, calls, maxCalls);
         }
         run.setToolCallCount(calls);
         run.setUpdatedAt(LocalDateTime.now());
@@ -87,8 +90,9 @@ public class AgentRunService {
 
     public void markWaiting(AgentRun run, String workflowType, Long workflowTaskId) {
         int continuations = safe(run.getContinuationCount()) + 1;
-        if (continuations > Math.max(1, properties.getMaxContinuations())) {
-            throw new IllegalStateException("Agent continuation limit exceeded");
+        int maxContinuations = Math.max(1, properties.getMaxContinuations());
+        if (continuations > maxContinuations) {
+            throw new AgentLimitExceededException(LimitType.CONTINUATIONS, continuations, maxContinuations);
         }
         run.setContinuationCount(continuations);
         run.setStatus("WAITING_WORKFLOW");
@@ -133,7 +137,12 @@ public class AgentRunService {
 
     private void requireWithinLimits(AgentRun run) {
         if (run.getDeadlineAt() != null && run.getDeadlineAt().isBefore(LocalDateTime.now())) {
-            throw new IllegalStateException("Agent run deadline exceeded");
+            // 上限值取配置的时长，当前值取"已经过去多久"。因为是在超期之后才判定，
+            // elapsed 必然 >= limit，用它做展示不会出现"还没到上限就说超了"。
+            int limitSeconds = (int) Math.max(1L, properties.getRunDeadline().getSeconds());
+            long remainingSeconds = Duration.between(LocalDateTime.now(), run.getDeadlineAt()).getSeconds();
+            int elapsedSeconds = (int) Math.max(limitSeconds, limitSeconds - remainingSeconds);
+            throw new AgentLimitExceededException(LimitType.RUN_DEADLINE, elapsedSeconds, limitSeconds);
         }
     }
 

@@ -3,7 +3,7 @@
 > 本文件是 Phase 0 的产出：把「一个 PR 从生到死会遇到的每一种情况」穷举成清单，逐条对照当前实现。
 > **每一行的结论都来自实际代码**，附 `类:方法`（行号会随改动漂移，类与方法名不会）。
 >
-> 基线：commit `9973cff`（R1–R7 全部落地后），`mvn clean test` = 648 tests / 0 failures / 0 errors / 2 skipped。
+> 基线：commit `9973cff`（R1–R7 全部落地后），`mvn clean test` = 666 tests / 0 failures / 0 errors / 2 skipped（含 R8）。
 > 状态图例：✅ 已实现 · ⚠️ 部分实现或有隐患 · ❌ 未实现
 >
 > **本文件不含「待核实」行。** 所有无法用代码证实的行为都已标注为 ❌/⚠️ 并说明依据。
@@ -25,14 +25,14 @@
 | C. 评论落点与形态 | 18 | 9 | 3 | 6 |
 | D. 多文件协调 | 14 | 5 | 8 | 1 |
 | E. 记忆与上下文 | 16 | 13 | 1 | 2 |
-| F. Agent 模式 | 18 | 11 | 4 | 3 |
+| F. Agent 模式 | 18 | 13 | 2 | 3 |
 | G. 协作与反馈 | 8 | 2 | 0 | 6 |
 | H. 性能与成本 | 8 | 2 | 3 | 3 |
 | I. 故障 | 12 | 7 | 4 | 1 |
 | J. 安全 | 12 | 9 | 1 | 2 |
-| **合计（A–J）** | **144** | **74** | **34** | **36** |
+| **合计（A–J）** | **144** | **76** | **32** | **36** |
 | K. 补漏 `C19` | 1 | 0 | 0 | 1 |
-| **总计** | **145** | **74** | **34** | **37** |
+| **总计** | **145** | **76** | **32** | **37** |
 
 > **上表是本文件自身的第二处修正。** 初版表格（`142 / 58 / 38 / 46`）与各维度明细行**对不上**：
 > 例如 A 维度明细行是 `3 ✅ / 5 ⚠️ / 10 ❌`，初版表格却写 `4 / 5 / 9`；C 维度明细是 `7 / 3 / 8`，
@@ -196,8 +196,8 @@
 | F7 | 批准合并 | ✅ | `approveFixMerge`，第二次独立审批 |
 | F8 | 多轮追问 | ✅ | `conversation-max-turns`（默认 5）/ `conversation-max-chars`（6000，运行时下限 500） |
 | F9 | 要求澄清 / 拒答 | ⚠️ | 仅靠 prompt 约束（`github-command-chat-system-message.txt`），**无代码级保证**，也无相关测试 |
-| F10 | Tool 预算耗尽 | ⚠️ | 超限抛 `IllegalStateException("Agent tool call limit exceeded")`（`AgentRunService:73-74`）→ 被 `AgentChatTaskRunner:132-151` 捕获 → 用户收到**通用失败文案**「暂时无法完成本次 Agent 请求，请稍后重试」，不说明真实原因 |
-| F11 | 运行超时 | ⚠️ | `AgentRunService:135-136` 同样抛异常（`run-deadline=30m`），用户同样只看到通用文案 |
+| F10 | Tool 预算耗尽 | ✅ | **R8**：`AgentRunService.recordToolCall` 抛 `AgentLimitExceededException(TOOL_CALLS)`；`AgentChatTaskRunner` 沿 cause 链识别它（工具异常可能被 LangChain4j 包装），走 `handleAgentNonRetryable` **终态不重试**，并回一条说清"撞了工具调用上限（12 次）+ 建议拆小问题 + 本次不会自动重试"的评论。**注**：`AgentToolTraceAspect` 抛异常的位置在 `try` 之外，所以它不会被工具结果记录逻辑吞掉 |
+| F11 | 运行超时 | ✅ | **R8**：`requireWithinLimits` 抛 `AgentLimitExceededException(RUN_DEADLINE)`，当前值取"已过去多久"且保证 ≥ 上限（不会出现"还没到上限就说超了"），文案把整分钟渲染成"30 分钟"。同样走终态不回帖以外的一切。**仍未覆盖**：`AgentWorkflowResumeJob` 里"等待 workflow 期间超时"那条路径（`:46-53`）**只标失败不回帖**，用户看不到说明 |
 | F12 | 同一 PR 并发多个 Agent 请求 | ⚠️ | 每个评论独立 `pr_command_task` + `agent_run`；`AgentConversationContextBuilder` 只注入 **已 SUCCESS** 的历史任务 → **两个同时在跑的 run 互相看不见** |
 | F13 | issue_comment 非 PR | ✅ | `GitHubWebhookPayloadParser:82-84` 无 `/issue/pull_request` → `ignored("not pull request comment")` |
 | F14 | **PR review comment 里的 @mention** | ❌ | `GitHubWebhookPayloadParser` 只认 `pull_request`(:18) 与 `issue_comment`(:20) 两个事件；`pull_request_review_comment` 落到 `ignored("unsupported event")`(:40)。**用户在 diff 上直接 @bot 无任何反应** |
@@ -302,7 +302,7 @@
 
 | 说法 | 核实结果 |
 |---|---|
-| "648 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R7 之后）。初版写 540 是当时的真实值，现已过时 |
+| "666 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R8 之后）。初版写 540 是当时的真实值，现已过时 |
 | "Precision 85.71% / Recall 100%" | ✅ 数字正确，但**样本仅 6 个 PR-like 场景**，且在 issueType 级别按 case 拼 key 计算（`AiReviewPipelineEvalTest`）。D2 计划扩充，**未做** |
 | "文件级并发 / 单文件失败隔离" | ✅ 正确 |
 | "patch verification + location guard" | ✅ 正确 |

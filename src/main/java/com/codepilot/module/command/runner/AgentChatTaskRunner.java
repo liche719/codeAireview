@@ -10,6 +10,7 @@ import com.codepilot.module.command.state.PrCommandTaskStateManager;
 import com.codepilot.module.command.trace.AgentTaskTraceContext;
 import com.codepilot.module.command.approval.FixApprovalCommandRouter;
 import com.codepilot.module.command.failure.PrCommandTaskFailureHandler;
+import com.codepilot.module.command.runtime.AgentLimitExceededException;
 import com.codepilot.module.command.runtime.AgentRunService;
 import com.codepilot.module.command.entity.AgentRun;
 import com.codepilot.module.command.config.AgentRuntimeProperties;
@@ -30,6 +31,9 @@ import org.springframework.util.StringUtils;
 public class AgentChatTaskRunner {
 
     private static final int MAX_CHAT_COMMENT_LENGTH = 4000;
+
+    /** 查找硬上限异常时沿 cause 链下钻的最大深度。 */
+    private static final int MAX_CAUSE_DEPTH = 8;
 
     private final GithubClient githubClient;
 
@@ -138,6 +142,13 @@ public class AgentChatTaskRunner {
                 agentRunService.complete(agentRun, execution.value());
             }
         } catch (Exception exception) {
+            // 硬上限：终态，不重试。重试只会撞同一堵墙，还会把用户拿到真实反馈的时间往后拖。
+            // 这里刻意不 throw —— 抛出会让 MQ 重新投递这条消息。
+            AgentLimitExceededException limit = findLimitExceeded(exception);
+            if (limit != null) {
+                handleLimitExceeded(task, agentRun, limit);
+                return;
+            }
             String message = SensitiveDataSanitizer.redactAndTruncate(exception.getMessage(), 1000);
             log.warn("Agent chat task failed, commandTaskId={}, errorType={}, message={}",
                     task.getId(), exception.getClass().getSimpleName(), message);
@@ -157,6 +168,61 @@ public class AgentChatTaskRunner {
                 tryPostFailureComment(task);
             });
         }
+    }
+
+    /**
+     * 沿 cause 链找硬上限异常，找不到返回 {@code null}。
+     *
+     * <h2>为什么不只判断顶层类型</h2>
+     * 工具调用上限是在 {@code @Tool} 方法内部由 {@code AgentToolTraceAspect} 抛出的，
+     * 这个异常要穿过 LangChain4j 的工具调用栈才能回到这里，**中间可能被框架包装**。
+     * 只匹配顶层类型会漏掉这条路径——而它恰恰是默认限额（12 次）下最常见的一种。
+     *
+     * <p>深度上限与自引用检查是防御性的：异常链理论上可能成环或极深，
+     * 那会把"给用户一条可行动的回复"变成栈溢出。</p>
+     */
+    private AgentLimitExceededException findLimitExceeded(Throwable throwable) {
+        Throwable current = throwable;
+        for (int depth = 0; current != null && depth < MAX_CAUSE_DEPTH; depth++) {
+            if (current instanceof AgentLimitExceededException limit) {
+                return limit;
+            }
+            Throwable cause = current.getCause();
+            if (cause == current) {
+                return null;
+            }
+            current = cause;
+        }
+        return null;
+    }
+
+    /**
+     * 硬上限触顶的收尾：把真实原因告诉用户，并把任务置终态。
+     *
+     * <p>与通用失败路径的区别是回复内容——通用路径只会说"请稍后重试"，
+     * 而这里必须说清<b>撞了哪个上限、上限多少、接下来怎么办</b>，
+     * 否则用户唯一能做的就是原样再问一次，然后再次撞墙。</p>
+     */
+    private void handleLimitExceeded(PrCommandTask task, AgentRun agentRun, AgentLimitExceededException exception) {
+        String limitDetail = "limitType=" + exception.getLimitType().name()
+                + ", currentValue=" + exception.getCurrentValue()
+                + ", limitValue=" + exception.getLimitValue();
+        log.warn("Agent chat task hit a hard limit, commandTaskId={}, {}, limitType={}",
+                task.getId(), limitDetail, exception.getLimitType().name());
+
+        AgentRun failedRun = agentRun;
+        Runnable terminalNotifier = () -> {
+            if (failedRun != null && agentRunService != null) {
+                agentRunService.fail(failedRun, exception.getMessage());
+            }
+            postComment(task, exception.userFacingMessage());
+        };
+
+        if (failureHandler == null) {
+            terminalNotifier.run();
+            return;
+        }
+        failureHandler.handleAgentNonRetryable(task, exception, terminalNotifier);
     }
 
     private void publishAndComplete(PrCommandTask task, String response, String responseStep) {
@@ -197,13 +263,22 @@ public class AgentChatTaskRunner {
     }
 
     private void tryPostFailureComment(PrCommandTask task) {
+        postComment(task, "**CodePilot AI** 暂时无法完成本次 Agent 请求，请稍后重试。");
+    }
+
+    /**
+     * 以 Agent 回复的身份发一条评论。
+     *
+     * <p>失败只记 warning、不向上抛：评论发不出去不该把任务状态改坏，
+     * 也不该触发重试——重试会重跑整段 Agent 逻辑。</p>
+     */
+    private void postComment(PrCommandTask task, String text) {
         try {
             githubClient.createPullRequestComment(
                     task.getRepoOwner(), task.getRepoName(), task.getPrNumber(),
-                    CommentMarkers.wrap(CommentMarkers.AGENT_REPLY,
-                            "**CodePilot AI** 暂时无法完成本次 Agent 请求，请稍后重试。"));
+                    CommentMarkers.wrap(CommentMarkers.AGENT_REPLY, text));
         } catch (Exception ignored) {
-            log.warn("Failed to publish agent failure comment, commandTaskId={}", task.getId());
+            log.warn("Failed to publish agent comment, commandTaskId={}", task.getId());
         }
     }
 }
