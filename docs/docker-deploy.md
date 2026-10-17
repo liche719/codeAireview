@@ -167,10 +167,49 @@ Flyway 会在应用启动时执行数据库迁移。
 
 ## 9. 常见端口
 
-- 应用：宿主机 `8990` → 容器 `8080`
-- PostgreSQL 宿主机映射：`15432`
-- Redis 宿主机映射：`16379`
-- RabbitMQ AMQP：`5672`
-- RabbitMQ Management：`15672`
+- 应用：**仅监听 `127.0.0.1:8991`**（容器 `8080`），不对公网暴露
+- 公网入口：`80`（ACME 校验 + 301 跳转）与 **`8990`（nginx TLS 终止）**
+- PostgreSQL 宿主机映射：`127.0.0.1:15432`
+- Redis 宿主机映射：`127.0.0.1:16379`
+- RabbitMQ AMQP：`127.0.0.1:5672`
+- RabbitMQ Management：`127.0.0.1:15672`
 
-生产环境通常只需要公网暴露应用反向代理入口。
+> 除 80 / 8990 外，其余映射全部绑回环。它们本来就只需要被同机的应用或运维使用，
+> 而密码是默认值——绑 `0.0.0.0` 意味着"安全组一旦误开就裸奔"。
+
+## 10. 当前线上形态：nginx 终止 TLS
+
+443 被同机的另一个应用直接占用（不是 nginx，所以无法共用），因此本项目的 HTTPS
+放在 **8990**，由宿主机上的 nginx 终止 TLS 后反代到 `127.0.0.1:8991`：
+
+```text
+GitHub / 浏览器
+   │  https://liche.cloud:8990
+   ▼
+nginx  :8990  (TLS, Let's Encrypt)
+   │  http://127.0.0.1:8991
+   ▼
+codepilot-app 容器 :8080
+```
+
+- **webhook 地址**：`https://liche.cloud:8990/api/github/webhook`
+- **证书**：Let's Encrypt，`/etc/letsencrypt/live/liche.cloud/`
+- **85 天自动续期**：`/etc/cron.d/certbot-renew`（每天 03:12 空跑，到期前 30 天才真续）
+  - 本机的 `certbot-renew.timer` 处于 `inactive(dead)`、Trigger 为 `n/a`，**不要依赖它**
+  - 续期后 `systemctl reload nginx`，因为 nginx 不会自己重读证书
+- **nginx 配置**：`/etc/nginx/conf.d/codepilot-http.conf`（80）与 `codepilot-tls.conf`（8990）
+- **证书校验路径**：`/var/www/letsencrypt`（`certbot --webroot`）
+
+代理层刻意**不做**访问控制：API key 鉴权与 webhook 签名校验都在应用内，
+两处都判断容易出现"两处都可能判断错"。
+
+### 换域名 / 加域名
+
+1. DNS 加 A 记录指向服务器
+2. `certbot certonly --webroot -w /var/www/letsencrypt -d <domain>`
+3. 在 `codepilot-tls.conf` 的 `server_name` 与证书路径里补上，`nginx -t && systemctl reload nginx`
+4. 更新 GitHub webhook 地址
+
+> 注意：`codepilot.liche.cloud` 目前**在权威 DNS 里不存在**（直接问 `dns31.hichina.com`
+> 得到 NXDOMAIN，不是缓存问题），所以证书里暂时只有 `liche.cloud`。
+
