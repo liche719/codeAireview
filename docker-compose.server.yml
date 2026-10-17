@@ -8,7 +8,10 @@ services:
       POSTGRES_USER: ${CODEPILOT_DB_USERNAME:-codepilot}
       POSTGRES_PASSWORD: ${CODEPILOT_DB_PASSWORD:-codepilot123}
     ports:
-      - "15432:5432"
+      # 只绑本机回环：应用在 Docker 网络内用服务名连它，根本不需要宿主机端口。
+      # 这一行暴露出来的唯一目的是让运维能在服务器上直接连库排查。
+      # 绑 0.0.0.0 的后果是「安全组一旦误开就裸奔」——这里的密码还是默认值。
+      - "127.0.0.1:15432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +26,8 @@ services:
     container_name: codepilot-redis
     restart: unless-stopped
     ports:
-      - "16379:6379"
+      # Redis 无密码，绝不对外。仅本机排查用。
+      - "127.0.0.1:16379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -39,8 +43,9 @@ services:
       RABBITMQ_DEFAULT_USER: ${CODEPILOT_RABBITMQ_USERNAME:-codepilot}
       RABBITMQ_DEFAULT_PASS: ${CODEPILOT_RABBITMQ_PASSWORD:-codepilot123}
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      # AMQP 与管理台都只绑回环；15672 是 Web 管理界面，对外等于把消息队列交给扫描器。
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:

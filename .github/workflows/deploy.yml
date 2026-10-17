@@ -138,7 +138,9 @@ jobs:
           docker compose -f docker-compose.server.yml up -d --build --remove-orphans
           echo "Waiting for app to answer on localhost:8990..."
           for i in $(seq 1 12); do
-            HTTP_CODE=$(curl --connect-timeout 2 --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8990/api/github/webhook || true)
+            # 探 /actuator/health 而不是 webhook 接口：webhook 只接受 POST，
+            # 用 GET 探它会每次都往日志里写一条 405 的 ERROR，掩盖真正的启动错误。
+            HTTP_CODE=$(curl --connect-timeout 2 --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8990/actuator/health || true)
             echo "probe_${i}=${HTTP_CODE}"
             if [ "$HTTP_CODE" != "000" ]; then
               break
@@ -147,8 +149,8 @@ jobs:
           done
           echo "Post-deploy container status:"
           docker compose -f docker-compose.server.yml ps
-          echo "Post-deploy webhook endpoint check:"
-          curl -s -o /dev/null -w "localhost_webhook_http_code=%{http_code}\n" http://127.0.0.1:8990/api/github/webhook || true
+          echo "Post-deploy health check:"
+          curl -s -o /dev/null -w "localhost_health_http_code=%{http_code}\n" http://127.0.0.1:8990/actuator/health || true
           echo "Post-deploy app logs:"
           docker compose -f docker-compose.server.yml logs --no-color --tail=100 app || true
           EOF
