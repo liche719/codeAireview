@@ -215,9 +215,17 @@ public class GitHubWebhookService {
         return value.trim().toLowerCase().replaceAll("[^a-z0-9._-]", "_");
     }
 
+    /**
+     * PR 事件一律 {@link ReviewCommentMode#BOTH}：摘要给总览与覆盖度，行内给定位。
+     *
+     * <p>原先是"opened → 只发行内、其余（含 synchronize）→ 只发摘要"，
+     * 直接导致两个问题：PR 刚打开时没有覆盖度声明（R2 要求说清"只审了 N/M 个文件"），
+     * 而之后的每次推送行内评论再也不出现。真机验证时这正是"8 条可发布 finding、
+     * 行内 0 条"的原因。</p>
+     */
     private ReviewCommentMode resolveReviewCommentMode(GitHubPullRequestWebhookPayload payload) {
-        if ("pull_request".equals(payload.getEvent()) && "opened".equals(payload.getAction())) {
-            return ReviewCommentMode.INLINE_ONLY;
+        if ("pull_request".equals(payload.getEvent())) {
+            return ReviewCommentMode.BOTH;
         }
         return ReviewCommentMode.SUMMARY_ONLY;
     }

@@ -47,7 +47,7 @@ class GitHubWebhookServiceTest {
         when(context.reviewTaskService.createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
                 "Add webhook support",
-                ReviewCommentMode.INLINE_ONLY,
+                ReviewCommentMode.BOTH,
                 "abc123"
         )).thenReturn(new ReviewCreateResponse(123L, "PENDING"));
 
@@ -64,7 +64,7 @@ class GitHubWebhookServiceTest {
         verify(context.reviewTaskService).createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
                 "Add webhook support",
-                ReviewCommentMode.INLINE_ONLY,
+                ReviewCommentMode.BOTH,
                 "abc123"
         );
         verify(context.valueOperations).setIfAbsent(
@@ -75,12 +75,12 @@ class GitHubWebhookServiceTest {
     }
 
     @Test
-    void shouldCreateSummaryModeTaskForSynchronizedPullRequest() {
+    void shouldCreateBothModeTaskForSynchronizedPullRequest() {
         TestContext context = new TestContext(true, true);
         when(context.reviewTaskService.createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
                 "Add webhook support",
-                ReviewCommentMode.SUMMARY_ONLY,
+                ReviewCommentMode.BOTH,
                 "abc123"
         )).thenReturn(new ReviewCreateResponse(124L, "PENDING"));
 
@@ -97,7 +97,7 @@ class GitHubWebhookServiceTest {
         verify(context.reviewTaskService).createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
                 "Add webhook support",
-                ReviewCommentMode.SUMMARY_ONLY,
+                ReviewCommentMode.BOTH,
                 "abc123"
         );
         verify(context.valueOperations).setIfAbsent(
@@ -157,7 +157,7 @@ class GitHubWebhookServiceTest {
         when(context.reviewTaskService.createTask(
                 "https://github.com/liche719/codeAireview/pull/12",
                 "Add webhook support",
-                ReviewCommentMode.SUMMARY_ONLY,
+                ReviewCommentMode.BOTH,
                 "abc123"
         )).thenReturn(new ReviewCreateResponse(777L, "PENDING"));
 
@@ -188,7 +188,7 @@ class GitHubWebhookServiceTest {
             verify(context.reviewTaskService, times(1)).createTask(
                     "https://github.com/liche719/codeAireview/pull/12",
                     "Add webhook support",
-                    ReviewCommentMode.SUMMARY_ONLY,
+                    ReviewCommentMode.BOTH,
                     "abc123"
             );
         } finally {
