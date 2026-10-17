@@ -11,7 +11,15 @@ COPY src ./src
 
 RUN mvn -DskipTests package
 
-FROM eclipse-temurin:21-jre-jammy
+# 运行阶段刻意复用构建阶段的同一个基础镜像，而不是 eclipse-temurin。
+#
+# 原因：服务器上 Docker Hub 必须走镜像加速器，而加速器会随缘 502
+# （实测 docker.m.daocloud.io 返回 502，导致 `docker compose up --build` 直接失败）。
+# mcr.microsoft.com 可直连，且这个镜像在构建阶段已经拉过 —— 运行阶段直接命中缓存，
+# 整个构建就不再依赖 Docker Hub。
+#
+# 代价：JDK 镜像比 JRE 大约 200MB（磁盘 26GB 空闲，可接受）。
+FROM mcr.microsoft.com/openjdk/jdk:21-ubuntu
 
 WORKDIR /app
 
