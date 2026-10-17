@@ -307,7 +307,7 @@
 | 说法 | 核实结果 |
 |---|---|
 | "775 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R18 之后）。初版写 540 是当时的真实值，现已过时 |
-| "Precision 85.71% / Recall 100%" | ✅ 数字正确，但**样本仅 6 个 PR-like 场景**，且在 issueType 级别按 case 拼 key 计算（`AiReviewPipelineEvalTest`）。D2 计划扩充，**未做** |
+| "Precision 85.71% / Recall 100%" | ⚠️ **该口径已作废**（D2 之后改为）：**26 个样本，per-tag 全绿，aggregate precision/recall = 100%**。但要连同两点一起说：① 这是**回归基线**不是准确率——它用 mock 的 LLM 输出走真实流水线，测的是管线与闸门，不是模型判断力；② 26/26 的 **Wilson 95% 置信下界只有 87.1%**（旧的 6/7 更是只有 48.7%）。**引用时必须带上 n，不要单独报百分比** |
 | "文件级并发 / 单文件失败隔离" | ✅ 正确 |
 | "patch verification + location guard" | ✅ 正确 |
 | "Summary marker 幂等 / inline fingerprint 去重" | ✅ 正确，且**S1 覆盖缺陷已由 R1 修复**（初版此处标注"但 marker 被 Agent 回复复用，存在 S1 缺陷"，已过时） |

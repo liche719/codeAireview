@@ -159,6 +159,13 @@
         "expectedSource": "LLM",
         "expectedCommentChannel": "INLINE",
         "ruleReferenceContains": "PATCH_VERIFIED"
+      },
+      {
+        "filePath": "src/main/java/com/example/controller/UserController.java",
+        "issueType": "TEST_MISSING",
+        "minimumSeverity": "LOW",
+        "expectedSource": "TOOL",
+        "expectedCommentChannel": "SUMMARY"
       }
     ],
     "mustNotFindings": []
@@ -250,6 +257,696 @@
         "minimumFinalScore": 30,
         "expectedSource": "SYSTEM",
         "expectedCommentChannel": "SUMMARY"
+      }
+    ],
+    "mustNotFindings": [],
+    "expectParseFailure": true
+  },
+  {
+    "name": "sql-select-all-in-report-query",
+    "scenarioTags": [
+      "sql-risk",
+      "deterministic-tool"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/domain/OrderReport.java",
+        "patch": "@@ -20,3 +20,4 @@\n public class OrderReport {\n+    String sql = \"select * from orders\";\n+    return jdbcTemplate.queryForList(sql);\n }\n",
+        "changeType": "modified",
+        "additions": 2,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {},
+    "expectedFindings": [
+      {
+        "filePath": "src/main/java/com/example/domain/OrderReport.java",
+        "issueType": "SQL_RISK",
+        "minimumSeverity": "LOW",
+        "expectedSource": "TOOL"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "sql-parameterized-query-is-clean",
+    "scenarioTags": [
+      "sql-risk",
+      "must-not-comment",
+      "clean"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/domain/OrderLookup.java",
+        "patch": "@@ -30,3 +30,4 @@\n public class OrderLookup {\n+    return jdbcTemplate.query(\"select id, status from orders where id = ?\", mapper, orderId);\n }\n",
+        "changeType": "modified",
+        "additions": 1,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {},
+    "expectedFindings": [],
+    "mustNotFindings": [
+      {
+        "issueType": "SQL_RISK"
+      }
+    ]
+  },
+  {
+    "name": "secret-github-token-literal",
+    "scenarioTags": [
+      "security",
+      "deterministic-tool",
+      "secret"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/config/CredentialHolder.java",
+        "patch": "@@ -5,2 +5,3 @@\n public class CredentialHolder {\n+    private static final String GITHUB_TOKEN = \"ghp_16abcdefghijklmnopqrstuvwxyz012345\";\n }\n",
+        "changeType": "modified",
+        "additions": 1,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {},
+    "expectedFindings": [
+      {
+        "filePath": "src/main/java/com/example/config/CredentialHolder.java",
+        "issueType": "SECURITY",
+        "minimumSeverity": "HIGH",
+        "expectedSource": "TOOL"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "secret-private-key-block-in-resource",
+    "scenarioTags": [
+      "security",
+      "deterministic-tool",
+      "secret"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/resources/keys/signing.pem",
+        "patch": "@@ -0,0 +1,3 @@\n+-----BEGIN RSA PRIVATE KEY-----\n+MIIEowIBAAKCAQEA1234567890abcdef\n+-----END RSA PRIVATE KEY-----\n",
+        "changeType": "modified",
+        "additions": 3,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {},
+    "expectedFindings": [
+      {
+        "filePath": "src/main/resources/keys/signing.pem",
+        "issueType": "SECURITY",
+        "minimumSeverity": "HIGH",
+        "expectedSource": "TOOL"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "secret-not-flagged-when-read-from-environment",
+    "scenarioTags": [
+      "security",
+      "must-not-comment",
+      "clean"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/config/CredentialHolder.java",
+        "patch": "@@ -5,2 +5,3 @@\n public class CredentialHolder {\n+    private final String githubToken = System.getenv(\"GITHUB_TOKEN\");\n }\n",
+        "changeType": "modified",
+        "additions": 1,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {},
+    "expectedFindings": [],
+    "mustNotFindings": [
+      {
+        "issueType": "SECURITY"
+      }
+    ]
+  },
+  {
+    "name": "test-missing-on-new-service",
+    "scenarioTags": [
+      "missing-test",
+      "deterministic-tool"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/service/BillingService.java",
+        "patch": "@@ -1,1 +1,2 @@\n public class BillingService {\n+    public void charge() {}\n",
+        "changeType": "modified",
+        "additions": 1,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {},
+    "expectedFindings": [
+      {
+        "filePath": "src/main/java/com/example/service/BillingService.java",
+        "issueType": "TEST_MISSING",
+        "minimumSeverity": "LOW",
+        "expectedSource": "TOOL"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "no-test-missing-when-test-file-changed",
+    "scenarioTags": [
+      "missing-test",
+      "must-not-comment",
+      "clean"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/service/BillingService.java",
+        "patch": "@@ -1,1 +1,2 @@\n public class BillingService {\n+    public void charge() {}\n",
+        "changeType": "modified",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "filePath": "src/test/java/com/example/service/BillingServiceTest.java",
+        "patch": "@@ -1,1 +1,2 @@\n class BillingServiceTest {\n+    void charges() {}\n",
+        "changeType": "modified",
+        "additions": 1,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {},
+    "expectedFindings": [],
+    "mustNotFindings": [
+      {
+        "issueType": "TEST_MISSING"
+      }
+    ]
+  },
+  {
+    "name": "ci-pull-request-target-checks-out-head",
+    "scenarioTags": [
+      "ci-workflow",
+      "security",
+      "deterministic-tool"
+    ],
+    "files": [
+      {
+        "filePath": ".github/workflows/ci.yml",
+        "patch": "@@ -0,0 +1,7 @@\n+name: ci\n+on: pull_request_target\n+jobs:\n+  build:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - uses: actions/checkout@v4\n+        with:\n+          ref: ${{ github.event.pull_request.head.sha }}\n",
+        "changeType": "modified",
+        "additions": 9,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {},
+    "expectedFindings": [
+      {
+        "filePath": ".github/workflows/ci.yml",
+        "issueType": "SECURITY",
+        "minimumSeverity": "HIGH",
+        "expectedSource": "TOOL"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "ci-write-all-permissions",
+    "scenarioTags": [
+      "ci-workflow",
+      "security",
+      "deterministic-tool"
+    ],
+    "files": [
+      {
+        "filePath": ".github/workflows/deploy.yml",
+        "patch": "@@ -0,0 +1,4 @@\n+name: deploy\n+on: push\n+permissions: write-all\n+jobs:\n",
+        "changeType": "modified",
+        "additions": 4,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {},
+    "expectedFindings": [
+      {
+        "filePath": ".github/workflows/deploy.yml",
+        "issueType": "SECURITY",
+        "minimumSeverity": "MEDIUM",
+        "expectedSource": "TOOL"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "ci-untrusted-title-interpolation",
+    "scenarioTags": [
+      "ci-workflow",
+      "security",
+      "deterministic-tool"
+    ],
+    "files": [
+      {
+        "filePath": ".github/workflows/greet.yml",
+        "patch": "@@ -0,0 +1,6 @@\n+name: greet\n+on: pull_request\n+jobs:\n+  greet:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - run: echo \"title: ${{ github.event.pull_request.title }}\"\n",
+        "changeType": "modified",
+        "additions": 7,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {},
+    "expectedFindings": [
+      {
+        "filePath": ".github/workflows/greet.yml",
+        "issueType": "SECURITY",
+        "minimumSeverity": "HIGH",
+        "expectedSource": "TOOL"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "ci-safe-workflow-with-pinned-action",
+    "scenarioTags": [
+      "ci-workflow",
+      "must-not-comment",
+      "clean"
+    ],
+    "files": [
+      {
+        "filePath": ".github/workflows/ci.yml",
+        "patch": "@@ -0,0 +1,6 @@\n+name: ci\n+on: push\n+permissions:\n+  contents: read\n+jobs:\n+  build:\n+    steps:\n+      - uses: actions/checkout@v4\n",
+        "changeType": "modified",
+        "additions": 8,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {},
+    "expectedFindings": [],
+    "mustNotFindings": [
+      {
+        "issueType": "SECURITY"
+      }
+    ]
+  },
+  {
+    "name": "llm-null-dereference-grounded",
+    "scenarioTags": [
+      "llm",
+      "semantic",
+      "bug_risk"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/domain/NicknameResolver.java",
+        "patch": "@@ -40,2 +40,3 @@\n public class NicknameResolver {\n+    String nick = cache.get(userId).trim();\n+    return nick;\n }\n",
+        "changeType": "modified",
+        "additions": 2,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {
+      "src/main/java/com/example/domain/NicknameResolver.java": {
+        "issues": [
+          {
+            "filePath": "src/main/java/com/example/domain/NicknameResolver.java",
+            "lineNumber": 41,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "BUG_RISK",
+            "severity": "HIGH",
+            "title": "未判空直接调用 trim",
+            "description": "cache.get(userId) 的返回值没有判空，直接调用 trim() 会在缓存未命中时抛出空指针异常。",
+            "suggestion": "先判断是否为 null，为空时回退到用户默认昵称。",
+            "source": "LLM",
+            "ruleReference": null
+          }
+        ],
+        "summary": "offline eval"
+      }
+    },
+    "expectedFindings": [
+      {
+        "filePath": "src/main/java/com/example/domain/NicknameResolver.java",
+        "issueType": "BUG_RISK",
+        "minimumSeverity": "HIGH",
+        "expectedSource": "LLM"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "llm-direct-response-write",
+    "scenarioTags": [
+      "llm",
+      "semantic",
+      "security"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/domain/ExportHandler.java",
+        "patch": "@@ -12,2 +12,3 @@\n public class ExportHandler {\n+    response.getWriter().write(request.getParameter(\"name\"));\n }\n",
+        "changeType": "modified",
+        "additions": 2,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {
+      "src/main/java/com/example/domain/ExportHandler.java": {
+        "issues": [
+          {
+            "filePath": "src/main/java/com/example/domain/ExportHandler.java",
+            "lineNumber": 13,
+            "issueType": "SECURITY",
+            "issueTypeZh": "SECURITY",
+            "severity": "HIGH",
+            "title": "请求参数直接写入响应",
+            "description": "把 request.getParameter 的内容直接写进 HTTP 响应，未做任何转义，存在反射型 XSS 风险。",
+            "suggestion": "对输出做 HTML 转义，或改用带自动转义的模板渲染。",
+            "source": "LLM",
+            "ruleReference": null
+          }
+        ],
+        "summary": "offline eval"
+      }
+    },
+    "expectedFindings": [
+      {
+        "filePath": "src/main/java/com/example/domain/ExportHandler.java",
+        "issueType": "SECURITY",
+        "minimumSeverity": "HIGH",
+        "expectedSource": "LLM"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "llm-missing-exception-handling",
+    "scenarioTags": [
+      "llm",
+      "semantic",
+      "exception_handling"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/domain/FileImporter.java",
+        "patch": "@@ -22,2 +22,3 @@\n public class FileImporter {\n+    Files.readAllBytes(Paths.get(filePath));\n }\n",
+        "changeType": "modified",
+        "additions": 2,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {
+      "src/main/java/com/example/domain/FileImporter.java": {
+        "issues": [
+          {
+            "filePath": "src/main/java/com/example/domain/FileImporter.java",
+            "lineNumber": 23,
+            "issueType": "EXCEPTION_HANDLING",
+            "issueTypeZh": "EXCEPTION_HANDLING",
+            "severity": "MEDIUM",
+            "title": "IO 异常未处理",
+            "description": "Files.readAllBytes 会抛出 IOException，这里既没有捕获也没有向上声明，异常会直接冒到调用方。",
+            "suggestion": "捕获 IOException 并转换为业务异常，或补齐 throws 声明。",
+            "source": "LLM",
+            "ruleReference": null
+          }
+        ],
+        "summary": "offline eval"
+      }
+    },
+    "expectedFindings": [
+      {
+        "filePath": "src/main/java/com/example/domain/FileImporter.java",
+        "issueType": "EXCEPTION_HANDLING",
+        "minimumSeverity": "MEDIUM",
+        "expectedSource": "LLM"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "llm-n-plus-one-query",
+    "scenarioTags": [
+      "llm",
+      "semantic",
+      "performance"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/domain/OrderAssembler.java",
+        "patch": "@@ -30,2 +30,4 @@\n public class OrderAssembler {\n+    for (Order order : orders) {\n+        order.setItems(itemRepository.findByOrderId(order.getId()));\n+    }\n }\n",
+        "changeType": "modified",
+        "additions": 2,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {
+      "src/main/java/com/example/domain/OrderAssembler.java": {
+        "issues": [
+          {
+            "filePath": "src/main/java/com/example/domain/OrderAssembler.java",
+            "lineNumber": 31,
+            "issueType": "PERFORMANCE",
+            "issueTypeZh": "PERFORMANCE",
+            "severity": "MEDIUM",
+            "title": "循环内逐条查询导致 N+1",
+            "description": "在循环体里对每个 order 单独查一次数据库，订单数量增长后会产生 N+1 次查询。",
+            "suggestion": "改为一次按 orderId 批量查询，再在内存中分组装配。",
+            "source": "LLM",
+            "ruleReference": null
+          }
+        ],
+        "summary": "offline eval"
+      }
+    },
+    "expectedFindings": [
+      {
+        "filePath": "src/main/java/com/example/domain/OrderAssembler.java",
+        "issueType": "PERFORMANCE",
+        "minimumSeverity": "MEDIUM",
+        "expectedSource": "LLM"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "llm-logs-personal-data",
+    "scenarioTags": [
+      "llm",
+      "semantic",
+      "logging"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/domain/LoginAudit.java",
+        "patch": "@@ -8,2 +8,3 @@\n public class LoginAudit {\n+    log.info(\"login attempt user={} phone={}\", username, phone);\n }\n",
+        "changeType": "modified",
+        "additions": 2,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {
+      "src/main/java/com/example/domain/LoginAudit.java": {
+        "issues": [
+          {
+            "filePath": "src/main/java/com/example/domain/LoginAudit.java",
+            "lineNumber": 9,
+            "issueType": "LOGGING",
+            "issueTypeZh": "LOGGING",
+            "severity": "MEDIUM",
+            "title": "日志输出了手机号",
+            "description": "登录审计日志里直接拼进了用户手机号，属于个人敏感信息，会被长期保留在日志系统中。",
+            "suggestion": "改为输出脱敏后的手机号，例如只保留后四位。",
+            "source": "LLM",
+            "ruleReference": null
+          }
+        ],
+        "summary": "offline eval"
+      }
+    },
+    "expectedFindings": [
+      {
+        "filePath": "src/main/java/com/example/domain/LoginAudit.java",
+        "issueType": "LOGGING",
+        "minimumSeverity": "MEDIUM",
+        "expectedSource": "LLM"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "llm-hallucinated-line-outside-patch",
+    "scenarioTags": [
+      "llm",
+      "quality-gate",
+      "must-not-comment"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/domain/InvoiceFormatter.java",
+        "patch": "@@ -3,2 +3,3 @@\n public class InvoiceFormatter {\n+    String total = formatAmount(amount);\n }\n",
+        "changeType": "modified",
+        "additions": 1,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {
+      "src/main/java/com/example/domain/InvoiceFormatter.java": {
+        "issues": [
+          {
+            "filePath": "src/main/java/com/example/domain/InvoiceFormatter.java",
+            "lineNumber": 500,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "BUG_RISK",
+            "severity": "HIGH",
+            "title": "金额格式化可能溢出",
+            "description": "这里的金额换算在极端情况下会溢出，需要改用 BigDecimal。",
+            "suggestion": "改用 BigDecimal 并显式指定舍入模式。",
+            "source": "LLM",
+            "ruleReference": null
+          }
+        ],
+        "summary": "offline eval"
+      }
+    },
+    "expectedFindings": [],
+    "mustNotFindings": [
+      {
+        "issueType": "BUG_RISK"
+      }
+    ]
+  },
+  {
+    "name": "llm-finding-on-deleted-line-is-commentable",
+    "scenarioTags": [
+      "llm",
+      "quality-gate",
+      "deleted-side"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/domain/LegacyAdapter.java",
+        "patch": "@@ -10,4 +10,3 @@\n public class LegacyAdapter {\n+    String legacy = adapter.read();\n-    String legacy = adapter.readUnsafe();\n }\n",
+        "changeType": "modified",
+        "additions": 1,
+        "deletions": 1
+      }
+    ],
+    "llmResponses": {
+      "src/main/java/com/example/domain/LegacyAdapter.java": {
+        "issues": [
+          {
+            "filePath": "src/main/java/com/example/domain/LegacyAdapter.java",
+            "lineNumber": 11,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "BUG_RISK",
+            "severity": "HIGH",
+            "title": "被删除的读取方法曾引发越界",
+            "description": "被删除的 readUnsafe 在流长度不足时会抛越界异常，替换时要保证新实现有边界检查。",
+            "suggestion": "确认 read() 在流长度不足时的行为，并补上边界校验。",
+            "source": "LLM",
+            "ruleReference": null
+          }
+        ],
+        "summary": "offline eval"
+      }
+    },
+    "expectedFindings": [
+      {
+        "filePath": "src/main/java/com/example/domain/LegacyAdapter.java",
+        "issueType": "BUG_RISK",
+        "minimumSeverity": "HIGH",
+        "expectedSource": "LLM",
+        "expectedCommentChannel": "INLINE"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "llm-duplicate-of-tool-finding-is-deduped",
+    "scenarioTags": [
+      "sql-risk",
+      "dedupe",
+      "deterministic-tool"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/repository/OrderRepository.java",
+        "patch": "@@ -15,3 +15,4 @@\n public class OrderRepository {\n+    String sql = \"select * from orders where status = '\" + status + \"'\";\n+    return jdbcTemplate.queryForList(sql);\n }\n",
+        "changeType": "modified",
+        "additions": 2,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {
+      "src/main/java/com/example/repository/OrderRepository.java": {
+        "issues": [
+          {
+            "filePath": "src/main/java/com/example/repository/OrderRepository.java",
+            "lineNumber": 16,
+            "issueType": "SQL_RISK",
+            "issueTypeZh": "SQL_RISK",
+            "severity": "HIGH",
+            "title": "SQL 字符串拼接",
+            "description": "这里把 status 直接拼进 SQL 语句，存在注入风险，应使用参数化查询。",
+            "suggestion": "改为使用 ? 占位符的参数化查询。",
+            "source": "LLM",
+            "ruleReference": null
+          }
+        ],
+        "summary": "offline eval"
+      }
+    },
+    "expectedFindings": [
+      {
+        "filePath": "src/main/java/com/example/repository/OrderRepository.java",
+        "issueType": "SQL_RISK",
+        "minimumSeverity": "HIGH",
+        "expectedSource": "TOOL"
+      }
+    ],
+    "mustNotFindings": []
+  },
+  {
+    "name": "malformed-llm-json-keeps-other-file-findings",
+    "scenarioTags": [
+      "parse-failure",
+      "llm-contract"
+    ],
+    "files": [
+      {
+        "filePath": "src/main/java/com/example/domain/MixedGood.java",
+        "patch": "@@ -1,1 +1,2 @@\n public class MixedGood {\n+    void run() {}\n",
+        "changeType": "modified",
+        "additions": 1,
+        "deletions": 0
+      },
+      {
+        "filePath": "src/main/java/com/example/domain/MixedBroken.java",
+        "patch": "@@ -1,1 +1,2 @@\n public class MixedBroken {\n+    void run() {}\n",
+        "changeType": "modified",
+        "additions": 1,
+        "deletions": 0
+      }
+    ],
+    "llmResponses": {
+      "src/main/java/com/example/domain/MixedGood.java": {
+        "issues": [],
+        "summary": "ok"
+      },
+      "src/main/java/com/example/domain/MixedBroken.java": {
+        "this is": "not an ai review result"
+      }
+    },
+    "expectedFindings": [
+      {
+        "filePath": "src/main/java/com/example/domain/MixedBroken.java",
+        "issueType": "AI_REVIEW_FAILED",
+        "minimumSeverity": "MEDIUM",
+        "expectedSource": "SYSTEM"
       }
     ],
     "mustNotFindings": [],

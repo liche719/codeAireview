@@ -33,6 +33,7 @@ import com.codepilot.module.review.processor.ReviewFileReviewer;
 import com.codepilot.module.review.processor.ReviewFindingRanker;
 import com.codepilot.module.review.processor.ReviewIssueLocationGuard;
 import com.codepilot.module.review.processor.ReviewIssuePatchVerifier;
+import com.codepilot.module.tool.impl.CiWorkflowRiskTool;
 import com.codepilot.module.tool.impl.SecretScanTool;
 import com.codepilot.module.tool.impl.SqlRiskTool;
 import com.codepilot.module.tool.impl.TestSuggestionTool;
@@ -71,10 +72,29 @@ class AiReviewPipelineEvalTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /**
+     * 必须被覆盖的维度（D2）。
+     *
+     * <p>只报一个总 precision/recall 会掩盖"某一类根本没测到"——所以这里把维度列成断言，
+     * 任何一类样本被删掉或失效都会立刻失败。</p>
+     */
+    private static final Set<String> REQUIRED_TAGS = Set.of(
+            "sql-risk",
+            "security",
+            "missing-test",
+            "ci-workflow",
+            "llm",
+            "quality-gate",
+            "dedupe",
+            "parse-failure",
+            "must-not-comment",
+            "clean"
+    );
+
     @Test
     void shouldPassOfflineAiReviewPipelineBenchmark() throws Exception {
         List<AiReviewPipelineCase> cases = loadCases();
-        assertThat(cases).as("pipeline eval fixture should include labeled scenarios").hasSizeGreaterThanOrEqualTo(6);
+        assertThat(cases).as("pipeline eval fixture should include labeled scenarios").hasSizeGreaterThanOrEqualTo(26);
 
         EvalMetrics metrics = EvalMetrics.empty();
         for (AiReviewPipelineCase reviewCase : cases) {
@@ -116,6 +136,22 @@ class AiReviewPipelineEvalTest {
         assertThat(metrics.estimatedPromptTokens())
                 .as("token/cost proxy should be collected for baseline comparison")
                 .isGreaterThan(0);
+
+        // D2：按维度分组统计，避免"某一类根本没测到"被一个总数字掩盖。
+        EvalMetrics evaluated = metrics;
+        System.out.println("[eval] " + evaluated.summary());
+        System.out.println(evaluated.tagReport());
+        assertThat(evaluated.tagCounts().keySet())
+                .as("every required scenario dimension must be represented, report=%s", evaluated.tagReport())
+                .containsAll(REQUIRED_TAGS);
+        evaluated.tagsWithExpectedFindings().forEach((tag, counts) -> {
+            assertThat(counts.precision())
+                    .as("per-tag precision for '%s', report=%s", tag, evaluated.tagReport())
+                    .isGreaterThanOrEqualTo(MIN_PRECISION);
+            assertThat(counts.recall())
+                    .as("per-tag recall for '%s', report=%s", tag, evaluated.tagReport())
+                    .isGreaterThanOrEqualTo(MIN_RECALL);
+        });
     }
 
     private List<AiReviewPipelineCase> loadCases() throws IOException {
@@ -172,7 +208,10 @@ class AiReviewPipelineEvalTest {
         List<DeterministicReviewRule> deterministicRules = List.of(
                 new SecretScanTool(),
                 new SqlRiskTool(),
-                new TestSuggestionTool()
+                new TestSuggestionTool(),
+                // R13：workflow 安全规则默认开启，评估基线必须把它算进来，
+                // 否则 CI 相关用例根本触发不到。
+                new CiWorkflowRiskTool()
         );
         ReviewLlmInputLimiter inputLimiter = new ReviewLlmInputLimiter(llmProperties);
         ReviewLlmReviewer llmReviewer = new ReviewLlmReviewer(
@@ -432,6 +471,34 @@ class AiReviewPipelineEvalTest {
     private record MustNotFinding(String issueType, String titleContains) {
     }
 
+    /**
+     * 单个维度的 tp/fp/fn。
+     *
+     * <p>分母为 0 时 precision/recall 记为 1.0 —— 该维度没有样本，
+     * "没有反例"不等于"精度差"，但也不该被读成"精度完美"。真正的保护是
+     * {@code REQUIRED_TAGS} 断言：每个维度必须至少有一个用例。</p>
+     */
+    private record TagCounts(int truePositives, int falsePositives, int falseNegatives) {
+
+        private static TagCounts zero() {
+            return new TagCounts(0, 0, 0);
+        }
+
+        private TagCounts plus(int matched, int unexpected, int missed) {
+            return new TagCounts(truePositives + matched, falsePositives + unexpected, falseNegatives + missed);
+        }
+
+        private double precision() {
+            int denominator = truePositives + falsePositives;
+            return denominator == 0 ? 1.0 : (double) truePositives / denominator;
+        }
+
+        private double recall() {
+            int denominator = truePositives + falseNegatives;
+            return denominator == 0 ? 1.0 : (double) truePositives / denominator;
+        }
+    }
+
     private record EvalRunResult(
             List<ReviewIssue> issues,
             long parseFailureCount,
@@ -456,7 +523,8 @@ class AiReviewPipelineEvalTest {
             long estimatedPromptTokens,
             Set<String> falsePositives,
             Set<String> falseNegatives,
-            Set<String> mustNotCommentViolations
+            Set<String> mustNotCommentViolations,
+            Map<String, TagCounts> tagCounts
     ) {
 
         private static EvalMetrics empty() {
@@ -474,7 +542,8 @@ class AiReviewPipelineEvalTest {
                     0,
                     new LinkedHashSet<>(),
                     new LinkedHashSet<>(),
-                    new LinkedHashSet<>()
+                    new LinkedHashSet<>(),
+                    new LinkedHashMap<>()
             );
         }
 
@@ -494,6 +563,13 @@ class AiReviewPipelineEvalTest {
             Set<String> allMustNotViolations = new LinkedHashSet<>(mustNotCommentViolations);
             allMustNotViolations.addAll(mustNotViolations);
 
+            // 每个标签下累加本用例的 tp/fp/fn：一个用例可以同时属于多个维度。
+            Map<String, TagCounts> accumulated = new LinkedHashMap<>(tagCounts);
+            for (String tag : reviewCase.scenarioTags()) {
+                TagCounts previous = accumulated.getOrDefault(tag, TagCounts.zero());
+                accumulated.put(tag, previous.plus(matched.size(), unexpected.size(), missed.size()));
+            }
+
             return new EvalMetrics(
                     truePositives + matched.size(),
                     falsePositiveCount + unexpected.size(),
@@ -508,8 +584,33 @@ class AiReviewPipelineEvalTest {
                     estimatedPromptTokens + result.estimatedPromptTokens(),
                     allFalsePositives,
                     allFalseNegatives,
-                    allMustNotViolations
+                    allMustNotViolations,
+                    accumulated
             );
+        }
+
+        /** 只对"有期望 finding 的标签"校验 per-tag 指标；纯负例标签没有 recall 可言。 */
+        private Map<String, TagCounts> tagsWithExpectedFindings() {
+            Map<String, TagCounts> filtered = new LinkedHashMap<>();
+            tagCounts.forEach((tag, counts) -> {
+                if (counts.truePositives() + counts.falseNegatives() > 0) {
+                    filtered.put(tag, counts);
+                }
+            });
+            return filtered;
+        }
+
+        private String tagReport() {
+            StringBuilder report = new StringBuilder("[eval] per-tag report:\n");
+            tagCounts.forEach((tag, counts) -> report
+                    .append("  ").append(tag)
+                    .append("  tp=").append(counts.truePositives())
+                    .append(" fp=").append(counts.falsePositives())
+                    .append(" fn=").append(counts.falseNegatives())
+                    .append(" precision=").append(String.format(java.util.Locale.ROOT, "%.2f", counts.precision()))
+                    .append(" recall=").append(String.format(java.util.Locale.ROOT, "%.2f", counts.recall()))
+                    .append('\n'));
+            return report.toString();
         }
 
         private double precision() {

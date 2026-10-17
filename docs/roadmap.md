@@ -1710,6 +1710,24 @@ publish_error  = failed to update GitHub PR comment:
 
 ## D2 离线评估集扩充
 
+> **状态：已完成（6 → 26 个用例 + per-tag 指标 + 口径文档）。**
+>
+> - 用例 **6 → 26**，覆盖 SQL / secret / 缺测试 / **CI workflow（R13）** / LLM 语义五类 /
+>   质量门（幻觉定位被丢弃、删除侧行可评论）/ 去重 / 解析失败 / 负例
+> - `AiReviewPipelineEvalTest` 增加 **per-tag precision/recall**，并用 `REQUIRED_TAGS`
+>   断言维度覆盖——删掉一整类用例会让构建失败，而不是"悄悄少测一点"
+> - 评估 harness 补上 `CiWorkflowRiskTool`：它默认开启，不纳入基线就等于 CI 类用例跑不到
+> - `docs/ai-review-eval-baseline.md` 重写：**明确写清 precision=1.0 不是准确率**
+>   （mock 的 LLM 输出走真实流水线，测的是管线与闸门，不是模型判断力），
+>   并给出**样本量与 Wilson 95% 置信下界**：26/26 → 87.1%（旧 6/7 仅为 48.7%）
+>
+> **一处必须留档的标注修正**：扩用例时发现三条期望是错的，已按**正确行为**改正而不是按输出迁就——
+> `select *` 实际是 LOW 不是 HIGH；`AI_REVIEW_FAILED` 是 MEDIUM；`api-contract` 用例漏标了
+> `TEST_MISSING`（该文件是 controller，规则触发是**正确**行为），**上一轮那个唯一的假阳性就是这条漏标造成的**。
+> 把这三点写进文档，是因为"改了 fixture 然后 precision 变高"在没有解释时与"把基准拟合到代码上"无法区分。
+>
+> **仍未覆盖**：用例仍是手写的，代表性有限；没有真实脱敏 PR 作为样本。
+
 **现状**：`AiReviewPipelineEvalTest` 只要求 `hasSizeGreaterThanOrEqualTo(6)`，当前 **6 个 PR-like 场景**；Precision `85.71%`（= 6/7，在 issueType 级别按 case 拼 key 计算）、Recall `100%`。**这是项目指标可信度的最大短板**——100% recall 建立在 6 个样本上经不起追问。
 
 **用户已确认要做**，但不在本轮（本轮只出设计文档）。
