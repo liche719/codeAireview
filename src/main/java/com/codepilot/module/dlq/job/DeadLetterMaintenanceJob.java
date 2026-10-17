@@ -39,8 +39,21 @@ public class DeadLetterMaintenanceJob {
 
     private final AtomicLong pendingBacklog = new AtomicLong();
 
+    /**
+     * 指标注册器走构造注入，供 {@link #registerBacklogGauge()} 使用。
+     *
+     * <p><b>不要把它写成生命周期方法的参数</b>：Spring 的 {@code @PostConstruct} /
+     * {@code @PreDestroy} 方法<b>必须无参</b>，否则容器启动即抛
+     * {@code IllegalStateException: Lifecycle annotation requires a no-arg method}。</p>
+     *
+     * <p>这个错误真实地把生产实例打挂过，而 775 个测试全绿——因为集成测试把
+     * {@code codepilot.scheduling.enabled} 关掉了，这个 bean 从未被创建。
+     * 现在由 {@code BeanLifecycleContractTest} 对所有组件做全局校验。</p>
+     */
+    private final MeterRegistry meterRegistry;
+
     @PostConstruct
-    void registerBacklogGauge(MeterRegistry meterRegistry) {
+    void registerBacklogGauge() {
         Gauge.builder("codepilot.dlq.backlog", pendingBacklog, AtomicLong::doubleValue)
                 .description("Dead letter messages still waiting for an operator")
                 .register(meterRegistry);
