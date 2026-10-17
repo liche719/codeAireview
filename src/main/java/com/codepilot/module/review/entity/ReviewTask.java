@@ -61,4 +61,10 @@ public class ReviewTask {
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
+
+    /** 门禁判定：SUCCESS / NEUTRAL / FAILURE（R17）；为空表示门禁未启用。 */
+    private String gateStatus;
+
+    /** 门禁判定依据，用于审计"为什么这次判 failure"。 */
+    private String gateReason;
 }

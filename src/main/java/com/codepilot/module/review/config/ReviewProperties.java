@@ -108,6 +108,28 @@ public class ReviewProperties {
     /** 全部指令合计的字符上限；超出部分丢弃，避免规则文件成倍放大每个文件的 prompt。 */
     private int pathInstructionsMaxChars = 8000;
 
+    /**
+     * 是否启用构建门禁（R17）。**默认关闭**。
+     *
+     * <p>门禁会写 commit status，被加进 required status checks 后会<b>阻塞他人合并</b>。
+     * 误判的代价由别人承担，所以默认不开，且只信确定性规则。</p>
+     */
+    private boolean gateEnabled = false;
+
+    /** 触发 failure 的最低 severity（`HIGH` / `MEDIUM` / `LOW`）。 */
+    private String gateMinSeverity = "HIGH";
+
+    /**
+     * LLM finding 是否参与门禁判定。**默认 false**。
+     *
+     * <p>刻意不让 LLM 输出卡合并：其不确定性太高（离线评估只有 6 个样本、Precision 85.71%），
+     * 用它卡合并会让开发者对整个门禁失去信任。</p>
+     */
+    private boolean gateIncludeLlmFindings = false;
+
+    /** commit status 的 context 名。 */
+    private String gateContextName = "CodePilot Review";
+
     private int maxPatchCharsPerFile = 12000;
 
     private int maxTotalPatchChars = 80000;

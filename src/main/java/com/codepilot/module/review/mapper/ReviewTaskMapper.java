@@ -185,5 +185,26 @@ public interface ReviewTaskMapper extends BaseMapper<ReviewTask> {
             @Param("nextAttemptAt") LocalDateTime nextAttemptAt,
             @Param("now") LocalDateTime now
     );
+
+    /**
+     * 落库门禁判定结果（R17）。
+     *
+     * <p>单独一条 UPDATE，不并进 {@code finishPublication}：门禁是旁路能力，
+     * 且它在 {@code publish_status='PUBLISHING'} 生命周期之外也可能被调用
+     * （例如未来想在别的时点重算），把两者绑在一起会制造不必要的耦合。</p>
+     */
+    @Update("""
+            UPDATE review_task
+            SET gate_status = #{gateStatus},
+                gate_reason = #{gateReason},
+                updated_at = #{now}
+            WHERE id = #{taskId}
+            """)
+    int recordGateDecision(
+            @Param("taskId") Long taskId,
+            @Param("gateStatus") String gateStatus,
+            @Param("gateReason") String gateReason,
+            @Param("now") LocalDateTime now
+    );
 }
 
