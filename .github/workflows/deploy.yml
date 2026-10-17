@@ -14,10 +14,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SERVER_HOST: ${{ vars.CODEPILOT_DEPLOY_HOST || '121.43.251.65' }}
+  # 换服务器时改这里（或用仓库变量 CODEPILOT_DEPLOY_HOST 覆盖，不必改代码）。
+  SERVER_HOST: ${{ vars.CODEPILOT_DEPLOY_HOST || '120.25.170.92' }}
   SERVER_USER: ${{ vars.CODEPILOT_DEPLOY_USER || 'root' }}
   SERVER_DIR: ${{ vars.CODEPILOT_DEPLOY_DIR || '/opt/codeAireview' }}
-  SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+  # 只在服务器上存在，绝不进仓库。
+  SERVER_SSH_KEY: ${{ secrets.CODEPILOT_DEPLOY_SSH_KEY }}
 
 jobs:
   deploy:
@@ -34,8 +36,12 @@ jobs:
             echo "Repository variable CODEPILOT_DEPLOY_HOST is required or must fall back to a default host." >&2
             exit 1
           fi
-          if [ -z "${SERVER_PASSWORD:-}" ]; then
-            echo "Secret SERVER_PASSWORD is required for password-based deployment." >&2
+          # 服务器已关闭密码登录（日志里是 Permission denied (publickey)），
+          # 所以这里必须是密钥认证；缺私钥就立刻失败并说清怎么补，而不是等到 scp 才报错。
+          if [ -z "${SERVER_SSH_KEY:-}" ]; then
+            echo "Secret CODEPILOT_DEPLOY_SSH_KEY is required (private key for ${SERVER_USER:-root}@${SERVER_HOST})." >&2
+            echo "Generate a dedicated deploy key pair, append the public key to the server's ~/.ssh/authorized_keys," >&2
+            echo "and store the private key as the repository secret CODEPILOT_DEPLOY_SSH_KEY." >&2
             exit 1
           fi
           DEPLOY_DIR="${SERVER_DIR:-/opt/codeAireview}"
@@ -65,8 +71,9 @@ jobs:
         run: |
           set -euo pipefail
           install -m 700 -d "$HOME/.ssh"
-          sudo apt-get update
-          sudo apt-get install -y sshpass
+          # 密钥认证：服务器已关闭密码登录。
+          printf '%s\n' "$SERVER_SSH_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
           ssh-keyscan -H "$SERVER_HOST" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
@@ -78,7 +85,7 @@ jobs:
       - name: Upload archive to server
         run: |
           set -euo pipefail
-          sshpass -p "$SERVER_PASSWORD" scp \
+          scp -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -o StrictHostKeyChecking=yes \
             "$RUNNER_TEMP/codepilot-deploy.tar" \
@@ -88,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           DEPLOY_DIR_ESCAPED="$(printf '%q' "$SERVER_DIR")"
-          sshpass -p "$SERVER_PASSWORD" ssh \
+          ssh -i "$HOME/.ssh/deploy_key" -o IdentitiesOnly=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -o StrictHostKeyChecking=yes \
             "${SERVER_USER}@${SERVER_HOST}" \
