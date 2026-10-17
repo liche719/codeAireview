@@ -72,7 +72,11 @@ services:
       CODEPILOT_RABBITMQ_PASSWORD: ${CODEPILOT_RABBITMQ_PASSWORD:-codepilot123}
       CODEPILOT_RABBITMQ_VIRTUAL_HOST: ${CODEPILOT_RABBITMQ_VIRTUAL_HOST:-/}
     ports:
-      - "8080:8080"
+      # 宿主机 8990 → 容器 8080。
+      # 刻意不用 8080：公网上 8080 是无差别扫描最常探的端口之一。
+      # 换端口本身不算防护（真正的门是 API 鉴权 + webhook HMAC + 安全组），
+      # 但能挡掉绝大多数扫描器。
+      - "8990:8080"
     depends_on:
       postgres:
         condition: service_healthy

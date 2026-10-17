@@ -87,7 +87,8 @@ Events: Pull requests, Issue comments
 
 最少要保护：
 
-- 只暴露应用 `8080`，不要暴露 PostgreSQL、Redis、RabbitMQ AMQP 到公网。
+- 只暴露应用对外端口（默认宿主机 **`8990`** → 容器 `8080`），不要暴露 PostgreSQL、Redis、RabbitMQ AMQP 到公网。
+  刻意不用 `8080`：公网上它是无差别扫描最常探的端口之一。**换端口本身不算防护**——真正的门是 API 鉴权 + webhook HMAC + 安全组，换端口只是少挨扫描。
 - 保持 `CODEPILOT_API_AUTH_ENABLED=true`。
 - Webhook 必须配置 secret。
 - 在代理层补充 IP allowlist / rate limit。
@@ -166,7 +167,7 @@ Flyway 会在应用启动时执行数据库迁移。
 
 ## 9. 常见端口
 
-- 应用：`8080`
+- 应用：宿主机 `8990` → 容器 `8080`
 - PostgreSQL 宿主机映射：`15432`
 - Redis 宿主机映射：`16379`
 - RabbitMQ AMQP：`5672`
