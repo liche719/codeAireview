@@ -1740,6 +1740,31 @@ publish_error  = failed to update GitHub PR comment:
 
 ---
 
+## R19 真机部署暴露的缺陷（已修）
+
+> 线上跑通一轮真实 PR 之前，R1–R18 全部只有单元/集成测试覆盖。真机验证抓到四个问题，
+> **没有一个是测试能发现的**，记录在此以便日后复查。
+
+| # | 缺陷 | 为什么测试没抓到 | 修法 |
+|---|---|---|---|
+| 1 | `DeadLetterMaintenanceJob` 的 `@PostConstruct` 带 `MeterRegistry` 参数，**应用启动即崩** | 该 bean 是 `@ConditionalOnProperty(scheduling.enabled)`，集成测试把它设为 false，**从未被任何测试创建过** | 改构造注入 + `BeanLifecycleContractTest` 全局校验所有组件的生命周期方法 |
+| 2 | 运行镜像走 Docker Hub，加速器返回 **502**，部署失败且服务被停掉 | 测试不跑 `docker build` | 运行阶段复用构建阶段的 mcr 镜像，Dockerfile 不再依赖 Docker Hub |
+| 3 | `review-structured-output-enabled` 默认 `true`，而 **DeepSeek 不支持 `response_format`** → 每次 LLM 调用都失败，所有文件静默降级 | 测试里 LLM 是被 mock 的，永远不会触发 provider 报错 | 部署配置改 `false`；`docs/env.md` 写明"用 DeepSeek 必须关" |
+| 4 | webhook 拒绝时 **HTTP 200 + body code=401** | 单测只断言返回值，没人断言过状态码 | webhook 控制器局部 `@ExceptionHandler` 映射真实状态码 |
+
+> **第 5 项是设计缺陷而非 bug**：`ReviewCommentMode` 只有 `SUMMARY_ONLY` / `INLINE_ONLY`，
+> 而 webhook 把 `opened` 映射为 INLINE_ONLY、其余（含 `synchronize`）映射为 SUMMARY_ONLY，
+> 于是**行内评论在复审时永远不出现**、摘要在新开 PR 时永远不出现。
+> 真机上一次任务有 8 条可发布 finding、PR 上却只有一段摘要。已新增 `BOTH` 并让
+> 所有 `pull_request` 事件都用它（未改 R19 编号，因为它不是回归而是缺失的能力）。
+
+**验证结果**（沙箱 PR `liche719/codepilot-verify#1`）：
+`pull_request/synchronize` → 任务 `BOTH` → 23 条 finding → **摘要 1 条 + 行内 9 条**，
+其中 LLM 检出「硬编码数据库密码」「删除操作缺少事务保护」等，确定性规则检出 SQL 拼接与 `select *`。
+行内 9 条而非更多，是因为 `inline-comment-max-per-task` 默认 10（14 条被跳过）。
+
+---
+
 ## 附：本文档与既有文档的关系
 
 | 文档 | 内容 |

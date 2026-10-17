@@ -177,7 +177,7 @@ copy .env.example .env
 | `CODEPILOT_LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible base URL。 |
 | `CODEPILOT_LLM_MODEL` | `gpt-4o-mini` | Chat model 名称。 |
 | `codepilot.llm.pricing.<model>.input-per-million` / `.output-per-million` | **未设置** | 模型单价（美元 / 百万 token），用于把 token 数换算成 `codepilot.review.cost`。**刻意不内置任何默认单价**：单价随厂商调价变化，内置一份必然某天变成错的，而错的钱数比没有钱数更可信、因而更危险。未配置时 `codepilot.review.cost` **根本不出现**，只有 `codepilot.review.cost.status{status="unavailable"}`——**不要把它读成 0**。详见 [`observability.md`](observability.md)。 |
-| `CODEPILOT_LLM_REVIEW_STRUCTURED_OUTPUT_ENABLED` | `true` | 是否启用 provider-native JSON schema。 |
+| `CODEPILOT_LLM_REVIEW_STRUCTURED_OUTPUT_ENABLED` | `true` | 是否让 LLM 调用带 `response_format`（provider-native JSON schema）。**DeepSeek 不支持该参数**：开启后每次调用都返回 `This response_format type is unavailable now`，所有文件静默降级为"只有确定性规则"，而任务仍然是 SUCCESS。用 DeepSeek 必须设 `false`。 |
 | `CODEPILOT_LLM_MAX_REVIEW_PATCH_CHARS` | `12000` | 单文件传给 LLM 的 patch 上限。 |
 | `CODEPILOT_LLM_MAX_REVIEW_RULES_CHARS` | `4000` | 规则上下文上限。 |
 | `CODEPILOT_LLM_MAX_REVIEW_CONTEXT_CHARS` | `8000` | 额外上下文上限。 |
@@ -251,7 +251,6 @@ copy .env.example .env
 | `CODEPILOT_REVIEW_GATE_MIN_SEVERITY` | `HIGH` | 触发 `failure` 的最低 severity。 |
 | `CODEPILOT_REVIEW_GATE_INCLUDE_LLM_FINDINGS` | `false` | LLM finding 是否参与门禁判定。**默认不参与**：用不确定输出卡合并不负责任（离线评估仅 6 个样本）。 |
 | `CODEPILOT_REVIEW_GATE_CONTEXT_NAME` | `CodePilot Review` | commit status 的 context 名。 |
-| `CODEPILOT_TOOLS_CI_WORKFLOW_RISK_ENABLED` | `true` | workflow 安全规则（R13）：`pull_request_target` + checkout head、`run:` 里插值用户可控输入、`write-all` 权限、第三方 action 未固定 SHA。只判本 PR 新增行。 |
 | `CODEPILOT_REVIEW_REFLECTION_ENABLED` | `false` | 是否启用 **LLM finding 的自省复核**（R18）。**默认关闭**：开启后每个文件多一次模型调用（成本上升），且收益尚未量化。 |
 | `CODEPILOT_REVIEW_SUGGESTIONS_SCORE_THRESHOLD` | `5` | 自省分数低于此值即抑制该 finding。**不要设到 8 以上**——过高的阈值会把真问题一起剪掉（PR-Agent 官方注释有同样的警告）。 |
 | `CODEPILOT_REVIEW_SCORE_ON_REFLECTION_FAILURE` | `0` | 自省调用失败或输出无法解析时给的分数。**默认 0 = 失败即丢弃**，与 PR-Agent 取 7（失败时保留）刻意相反：评估样本太少，失败时保留等于放行未复核内容。 |
