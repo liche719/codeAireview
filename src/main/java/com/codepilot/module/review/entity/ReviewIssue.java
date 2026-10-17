@@ -60,5 +60,11 @@ public class ReviewIssue {
 
     private String commentChannel;
 
+    /** 自省评分 0-10（R18）；为空表示未启用或未评分。 */
+    private Integer reflectionScore;
+
+    /** 自省状态：{@code SCORED} / {@code FAILED} / {@code SKIPPED}（R18）。 */
+    private String reflectionStatus;
+
     private LocalDateTime createdAt;
 }

@@ -1321,6 +1321,39 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 
 ## R18 LLM finding 的自省闸门
 
+> **状态：已完成，但 <b>LLM 自省行为未经真机验证</b>（见"仍未覆盖"）。**
+>
+> 已实现：
+> - `CodeReviewReflectionAssistant`（`@AiService`，**用 {@code codeReviewChatModel} 而非结构化模型**：
+>   后者在模型层绑定了审查结果的 JSON schema，用它做自省会被强制套上那套结构）
+> - 两份提示词：`ai-review-reflection-{system,user}-message.txt`
+> - `FindingReflectionService`：逐条打分、夹到 0–10、按阈值抑制，被抑制的**仍落库并计入摘要**
+> - 迁移 **V26**：`review_issue.reflection_score` + `reflection_status`（`SCORED`/`FAILED`/`SKIPPED`）
+> - 接进 `ReviewSingleFileReviewer`，位于 patch 校验与 location guard **之后**
+>   （先去掉确定不成立的，再为剩下的付模型调用，避免同一批 finding 付两遍钱）
+> - 配置：`reflection-enabled`（**false**）、`suggestions-score-threshold`（`5`）、
+>   `score-on-reflection-failure`（**`0`**）、`reflection-max-findings`（`10`）
+>
+> **三处刻意的判断**：
+>
+> 1. **只自省 LLM finding，确定性规则一律跳过。** 方案没写这一条。SQL 拼接、密钥泄露、
+>    workflow 风险都是可枚举的模式匹配，让模型去"复核"它们既浪费 token，又会削弱
+>    R13/R17 建立的"确定性规则可信"的立场。
+> 2. **自省失败时丢弃（默认 0），与 PR-Agent 取 7 相反。** 方案已给出理由（评估只有 6 个样本），
+>    这里补充实现层面的保障：失败与"输出无法解析"都走同一条路径并标 `FAILED`，
+>    **绝不"猜一个分"通过**。
+> 3. **超出 `reflection-max-findings` 的 finding 标 `SKIPPED` 而不是抑制。**
+>    "没配额复核"和"不该发布"是两件事；把它们混为一谈会静默丢 finding。
+>    另外越界分数（模型偶尔回 11 或 -1）会被夹到 0–10，否则 11 分会被当成"通过"。
+>
+> **仍未覆盖**：
+> - **提示词没有真机验证过。** 我能确认的是调用链、评分解析、阈值与抑制路径都正确且有测试；
+>   但"模型实际会打出什么样的分"必须跑真实 LLM 才能知道，这需要开 `reflection-enabled=true`
+>   并用真实 patch 观察。所以本项只能算"实现完成"，不能算"效果已验证"。
+> - 误杀率未知：被抑制的 finding 仍落库（`suppression_reason=reflection_below_threshold`），
+>   可事后统计误杀，但目前没有数据。
+> - 成本增量未量化（设计上依赖 R10 的 token 指标来观察）。
+
 ### 问题
 
 我们已有 `ReviewFindingScoreCalculator` 给 finding 打分、`ReviewFindingRanker` 排序，但**没有"自省后再决定要不要"这一道闸门**——LLM 输出的 finding 只要通过 patch verification 与 location guard 就会被发布。因此**未经复核的幻觉 finding 与经过推理的 finding 享受同等待遇**。

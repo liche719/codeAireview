@@ -207,6 +207,13 @@ codepilot:
     # LLM finding 是否参与门禁。默认 false——用它卡合并的误判代价太高。
     gate-include-llm-findings: ${CODEPILOT_REVIEW_GATE_INCLUDE_LLM_FINDINGS:false}
     gate-context-name: ${CODEPILOT_REVIEW_GATE_CONTEXT_NAME:CodePilot Review}
+    # LLM finding 的自省闸门（R18）：默认关闭。开启后每个文件多一次模型调用。
+    reflection-enabled: ${CODEPILOT_REVIEW_REFLECTION_ENABLED:false}
+    # 低于此分即抑制。不要设到 8 以上——过高的阈值会把真问题一起剪掉。
+    suggestions-score-threshold: ${CODEPILOT_REVIEW_SUGGESTIONS_SCORE_THRESHOLD:5}
+    # 自省失败时的分数。默认 0 = 失败即丢弃（与 PR-Agent 取 7 相反，理由见 docs）。
+    score-on-reflection-failure: ${CODEPILOT_REVIEW_SCORE_ON_REFLECTION_FAILURE:0}
+    reflection-max-findings: ${CODEPILOT_REVIEW_REFLECTION_MAX_FINDINGS:10}
     max-patch-chars-per-file: ${CODEPILOT_REVIEW_MAX_PATCH_CHARS_PER_FILE:12000}
     max-total-patch-chars: ${CODEPILOT_REVIEW_MAX_TOTAL_PATCH_CHARS:80000}
     max-parallel-files: ${CODEPILOT_REVIEW_MAX_PARALLEL_FILES:2}

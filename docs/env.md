@@ -252,6 +252,10 @@ copy .env.example .env
 | `CODEPILOT_REVIEW_GATE_INCLUDE_LLM_FINDINGS` | `false` | LLM finding 是否参与门禁判定。**默认不参与**：用不确定输出卡合并不负责任（离线评估仅 6 个样本）。 |
 | `CODEPILOT_REVIEW_GATE_CONTEXT_NAME` | `CodePilot Review` | commit status 的 context 名。 |
 | `CODEPILOT_TOOLS_CI_WORKFLOW_RISK_ENABLED` | `true` | workflow 安全规则（R13）：`pull_request_target` + checkout head、`run:` 里插值用户可控输入、`write-all` 权限、第三方 action 未固定 SHA。只判本 PR 新增行。 |
+| `CODEPILOT_REVIEW_REFLECTION_ENABLED` | `false` | 是否启用 **LLM finding 的自省复核**（R18）。**默认关闭**：开启后每个文件多一次模型调用（成本上升），且收益尚未量化。 |
+| `CODEPILOT_REVIEW_SUGGESTIONS_SCORE_THRESHOLD` | `5` | 自省分数低于此值即抑制该 finding。**不要设到 8 以上**——过高的阈值会把真问题一起剪掉（PR-Agent 官方注释有同样的警告）。 |
+| `CODEPILOT_REVIEW_SCORE_ON_REFLECTION_FAILURE` | `0` | 自省调用失败或输出无法解析时给的分数。**默认 0 = 失败即丢弃**，与 PR-Agent 取 7（失败时保留）刻意相反：评估样本太少，失败时保留等于放行未复核内容。 |
+| `CODEPILOT_REVIEW_REFLECTION_MAX_FINDINGS` | `10` | 单文件最多自省多少条，控制成本。超出预算的标 `SKIPPED`，**不会**因此被抑制。 |
 
 **路径级审查指令（R12）**：开启后，系统会从仓库里读一份规则文件，按 glob 匹配当前文件并把对应的要求注入该文件的 prompt。
 

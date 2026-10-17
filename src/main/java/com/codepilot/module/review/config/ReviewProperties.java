@@ -130,6 +130,33 @@ public class ReviewProperties {
     /** commit status 的 context 名。 */
     private String gateContextName = "CodePilot Review";
 
+    /**
+     * 是否启用 LLM finding 的自省闸门（R18）。**默认关闭**。
+     *
+     * <p>开启后每个文件会多一次模型调用——成本上升，而收益尚未量化。
+     * 先关着，等 token 指标（R10）能证明它划算再开。</p>
+     */
+    private boolean reflectionEnabled = false;
+
+    /**
+     * 自省分数低于此值即抑制该 finding。
+     *
+     * <p><b>不要设到 8 以上</b>：PR-Agent 的官方注释明确警告过，
+     * 过高的阈值会"clip highly relevant suggestions"——把真问题一起剪掉。</p>
+     */
+    private int suggestionsScoreThreshold = 5;
+
+    /**
+     * 自省调用失败或输出无法解析时给的分数。**默认 0，即失败即丢弃**。
+     *
+     * <p>这与 PR-Agent 取 7（高于阈值，等于失败时保留）<b>刻意相反</b>：
+     * 我们的离线评估只有 6 个样本，失败时保留等于放行未经复核的内容。宁可漏报。</p>
+     */
+    private int scoreOnReflectionFailure = 0;
+
+    /** 单个文件最多自省多少条 finding，用于控制成本。 */
+    private int reflectionMaxFindings = 10;
+
     private int maxPatchCharsPerFile = 12000;
 
     private int maxTotalPatchChars = 80000;
