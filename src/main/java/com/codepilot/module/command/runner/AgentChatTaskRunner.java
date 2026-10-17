@@ -96,6 +96,13 @@ public class AgentChatTaskRunner {
             }
             String reviewContext = reviewSessionContextBuilder.build(
                     task.getRepoOwner(), task.getRepoName(), task.getPrNumber());
+            String anchor = anchorContext(task);
+            if (StringUtils.hasText(anchor)) {
+                // R14：用户是在 diff 的某一行上提问的。不告诉模型"问的是哪一行"，
+                // 它就只能泛泛地谈整个 PR，而这恰恰是 diff 行提问最有价值的地方。
+                // 路径与行号来自 GitHub payload，经 promptSafe 处理后再拼接。
+                reviewContext = reviewContext + "\n" + anchor;
+            }
             if (agentRun != null && StringUtils.hasText(agentRun.getContinuationContext())) {
                 reviewContext = reviewContext + "\nworkflowContinuationStatus: AVAILABLE\n"
                         + promptSafe(agentRun.getContinuationContext());
@@ -171,6 +178,26 @@ public class AgentChatTaskRunner {
     }
 
     /**
+     * 把"用户在哪一行提问"编码进上下文（R14）。
+     *
+     * <p>只有 {@code pull_request_review_comment} 事件带锚点；会话流里的普通 @mention 没有，
+     * 此时返回空串，上下文与引入本能力之前完全一致。</p>
+     */
+    private String anchorContext(PrCommandTask task) {
+        if (!StringUtils.hasText(task.getAnchorPath()) && task.getAnchorLine() == null) {
+            return "";
+        }
+        StringBuilder anchor = new StringBuilder("reviewCommentAnchor:\n");
+        if (StringUtils.hasText(task.getAnchorPath())) {
+            anchor.append("  path=").append(promptSafe(task.getAnchorPath())).append('\n');
+        }
+        if (task.getAnchorLine() != null) {
+            anchor.append("  line=").append(task.getAnchorLine()).append('\n');
+        }
+        return anchor.toString();
+    }
+
+    /**
      * 沿 cause 链找硬上限异常，找不到返回 {@code null}。
      *
      * <h2>为什么不只判断顶层类型</h2>
@@ -230,9 +257,17 @@ public class AgentChatTaskRunner {
         commandTaskStateManager.storeResponsePreview(task, safeResponse);
         commandTaskLogService.record(task.getId(), responseStep, true,
                 "Agent response generated.", "responseLength=" + safeResponse.length());
-        githubClient.createPullRequestComment(
-                task.getRepoOwner(), task.getRepoName(), task.getPrNumber(),
-                CommentMarkers.wrap(CommentMarkers.AGENT_REPLY, safeResponse));
+        String body = CommentMarkers.wrap(CommentMarkers.AGENT_REPLY, safeResponse);
+        if (task.getReplyToCommentId() != null) {
+            // R14：用户是在 diff 的某一行上问的，回答必须回到那条 thread，
+            // 否则它会变成一条与提问代码行脱节的顶层评论。
+            githubClient.replyToReviewComment(
+                    task.getRepoOwner(), task.getRepoName(), task.getPrNumber(),
+                    task.getReplyToCommentId(), body);
+        } else {
+            githubClient.createPullRequestComment(
+                    task.getRepoOwner(), task.getRepoName(), task.getPrNumber(), body);
+        }
         commandTaskLogService.record(task.getId(), "COMMENT_PUBLISHED", true,
                 "Agent response published to GitHub.", null);
         commandTaskStateManager.markSuccess(task, null);

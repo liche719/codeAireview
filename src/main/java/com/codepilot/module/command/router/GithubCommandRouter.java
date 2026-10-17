@@ -40,7 +40,7 @@ public class GithubCommandRouter {
             return GithubCommandHandleResult.ignored("comment author is not allowed to run commands", payload.getAction());
         }
         if (payload != null
-                && "issue_comment".equals(payload.getEvent())
+                && isCommentEvent(payload.getEvent())
                 && !githubRepositoryPolicy.isAllowed(payload.getOwner(), payload.getRepo())) {
             return GithubCommandHandleResult.ignored("repository is not allowed", payload.getAction());
         }
@@ -71,8 +71,16 @@ public class GithubCommandRouter {
                 .collect(Collectors.toUnmodifiableSet());
     }
 
+    /**
+     * 作者授权判定。
+     *
+     * <p>R14 起必须同时覆盖 {@code issue_comment} 与 {@code pull_request_review_comment}：
+     * 原先只认前者，于是 diff 行上的评论会走到 {@code return true} 这条"非评论事件"分支，
+     * <b>完全绕过 author_association 白名单</b>——任何人都能在 diff 上 @bot 触发动作。
+     * 这是新增事件类型时最容易漏掉的一处授权缺口。</p>
+     */
     private boolean isAllowedCommentAuthor(GitHubPullRequestWebhookPayload payload) {
-        if (payload == null || !"issue_comment".equals(payload.getEvent())) {
+        if (payload == null || !isCommentEvent(payload.getEvent())) {
             return true;
         }
         if (allowedCommentAuthorAssociations.isEmpty()) {
@@ -81,5 +89,9 @@ public class GithubCommandRouter {
         String association = payload.getCommentAuthorAssociation();
         return StringUtils.hasText(association)
                 && allowedCommentAuthorAssociations.contains(association.trim().toUpperCase(Locale.ROOT));
+    }
+
+    private boolean isCommentEvent(String event) {
+        return "issue_comment".equals(event) || "pull_request_review_comment".equals(event);
     }
 }

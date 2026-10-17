@@ -206,6 +206,102 @@ class GitHubWebhookPayloadParserTest {
         return new GitHubWebhookPayloadParser(objectMapper, commandParser);
     }
 
+    // ------------------------------------------------------------------
+    // R14：diff 行评论里的 @mention
+    // ------------------------------------------------------------------
+
+    @Test
+    void shouldParseReviewCommentMentionWithAnchor() {
+        GitHubPullRequestWebhookPayload payload = parserWithLlmAvailable()
+                .parse("pull_request_review_comment",
+                        reviewCommentPayload("created", "@x-pilotx 这里为什么不用参数化查询？", null));
+
+        assertThat(payload.isIgnored()).isFalse();
+        assertThat(payload.getEvent()).isEqualTo("pull_request_review_comment");
+        assertThat(payload.getOwner()).isEqualTo("liche719");
+        assertThat(payload.getRepo()).isEqualTo("codeAireview");
+        assertThat(payload.getPullNumber()).isEqualTo(12);
+        assertThat(payload.getCommentId()).isEqualTo(9001L);
+        assertThat(payload.getAnchorPath()).isEqualTo("src/main/java/Demo.java");
+        assertThat(payload.getAnchorLine()).isEqualTo(42);
+        // 顶层评论自己就是线程根，所以回复目标就是它自己的 id。
+        assertThat(payload.getReplyToCommentId()).isEqualTo(9001L);
+        assertThat(payload.getCommentAuthorAssociation()).isEqualTo("COLLABORATOR");
+    }
+
+    /**
+     * 回复必须投递到<b>线程根</b>：{@code in_reply_to_id} 指向被回复的那条，
+     * 而 GitHub 的 replies 接口不接受一条回复自己的 id。
+     */
+    @Test
+    void shouldTargetTheThreadRootWhenTheCommentIsItselfAReply() {
+        GitHubPullRequestWebhookPayload payload = parserWithLlmAvailable()
+                .parse("pull_request_review_comment",
+                        reviewCommentPayload("created", "@x-pilotx 再展开说说", 8000L));
+
+        assertThat(payload.getReplyToCommentId()).isEqualTo(8000L);
+        assertThat(payload.getCommentId()).isEqualTo(9001L);
+    }
+
+    @Test
+    void shouldIgnoreReviewCommentEventsOtherThanCreated() {
+        assertThat(parserWithLlmAvailable().parse("pull_request_review_comment",
+                reviewCommentPayload("edited", "@x-pilotx 改了一下", null)).isIgnored()).isTrue();
+    }
+
+    /** 机器人自己的评论必须挡掉，否则「收到评论 → 回评论 → 又收到评论」会自循环。 */
+    @Test
+    void shouldIgnoreBotAuthoredReviewComment() {
+        assertThat(parserWithLlmAvailable().parse("pull_request_review_comment",
+                reviewCommentPayload("created",
+                        "<!-- codepilot-agent-reply --> 这是机器人的回复", null)).isIgnored()).isTrue();
+    }
+
+    /** 关闭开关后回到引入本能力之前的行为：整体忽略。 */
+    @Test
+    void shouldIgnoreReviewCommentsWhenMentionIsDisabled() {
+        GithubCommandProperties properties = new GithubCommandProperties();
+        properties.setReviewCommentMentionEnabled(false);
+        GitHubWebhookPayloadParser disabled = new GitHubWebhookPayloadParser(
+                objectMapper,
+                new GithubCommandParser(properties, enabledLlmProperties()),
+                properties);
+
+        GitHubPullRequestWebhookPayload payload = disabled.parse("pull_request_review_comment",
+                reviewCommentPayload("created", "@x-pilotx 这里有问题", null));
+
+        assertThat(payload.isIgnored()).isTrue();
+        assertThat(payload.getReason()).contains("disabled");
+    }
+
+    private String reviewCommentPayload(String action, String body, Long inReplyToId) {
+        String inReplyTo = inReplyToId == null ? "null" : inReplyToId.toString();
+        return """
+                {
+                  "action": "%s",
+                  "repository": {
+                    "name": "codeAireview",
+                    "owner": { "login": "liche719" }
+                  },
+                  "pull_request": {
+                    "number": 12,
+                    "html_url": "https://github.com/liche719/codeAireview/pull/12",
+                    "title": "Add webhook support",
+                    "head": { "sha": "abc123" }
+                  },
+                  "comment": {
+                    "id": 9001,
+                    "body": "%s",
+                    "path": "src/main/java/Demo.java",
+                    "line": 42,
+                    "in_reply_to_id": %s,
+                    "author_association": "COLLABORATOR",
+                    "user": { "login": "reviewer" }
+                  }
+                }
+                """.formatted(action, body, inReplyTo);
+    }
+
     private String pullRequestPayload(String action) {
         return """
                 {

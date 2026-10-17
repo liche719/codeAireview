@@ -101,6 +101,53 @@ class GithubCommandRouterTest {
         verify(chatHandler, never()).handle(payload);
     }
 
+    /**
+     * R14 的安全回归：新增的事件类型也必须走 author_association 白名单。
+     *
+     * <p>这是加事件类型时最容易漏的一处授权缺口——作者的判定原本只对
+     * {@code issue_comment} 生效，其他事件一律"放行"。若 diff 行评论落进那个分支，
+     * 任何人都能在 diff 上 @bot 触发动作，绕过整条授权链。</p>
+     */
+    @Test
+    void shouldApplyTheAuthorGateToReviewCommentCommandsToo() {
+        GithubCommandHandler chatHandler = mock(GithubCommandHandler.class);
+        when(chatHandler.commandType()).thenReturn(GithubCommandType.CHAT);
+
+        GithubCommandRouter router = newRouter(List.of(chatHandler));
+
+        GitHubPullRequestWebhookPayload payload = new GitHubPullRequestWebhookPayload();
+        payload.setEvent("pull_request_review_comment");
+        payload.setCommandType(GithubCommandType.CHAT.name());
+        payload.setAction("created");
+        payload.setCommentAuthorAssociation("NONE");
+
+        GithubCommandHandleResult result = router.route(payload);
+
+        assertThat(result.getReason()).isEqualTo("comment author is not allowed to run commands");
+        verify(chatHandler, never()).handle(payload);
+    }
+
+    /** 反向：受信任作者的 diff 行评论仍然要能触发命令。 */
+    @Test
+    void shouldRouteReviewCommentCommandFromTrustedAuthor() {
+        GithubCommandHandler chatHandler = mock(GithubCommandHandler.class);
+        when(chatHandler.commandType()).thenReturn(GithubCommandType.CHAT);
+        when(chatHandler.handle(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(GithubCommandHandleResult.processed(1L, "created"));
+
+        GithubCommandRouter router = newRouter(List.of(chatHandler));
+
+        GitHubPullRequestWebhookPayload payload = new GitHubPullRequestWebhookPayload();
+        payload.setEvent("pull_request_review_comment");
+        payload.setCommandType(GithubCommandType.CHAT.name());
+        payload.setAction("created");
+        payload.setCommentAuthorAssociation("MEMBER");
+
+        router.route(payload);
+
+        verify(chatHandler).handle(payload);
+    }
+
     @Test
     void shouldRejectIssueCommentCommandWhenAssociationAllowlistIsEmpty() {
         GithubCommandHandler chatHandler = mock(GithubCommandHandler.class);

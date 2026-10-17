@@ -23,6 +23,14 @@ public class GithubCommandProperties {
 
     private boolean fixEnabled = false;
 
+    /**
+     * 是否处理 diff 行评论（{@code pull_request_review_comment}）里的 @mention（R14）。
+     *
+     * <p>默认开启：这是纯读侧能力，只是让"在问题代码旁边提问"这个最自然的入口可用。
+     * 关闭后该事件回到被忽略的状态。</p>
+     */
+    private boolean reviewCommentMentionEnabled = true;
+
     private boolean fixPublishEnabled = false;
 
     private boolean fixMergeEnabled = false;

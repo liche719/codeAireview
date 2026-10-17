@@ -32,6 +32,12 @@ public class GithubClient {
 
     private static final int PER_PAGE = 100;
 
+    /** commit status 的 state 默认值（GitHub 只认 error/failure/pending/success）。 */
+    private static final String STATUS_SUCCESS_STATE = "success";
+
+    /** GitHub 对 commit status description 的长度上限。 */
+    private static final int COMMIT_STATUS_DESCRIPTION_MAX_CHARS = 140;
+
     private final RestClient restClient;
 
     private final GithubAuthTokenProvider githubAuthTokenProvider;
@@ -438,8 +444,83 @@ public class GithubClient {
         createPullRequestInlineComment(owner, repo, pullNumber, commitId, path, line, side, startLine, side, body);
     }
 
-    private List<GithubChangedFile> requestPullRequestFilesPage(
+    /**
+     * 回复某条 review comment 所在的线程（R14，同时补上 C8）。
+     *
+     * <p>这是"在 diff 行上提问"必须要有的能力：如果没有它，机器人的回答会变成一条
+     * 新的顶层 PR 评论，与提问所在的代码行脱节，用户还得自己把两件事对上。</p>
+     *
+     * <p>{@code commentId} 必须是<b>线程根</b>评论的 id——GitHub 的 replies 接口不接受
+     * 一条回复自己的 id。payload 解析阶段已经把 {@code in_reply_to_id} 归一成线程根了。</p>
+     */
+    public void replyToReviewComment(
             String owner,
+            String repo,
+            Integer pullNumber,
+            Long commentId,
+            String body
+    ) {
+        if (commentId == null) {
+            throw new BusinessException("failed to reply to GitHub review comment: comment id is required");
+        }
+        Map<String, Object> requestBody = new LinkedHashMap<>();
+        requestBody.put("body", body == null ? "" : body);
+        executeGithubRequest("failed to reply to GitHub review comment", () ->
+                restClient.post()
+                        .uri(uriBuilder -> uriBuilder
+                                .path("/repos/{owner}/{repo}/pulls/{pullNumber}/comments/{commentId}/replies")
+                                .build(owner, repo, pullNumber, commentId))
+                        .headers(headers -> setAuthorization(headers, owner, repo))
+                        .body(requestBody)
+                        .retrieve()
+                        .toBodilessEntity()
+        );
+    }
+
+    /**
+     * 写 commit status（R17）。
+     *
+     * <p><b>取值范围只有 {@code error / failure / pending / success}</b>——commit status
+     * <b>没有</b> {@code neutral}（那是 Checks API 的 conclusion）。因此本项目的 NEUTRAL
+     * 判定由 {@code ReviewGateEvaluator.toCommitStatus} 映射为 {@code success}。</p>
+     *
+     * <p>{@code description} 有 140 字符上限，调用方负责截断；这里再兜一层。</p>
+     */
+    public void createCommitStatus(
+            String owner,
+            String repo,
+            String sha,
+            String state,
+            String context,
+            String description
+    ) {
+        if (!StringUtils.hasText(sha)) {
+            throw new BusinessException("failed to create GitHub commit status: commit sha is required");
+        }
+        Map<String, Object> requestBody = new LinkedHashMap<>();
+        requestBody.put("state", StringUtils.hasText(state) ? state : STATUS_SUCCESS_STATE);
+        requestBody.put("context", StringUtils.hasText(context) ? context : "CodePilot Review");
+        requestBody.put("description", truncateCommitStatusDescription(description));
+        executeGithubRequest("failed to create GitHub commit status", () ->
+                restClient.post()
+                        .uri(uriBuilder -> uriBuilder
+                                .path("/repos/{owner}/{repo}/statuses/{sha}")
+                                .build(owner, repo, sha))
+                        .headers(headers -> setAuthorization(headers, owner, repo))
+                        .body(requestBody)
+                        .retrieve()
+                        .toBodilessEntity()
+        );
+    }
+
+    private String truncateCommitStatusDescription(String description) {
+        String safe = description == null ? "" : description;
+        return safe.length() <= COMMIT_STATUS_DESCRIPTION_MAX_CHARS
+                ? safe
+                : safe.substring(0, COMMIT_STATUS_DESCRIPTION_MAX_CHARS - 1) + "…";
+    }
+
+    private List<GithubChangedFile> requestPullRequestFilesPage(            String owner,
             String repo,
             Integer pullNumber,
             int page

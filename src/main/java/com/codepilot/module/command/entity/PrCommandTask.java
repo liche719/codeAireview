@@ -83,4 +83,17 @@ public class PrCommandTask {
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
+
+    /** diff 行评论的锚定文件路径（R14）；非 diff 行提问时为 null。 */
+    private String anchorPath;
+
+    /** diff 行评论的锚定行号（R14）。 */
+    private Integer anchorLine;
+
+    /**
+     * 回复应投递到的线程根评论 id（R14）。
+     *
+     * <p>有值表示要把回复发进那条 diff thread，而不是新建一条顶层 PR 评论。</p>
+     */
+    private Long replyToCommentId;
 }

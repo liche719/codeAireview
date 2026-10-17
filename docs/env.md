@@ -79,7 +79,8 @@ copy .env.example .env
 | `CODEPILOT_GITHUB_INLINE_COMMENT_ENABLED` | `false` | 是否开启 inline review comment。 |
 | `CODEPILOT_GITHUB_INLINE_COMMENT_MAX_PER_TASK` | `10` | 单个任务最多发布 inline comment 数。 |
 | `CODEPILOT_GITHUB_BOT_MENTION_ALIASES` | `@x-pilotx,@X-PilotX` | PR 评论命令 bot mention。 |
-| `CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS` | `OWNER,MEMBER,COLLABORATOR` | 允许触发 PR 命令的 GitHub author association。 |
+| `CODEPILOT_GITHUB_ALLOWED_COMMENT_AUTHOR_ASSOCIATIONS` | `OWNER,MEMBER,COLLABORATOR` | 允许触发 PR 命令的 GitHub author association。**同时作用于 `issue_comment` 与 `pull_request_review_comment`**；允许列表为空时一律拒绝（fail-closed）。 |
+| `CODEPILOT_GITHUB_REVIEW_COMMENT_MENTION_ENABLED` | `true` | 是否处理 **diff 行评论**（`pull_request_review_comment`）里的 @mention（R14）。默认开启——纯读侧能力；回答会回复进该 review thread，而不是新建顶层评论。 |
 
 支持命令：
 
@@ -246,6 +247,11 @@ copy .env.example .env
 | `CODEPILOT_REVIEW_PATH_INSTRUCTIONS_ENABLED` | `false` | 是否启用仓库内的**路径级审查指令**（R12）。**默认关闭**：它把仓库内容注入 prompt，是一个新的 prompt injection 面。 |
 | `CODEPILOT_REVIEW_PATH_INSTRUCTIONS_FILE` | `.codepilot/rules.md` | 规则文件在仓库中的路径。格式为 Markdown，`## 标题即 glob`，标题下的正文即该路径的审查要求。 |
 | `CODEPILOT_REVIEW_PATH_INSTRUCTIONS_MAX_CHARS` | `8000` | 全部指令合计的字符上限；超出部分丢弃。这份内容会被拼进**每个匹配文件**的 prompt，不设限的话一个被提交进来的巨大规则文件会成倍放大 token 消耗。 |
+| `CODEPILOT_REVIEW_GATE_ENABLED` | `false` | 是否启用**构建门禁**（R17）：写 commit status（context 默认 `CodePilot Review`）。**默认关闭**——开启后若被加进 required status checks 会**阻塞他人合并**。 |
+| `CODEPILOT_REVIEW_GATE_MIN_SEVERITY` | `HIGH` | 触发 `failure` 的最低 severity。 |
+| `CODEPILOT_REVIEW_GATE_INCLUDE_LLM_FINDINGS` | `false` | LLM finding 是否参与门禁判定。**默认不参与**：用不确定输出卡合并不负责任（离线评估仅 6 个样本）。 |
+| `CODEPILOT_REVIEW_GATE_CONTEXT_NAME` | `CodePilot Review` | commit status 的 context 名。 |
+| `CODEPILOT_TOOLS_CI_WORKFLOW_RISK_ENABLED` | `true` | workflow 安全规则（R13）：`pull_request_target` + checkout head、`run:` 里插值用户可控输入、`write-all` 权限、第三方 action 未固定 SHA。只判本 PR 新增行。 |
 
 **路径级审查指令（R12）**：开启后，系统会从仓库里读一份规则文件，按 glob 匹配当前文件并把对应的要求注入该文件的 prompt。
 

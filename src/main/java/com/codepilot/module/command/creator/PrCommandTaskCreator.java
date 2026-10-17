@@ -185,6 +185,10 @@ public class PrCommandTaskCreator {
         task.setCommandText(commentBodyAuditPreview(payload.getCommandText()));
         task.setCommentUserLogin(payload.getCommentUserLogin());
         task.setCommentAuthorAssociation(payload.getCommentAuthorAssociation());
+        // R14：diff 行提问的锚点与回复目标（issue_comment 路径下均为 null，行为不变）。
+        task.setAnchorPath(payload.getAnchorPath());
+        task.setAnchorLine(payload.getAnchorLine());
+        task.setReplyToCommentId(payload.getReplyToCommentId());
         task.setDryRun(false);
         task.setCreatedAt(now);
         task.setUpdatedAt(now);

@@ -108,7 +108,7 @@ public class GitHubWebhookService {
             return GitHubWebhookResponse.ignored("duplicate event", parsedPayload.getAction());
         }
 
-        if ("issue_comment".equals(parsedPayload.getEvent())) {
+        if (isCommentEvent(parsedPayload.getEvent())) {
             GithubCommandHandleResult result = githubCommandRouter.route(parsedPayload);
             log.info("GitHub webhook routed PR command, resultId={}, commandType={}, action={}, owner={}, repo={}, pullNumber={}, commentUser={}, delivery={}",
                     result.getId(),
@@ -154,16 +154,25 @@ public class GitHubWebhookService {
         }
     }
 
+    /**
+     * 机器人自己发的评论必须挡掉，否则「收到评论 → 回一条评论 → 又收到评论」会自循环。
+     *
+     * <p>R14 起 diff 行评论也走命令链路，因此这里从"只认 issue_comment"放宽为"两种评论事件"。</p>
+     */
     private boolean isBotAuthoredIssueComment(GitHubPullRequestWebhookPayload payload) {
-        if (!"issue_comment".equals(payload.getEvent()) || !StringUtils.hasText(payload.getCommentUserLogin())) {
+        if (!isCommentEvent(payload.getEvent()) || !StringUtils.hasText(payload.getCommentUserLogin())) {
             return false;
         }
         String botLogin = githubClient == null ? null : githubClient.getAuthenticatedUserLogin();
         return StringUtils.hasText(botLogin) && botLogin.equalsIgnoreCase(payload.getCommentUserLogin());
     }
 
+    private boolean isCommentEvent(String event) {
+        return "issue_comment".equals(event) || "pull_request_review_comment".equals(event);
+    }
+
     private String buildDedupKey(GitHubPullRequestWebhookPayload payload, String delivery) {
-        if ("issue_comment".equals(payload.getEvent())) {
+        if (isCommentEvent(payload.getEvent())) {
             if (payload.getCommentId() != null) {
                 return "codepilot:webhook:pr-command:"
                         + safePart(payload.getOwner())
