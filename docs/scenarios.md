@@ -132,8 +132,8 @@
 | C11 | inline 预算超限（10） | ⚠️ | `ReviewCommentBudgetAllocator` 存在并有测试；Summary 会追加「另外还有 N 条问题未展示」，且**R6 之后**额外给出「其中 M 条已被抑制」（`ReviewReportFormatter:123-130`）。**仍未解决的部分**：不列出被丢弃的**具体是哪几条、为什么**——R2 的「审查覆盖」说的是**文件**维度，不是 inline 评论预算维度（roadmap 把 C11 列在 R2 的覆盖场景里，实际只部分兑现） |
 | C12 | location guard 拒绝 | ⚠️ | 被拒绝的问题不落 inline，仍进 Summary 列表；`ReviewIssue.commentChannel` 记录渠道。**R16 修掉了文案与实际判定范围不符**：旧 reason 写 `"line is not a commentable added diff line"`（只提新增行，读起来像"只有新增行可评论"），实际 `DiffLineMapper.map` 同时接受新增行（RIGHT）、删除行（LEFT）与上下文行（RIGHT）；现在改为 `"line is not part of the diff for this file (no matching added, deleted or context line)"`，并提为 `ReviewIssueLocationGuard.REASON_NOT_IN_DIFF` 常量。**仍未解决的另一半**：该 reason **只 `log.debug`，不进摘要**，所以用户仍不知道"这条本想在 X 行说但定位失败"——补它需要给 `ReviewIssue` 加字段并在 formatter 渲染，属独立改动。R2 的覆盖度区块是**文件**维度，不解决这条 |
 | C13 | fingerprint 重复 | ✅ | `GitHubInlineCommentFingerprintBuilder`/`Extractor`；测试 `shouldSkipIssueWhenExistingInlineFingerprintWasAlreadyPosted` |
-| C14 | 行已过期（outdated） | ❌ | 不检测已发评论是否 outdated，也不清理/收敛。**注**：roadmap 把 C14 列在 R6 的覆盖场景里，但 R6 解决的是"**同一问题**不要重复评论"（指纹匹配，且指纹**不含行号**所以能抗行号漂移），并**不是**"检测某条已发评论的锚点行消失了"——后者属 R15。本轮重新核对：全仓库仍无 `outdated`/`isOutdated` 相关代码 |
-| C15 | 编辑/更新已发评论 | ⚠️ | Summary 走 update；inline 只新建，无编辑 |
+| C14 | 行已过期（outdated） | ❌ | **R15 评估后决定不实施**（理由见 roadmap）。核心原因不是"顾不上"：要 auto-resolve 就必须先解决一个跨项冲突——R7 的 `ReviewDismissalService` 只看"thread 已 resolved 且首条评论是本 bot 发的"就标 `DISMISSED`，**无法区分是谁 resolve 的**；于是 R15 的自动 resolve 会被 R7 读成"维护者判定误报"，一旦该问题日后回归，`suppressRepeated` 会**永久抑制**它并标注 `dismissed by a maintainer`。按方案实现等于开一条伪装成人工判定的漏报通道。要做必须先建按评论记账的表、并让 R7 能排除本系统 resolve 的 thread。**另**：roadmap 曾把 C14 列在 R6 的覆盖场景里，但 R6 解决的是"同一问题别重复评论"（指纹不含行号、抗漂移），并不是"检测锚点行消失" |
+| C15 | 编辑/更新已发评论 | ⚠️ | Summary 走 update；inline 只新建，无编辑。**R15 评估后维持不做**：编辑旧 inline 评论会因 position 漂移而锚到错误行，比重复评论更糟——方案自己也已判定不选 |
 | C16 | 评论到 PR 描述 | ❌ | 不做 |
 | C17 | 评论到 commit | ❌ | 不做 |
 | C18 | 评论正文脱敏 | ✅ | `SensitiveDataSanitizer` + `MarkdownSanitizer.sanitizeInlineText`（`ReviewReportFormatter:125-127`），单字段截断 500 字符 |

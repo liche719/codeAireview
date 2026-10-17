@@ -1166,6 +1166,39 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 
 ## R15 评论生命周期
 
+> **状态：不实施（经核对代码后判定）。三条子路径各有不做的理由，第 3 条是一个真实的跨项冲突。**
+>
+> **1. 「编辑旧 inline 评论」——方案自己就不选。** 理由成立：position 漂移会导致编辑后的评论锚到错误行，
+> 比重复评论更糟。保持不做。
+>
+> **2. 「删除过期评论」（对标补充 2）——不必要。**
+> 补充 2 的依据是 reviewdog 会 `DeleteComment` 清理指纹不再出现的评论。
+> 但 reviewdog 需要这样做，是因为**它没有跨次记忆层**；本项目已有两套防重复机制：
+> R6 的 `review_finding_memory`（同一问题跨 headSha 只提一次）与 inline 指纹去重（同一 commit 内不重发）。
+> 也就是说"行号漂移导致重复评论"这个要解决的问题**在本设计里已经不成立**。
+> 而删除是**不可逆**的，且会连带删掉已经附着在该评论上的人类讨论——为收益为零的操作引入这个风险不划算。
+>
+> **3. 「resolve thread」（方案核心）——与 R7 存在真实冲突，现行设计下不能做。**
+> 这条链是我在实施前核对代码才发现的：
+> 1. R15 自动 resolve 掉"finding 已消失"的 thread；
+> 2. R7 的 `ReviewDismissalService.syncResolvedThreads` 只看"thread 已 resolved **且** 首条评论由本 bot 发出"就
+>    `markDismissed`——它**无法区分是谁 resolve 的**；
+> 3. 于是我们自己的 auto-resolve 会被当成"维护者判定这是误报"，finding 状态变成 `DISMISSED`；
+> 4. 而 `ReviewFindingMemoryService.suppressRepeated` 对 `DISMISSED` 一律抑制并标注
+>    `dismissed by a maintainer`——**PR 上真正发生回归时，这个 finding 将永远不会再被提出**。
+>
+> 也就是说，按方案实现 R15 会**引入一个新的漏报通道**，而且伪装成"人已判定误报"，
+> 极难在事后排查。要正确实现必须先让 R7 能区分"谁 resolve 的"——而 GitHub GraphQL
+> 不提供 resolve 的操作者，只能靠本地记账（也就是方案里那张 `review_published_comment` 表，
+> 而它当初在 R7 里并没有建）。那是一个独立的设计问题，不该在补生命周期时顺手带过。
+>
+> **仍然成立的部分：I8（不知道具体哪几条评论发出去了）**。当前发布失败时重试粒度是整任务，
+> 但 inline 指纹去重让重试不会重复发，所以 I8 的**实际危害已被现有机制兜住**——
+> 它影响的是可观测性，不是正确性。要补齐需要一张按评论记账的表，属独立改动。
+>
+> **如果将来要做**，顺序必须是：先建按评论记账的表 → 让 R7 能排除"本系统 resolve 的 thread" →
+> 再开 `auto-resolve-threads`（默认 false）。三者缺一都会留下上面那条漏报通道。
+
 **问题**：不检测已发评论是否 outdated（C14）；inline 评论只新建不编辑（C15）；I8 无法精确知道哪几条发出去了。
 
 **方案**：基于 **R7 的 `review_published_comment`** 表：
