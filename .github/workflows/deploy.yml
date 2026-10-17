@@ -136,11 +136,11 @@ jobs:
           docker compose -f docker-compose.server.yml down --remove-orphans || true
           docker rm -f codepilot-app >/dev/null 2>&1 || true
           docker compose -f docker-compose.server.yml up -d --build --remove-orphans
-          echo "Waiting for app to answer on localhost:8990..."
+          echo "Waiting for app to answer on localhost:8991..."
           for i in $(seq 1 12); do
             # 探 /actuator/health 而不是 webhook 接口：webhook 只接受 POST，
             # 用 GET 探它会每次都往日志里写一条 405 的 ERROR，掩盖真正的启动错误。
-            HTTP_CODE=$(curl --connect-timeout 2 --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8990/actuator/health || true)
+            HTTP_CODE=$(curl --connect-timeout 2 --max-time 5 -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8991/actuator/health || true)
             echo "probe_${i}=${HTTP_CODE}"
             if [ "$HTTP_CODE" != "000" ]; then
               break
@@ -149,8 +149,10 @@ jobs:
           done
           echo "Post-deploy container status:"
           docker compose -f docker-compose.server.yml ps
-          echo "Post-deploy health check:"
-          curl -s -o /dev/null -w "localhost_health_http_code=%{http_code}\n" http://127.0.0.1:8990/actuator/health || true
+          echo "Post-deploy health check (app direct + via nginx TLS):"
+          curl -s -o /dev/null -w "app_direct_http_code=%{http_code}\n" http://127.0.0.1:8991/actuator/health || true
+          # nginx 是宿主机服务、不属于 compose 栈：这里只报告、不让部署因为代理层而失败。
+          curl -s -k -o /dev/null -w "via_nginx_tls_http_code=%{http_code}\n" https://127.0.0.1:8990/actuator/health || true
           echo "Post-deploy app logs:"
           docker compose -f docker-compose.server.yml logs --no-color --tail=100 app || true
           EOF

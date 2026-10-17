@@ -77,11 +77,9 @@ services:
       CODEPILOT_RABBITMQ_PASSWORD: ${CODEPILOT_RABBITMQ_PASSWORD:-codepilot123}
       CODEPILOT_RABBITMQ_VIRTUAL_HOST: ${CODEPILOT_RABBITMQ_VIRTUAL_HOST:-/}
     ports:
-      # 宿主机 8990 → 容器 8080。
-      # 刻意不用 8080：公网上 8080 是无差别扫描最常探的端口之一。
-      # 换端口本身不算防护（真正的门是 API 鉴权 + webhook HMAC + 安全组），
-      # 但能挡掉绝大多数扫描器。
-      - "8990:8080"
+      # 只绑回环：公网入口由 nginx 在 8990 上终止 TLS 后反代到这里。
+      # 这样既不用额外开 9443，也不会让未加密的 8080 直接暴露在公网。
+      - "127.0.0.1:8991:8080"
     depends_on:
       postgres:
         condition: service_healthy
