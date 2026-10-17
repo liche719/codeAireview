@@ -16,4 +16,7 @@ public class ToolProperties {
     private boolean secretScanEnabled = true;
 
     private boolean testSuggestionEnabled = true;
+
+    /** workflow 安全规则（R13）。默认开启：这些都是可枚举的高危模式。 */
+    private boolean ciWorkflowRiskEnabled = true;
 }

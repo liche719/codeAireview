@@ -1071,6 +1071,36 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 
 ## R13 CI / workflow 变更安全规则
 
+> **状态：已完成。**
+>
+> 已实现 `CiWorkflowRiskTool`（`DeterministicReviewRule`，自动被 `DeterministicReviewToolRunner` 收集）：
+> - `pull_request_target` **配合** checkout PR head → HIGH（经典注入向量：base 仓库上下文有 secrets 与写权限，
+>   却把 PR 的代码放进来执行）
+> - `run:`（含 `- run:` 与 `run: |` 块）里直接插值 `github.event.*` / `github.head_ref` / `inputs.*` → HIGH
+> - `permissions: write-all` → MEDIUM
+> - `pull_request` 触发的 workflow 引用 `secrets.` → MEDIUM（fork PR 上取到空值，静默失败）
+> - 第三方 action 未固定到 40 位 commit SHA → LOW（`actions/*`、`github/*` 除外，用版本标签是社区常态）
+> - 开关 `codepilot.tools.ci-workflow-risk-enabled`（默认 **true**）；只对 workflow 文件生效
+>
+> **两个降噪设计（这是本项最重要的部分）**：
+> 1. **只判本 PR 新增的行。** 上下文行里的既有写法不是这次引入的，报出来等于让人为历史代码负责，
+>    会迅速消耗掉对安全规则的信任。
+> 2. **只报可枚举的高置信模式，附触发片段。** 因此 `pull_request_target` **单独出现不报**——
+>    它本身完全合法，危险的是它又去 checkout 了 head。这类"两步组合才成立"的判定正是
+>    最容易误报的地方，所以它被专门写成了一个安全反例测试。
+>
+> **测试写出来时抓到的两个真 bug**（都会让规则静默失效，而非误报）：
+> 1. 触发器判定只认映射键形式，于是最常见的 **`on: pull_request_target`（单行写法）反而漏判**；
+>    连 `on: pull_request` 也认不出，导致 secrets 那条规则完全不触发。现在认单行、列表、映射键、流式列表四种写法，
+>    并且用**整段相等**而非 `contains`——否则查 `pull_request` 会命中 `pull_request_target`，
+>    把"能拿到 secrets"的场景误报成"拿不到"。
+> 2. **`run:` 判定不认列表项写法 `- run: |`**，而这是 `steps:` 下最常见的形式——
+>    整个 run 块注入检查形同虚设。修的时候顺带把脚本块的缩进基准从"整行缩进"改成"`run` 键所在的列"，
+>    否则 `- run: |` 下同级的兄弟键（如 `shell:`）会被算进脚本内容。
+>
+> **仍未覆盖**：没有真机验证；未引入 actionlint / zizmor 等外部工具（首期自研规则无新依赖，外部工具可作后续增强）；
+> 未识别 `workflow_run`、`issue_comment` 触发的提权链（模式更分散，首期不做）。
+
 **问题**：`.github/workflows/` 被归为配置(+700)，但**没有任何 CI 专用安全规则**（B17）。`pull_request_target` 注入、权限提升、`secrets` 外泄到 fork PR 都是真实高危。
 
 **方案**：新增确定性规则 `CiWorkflowRiskTool`，在 workflow YAML 变更时检查：
@@ -1088,6 +1118,35 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 **风险**：**中**——误报会让用户不信任安全规则。缓解：只报可枚举的高置信模式，措辞避免绝对化，并在证据中给出触发片段。
 
 ## R14 `pull_request_review_comment` 里的 @mention
+
+> **状态：已完成（含 `in_reply_to_id` 回复能力，顺带补上 C8）。**
+>
+> 已实现：
+> - `GitHubWebhookPayloadParser.parseReviewCommentEvent`：解析 `pull_request.number`、`comment.path` /
+>   `comment.line`、`comment.in_reply_to_id`，命令解析与作者判定复用 `issue_comment` 那一套
+> - payload 增加 `anchorPath` / `anchorLine` / `replyToCommentId`；迁移 **V24** 给 `pr_command_task`
+>   加同名字段
+> - `GithubClient.replyToReviewComment`：`POST /pulls/{n}/comments/{id}/replies`（这就是 C8）
+> - `AgentChatTaskRunner`：有 `replyToCommentId` 时**回复进 thread**，否则发顶层评论；
+>   并把 `reviewCommentAnchor: path/line` 注入 Agent 上下文，让模型知道"用户在说哪一行"
+> - 开关 `codepilot.github.review-comment-mention-enabled`（默认 **true**，读侧能力）
+>
+> **两个不写下来就会被漏掉的点**：
+>
+> 1. **回复目标是线程根，不是被回复的那条评论。** `in_reply_to_id` 指向被回复的评论，
+>    而 GitHub 的 replies 接口<b>要求传线程根</b>——对一条回复再传它自己的 id 会失败。
+>    解析阶段就把 `in_reply_to_id`（有）或 `comment.id`（顶层评论即根）归一成 `replyToCommentId`。
+> 2. **新增事件类型必须同步扩到所有"是否评论事件"的判定处。** 这一条是真的踩到了：
+>    `GithubCommandRouter.isAllowedCommentAuthor` 原先写的是"不是 `issue_comment` 就放行"，
+>    于是 diff 行评论会**完全绕过 `author_association` 白名单**——任何人都能在 diff 上 @bot 触发动作。
+>    同类的判定还有 `GitHubWebhookService` 的机器人自过滤与去重键，一并改成认两种评论事件。
+>    **已加回归测试并验证过它真的会失败**：把判定改回只认 `issue_comment`，该测试立刻报错。
+>
+> **仍未覆盖**：
+> - 未把"该行附近的 diff 上下文片段"注入 Agent 请求（方案第 4 条只做了 `path` + `line`）。
+>   仅给行号，模型仍需自己去看 diff——够用，但不是最优。
+> - 没有真机验证（需要在一个真实 PR 的 diff 行上 @bot）。
+> - `COLLABORATOR` 仍不区分读写权限（J7 已记录）。
 
 **问题**：`GitHubWebhookPayloadParser` 只认 `pull_request`(:18) 与 `issue_comment`(:20)，`pull_request_review_comment` 落入 `ignored("unsupported event")`(:40)。**用户在 diff 行上直接 @bot 没有任何反应**——而这恰恰是最自然的提问位置（就在问题代码旁边）。
 
@@ -1158,6 +1217,37 @@ CREATE INDEX IF NOT EXISTS idx_published_comment_task
 ---
 
 ## R17 构建门禁语义
+
+> **状态：已完成（`on-pass` / `on-fail` 两个配置项刻意未做，理由见下）。**
+>
+> 已实现：
+> - `ReviewGateEvaluator`：三态判定 `SUCCESS` / `NEUTRAL` / `FAILURE` + 判定依据
+> - `GithubClient.createCommitStatus`：`POST /repos/{o}/{r}/statuses/{sha}`，context 默认 `CodePilot Review`
+> - 迁移 **V25**：`review_task.gate_status` + `gate_reason`（审计"为什么判 failure"）
+> - 接进 `ReviewTaskPublicationService.publish`，在评论发布之后、**整段包 try/catch**
+> - 配置：`gate-enabled`（**false**）、`gate-min-severity`（`HIGH`）、`gate-include-llm-findings`（**false**）、`gate-context-name`
+>
+> **一处 API 事实纠正：commit status 没有 `neutral`。**
+> 初版方案写的是"`context = "CodePilot Review"`，取值 `success`/`neutral`/`failure`"——
+> 但 GitHub 的 **commit status** 只有 `error / failure / pending / success` 四种，
+> `neutral` 是 **Checks API** 的 conclusion。因此本项目的 NEUTRAL 在写 status 时映射为 `success`
+> （语义就是"不阻塞"），映射函数 `toCommitStatus` 与测试都显式钉住了这一点，
+> 避免有人"顺手"改成 `neutral` 而直接吃 422。
+>
+> **为什么整段门禁包在 try/catch 里**：门禁是旁路增强。缺 commit status 权限、限流、网络抖动
+> 都不该让**已经成功发布**的审查变成失败——那会把"可选的门禁"变成"审查的又一个失败点"。
+> 且门禁未启用时**一次 GitHub 调用都不发**，默认行为与引入本能力之前完全一致。
+>
+> **刻意未做 `on-pass` / `on-fail`（对标补充 9）**：方案给的默认值是
+> `on-pass=silent`、`on-fail=comment`。但 **`on-pass=silent` 会直接回退 R2**——
+> R2 建立的不变量是"一个文件都没审时必须明说『本次结论不代表 PR 没有问题』"，
+> 而"没有问题就闭嘴"恰恰会把这条告警一起吞掉，让部分覆盖的 PR 看起来像全部通过。
+> 这是两个 P2 项之间的真实冲突，不是笔误。要引入 `on-pass` 必须同时定义
+> "覆盖完整" 与 "覆盖不足" 两种通过态，属独立设计，不宜在补门禁时顺手改掉 R2。
+> **目前行为：无论有无 finding 都发摘要评论**（与 R2 一致）。
+>
+> **仍未覆盖**：没有真机验证（需要 GitHub App 具备 commit status 写权限）；
+> 未接入 required status checks 的实测；`gate_reason` 未上摘要（只有库里有）。
 
 ### 问题
 

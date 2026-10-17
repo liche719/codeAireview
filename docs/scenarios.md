@@ -3,7 +3,7 @@
 > 本文件是 Phase 0 的产出：把「一个 PR 从生到死会遇到的每一种情况」穷举成清单，逐条对照当前实现。
 > **每一行的结论都来自实际代码**，附 `类:方法`（行号会随改动漂移，类与方法名不会）。
 >
-> 基线：R1–R12 全部落地后的 `main`，`mvn clean test` = 735 tests / 0 failures / 0 errors / 2 skipped。
+> 基线：R1–R17 全部落地后的 `main`，`mvn clean test` = 765 tests / 0 failures / 0 errors / 2 skipped。
 > （刻意不写死 commit sha：每次提交都会让它过期，而它过期时读起来仍然像是对的。）
 > 状态图例：✅ 已实现 · ⚠️ 部分实现或有隐患 · ❌ 未实现
 >
@@ -22,18 +22,18 @@
 | 维度 | 场景数 | ✅ | ⚠️ | ❌ |
 |---|---|---|---|---|
 | A. PR 生命周期 | 18 | 3 | 5 | 10 |
-| B. PR 内容形态 | 20 | 17 | 3 | 0 |
-| C. 评论落点与形态 | 18 | 9 | 3 | 6 |
+| B. PR 内容形态 | 20 | 18 | 2 | 0 |
+| C. 评论落点与形态 | 18 | 10 | 3 | 5 |
 | D. 多文件协调 | 14 | 5 | 8 | 1 |
 | E. 记忆与上下文 | 17 | 15 | 0 | 2 |
-| F. Agent 模式 | 18 | 13 | 2 | 3 |
+| F. Agent 模式 | 18 | 14 | 2 | 2 |
 | G. 协作与反馈 | 8 | 2 | 0 | 6 |
 | H. 性能与成本 | 8 | 3 | 3 | 2 |
 | I. 故障 | 12 | 7 | 4 | 1 |
 | J. 安全 | 12 | 9 | 1 | 2 |
-| **合计（A–J）** | **145** | **83** | **29** | **33** |
-| K. 补漏 `C19` | 1 | 0 | 0 | 1 |
-| **总计** | **146** | **83** | **29** | **34** |
+| **合计（A–J）** | **145** | **86** | **28** | **31** |
+| K. 补漏 `C19` | 1 | 1 | 0 | 0 |
+| **总计** | **146** | **87** | **28** | **31** |
 
 > **上表是本文件自身的第二处修正。** 初版表格（`142 / 58 / 38 / 46`）与各维度明细行**对不上**：
 > 例如 A 维度明细行是 `3 ✅ / 5 ⚠️ / 10 ❌`，初版表格却写 `4 / 5 / 9`；C 维度明细是 `7 / 3 / 8`，
@@ -108,7 +108,7 @@
 | B14 | 生成代码（protobuf/openapi） | ✅ | **R11**：`isGeneratedPath` 按生成器命名约定判定（`.pb.go`、`.pb.grpc.go`、`_pb2.py`、`_pb2_grpc.py`、`.g.dart`、`.freezed.dart`、`.designer.cs`、`.generated.{cs,java,ts,kt}`、`zz_generated.*`），跳过并归入**独立的** `GENERATED` 分类——reason 指向"去改生成源"，而不是笼统的路径排除。**只看路径里有没有 "generated" 是错的**：那会把 `CodeGenerator.java`、`tools/generators/` 这些**生成器本身**排除掉（有反向断言）。初版 skip_reason 文案 "file type or generated path skipped" 与实现不符的问题随本轮一并修掉（现在文案按分类分别是 build output / vendored / generated） |
 | B15 | vendored 第三方 | ✅ | **R11**：`isVendoredPath` 覆盖 `vendor/`、`third_party/`、`third-party/`、`node_modules/`、`bower_components/`，跳过并归入 `VENDORED` 分类。**用整段目录匹配而非子串**：`contains("vendor")` 会把 `src/main/java/**/vendored/License.java` 这类手写代码误判成第三方（有反向断言）。该误判的后果是静默漏审，所以必须收紧 |
 | B16 | submodule 变更 | ⚠️ | submodule 指针变更的 patch 为空 → 恰好被 B4 规则跳过；但无显式识别，且 `.gitmodules` 会按普通文件处理 |
-| B17 | CI / workflow 文件变更 | ⚠️ | `.github/workflows/` 被 `isConfigurationPath`(:70) 归为配置(+700)，**但没有任何 CI 专用安全规则**（如 `pull_request_target` 注入、权限提升、secret 外泄） |
+| B17 | CI / workflow 文件变更 | ✅ | **R13**：新增确定性规则 `CiWorkflowRiskTool`（只对 `.github/workflows/*.yml` / `*.yaml` 生效），覆盖 5 类可枚举高危模式：`pull_request_target` **配合** checkout PR head、`run:` 里直接插值用户可控输入、`permissions: write-all`、`pull_request` 触发的 workflow 引用 `secrets`、第三方 action 未固定到 40 位 SHA。`.github/workflows/` 仍被 `isConfigurationPath` 归为配置(+700)，规则是在此之上追加的安全检查。开关 `ci-workflow-risk-enabled` 默认 **true**。**两个降噪设计**：① 只判本 PR **新增行**——上下文行里的既有写法不报，否则等于让人为历史代码负责；② 只报高置信模式并附触发片段——`pull_request_target` **单独出现不报**，危险的是它又去 checkout 了 head |
 | B18 | 锁文件 | ✅ | `shouldSkipPath` 含 `.lock`、`package-lock.json`、`yarn.lock`、`.min.js`、`.min.css`。**R11 修掉错位**：`pnpm-lock.yaml` 原先以 `.yaml` 结尾，既不被 `.lock` 命中、又被 `isDependencyManifestPath` 归为依赖清单，于是会被当普通文件送审；同类漏判的 `poetry.lock`、`go.sum` 一并补上 |
 | B19 | 混合内容 | ✅ | 按 `reviewPriority` 降序贪心分配预算（`ReviewFilePlanner.applyReviewLimits`） |
 | B20 | 空 diff | ✅ | `ReviewFileReviewer.review` 对空列表直接返回 `List.of()` |
@@ -126,7 +126,7 @@
 | C5 | `suggestion` 一键应用块 | ✅ | **R5**：`AiReviewIssue.suggestedCode` + JSON schema 字段 + 迁移 V22 `review_issue.suggested_code`；`ReviewSuggestionValidator` 在**发布时**判定能否一键应用（非空 / 落点可评论 / 必须是 diff **新侧** RIGHT / 行数 ≤ `suggestion-max-lines`）。**不通过不丢弃**：代码块从 ` ```suggestion ` 降级为 ` ```diff ` 并附说明。开关 `suggestion-enabled` 默认 **false**（写侧交互）。**未做**：422 兜底重试；以及"发出的 suggestion 真的能被 GitHub 应用"的真机验证 |
 | C6 | 非 diff 文件的问题（如"缺测试"） | ✅ | `ReviewIssueLocationGuard` 拦下后只能进 Summary（见 `ReviewCommentPublisher.publish`） |
 | C7 | Summary marker 幂等更新 | ✅ | `GitHubCommentServiceImpl.findExistingCommentId` + `updateIssueComment`。**R1 之后**：标记来源统一到 `CommentMarkers`（四类互不相同），并增加**作者过滤**（`isOwnSummaryComment`：必须带摘要标记**且**是本机器人发的），两道过滤缺一不可。S1 覆盖缺陷已消除；实际能更新还依赖 F1 的 PATCH 修复 |
-| C8 | 回复已有 review thread | ❌ | 只调用 `createPullRequestComment` / `createPullRequestInlineComment`，无 `in_reply_to` 参数 |
+| C8 | 回复已有 review thread | ✅ | **R14**：`GithubClient.replyToReviewComment`（`POST /pulls/{n}/comments/{id}/replies`）。Agent 回复在 `replyToCommentId` 非空时投递进 thread，否则发顶层评论。**关键细节**：接口要求传**线程根** id，传一条回复自己的 id 会失败，因此解析阶段已把 `in_reply_to_id`（有）或 `comment.id`（顶层即根）归一 |
 | C9 | resolve / unresolve thread | ❌ | 无 GraphQL `resolveReviewThread` 调用 |
 | C10 | **正式 Review verdict** | ❌ | 全仓库无 `APPROVE`/`REQUEST_CHANGES` review event（搜到的 `approve*` 全部属于 Fix 审批链路 `FixApprovalService`） |
 | C11 | inline 预算超限（10） | ⚠️ | `ReviewCommentBudgetAllocator` 存在并有测试；Summary 会追加「另外还有 N 条问题未展示」，且**R6 之后**额外给出「其中 M 条已被抑制」（`ReviewReportFormatter:123-130`）。**仍未解决的部分**：不列出被丢弃的**具体是哪几条、为什么**——R2 的「审查覆盖」说的是**文件**维度，不是 inline 评论预算维度（roadmap 把 C11 列在 R2 的覆盖场景里，实际只部分兑现） |
@@ -202,7 +202,7 @@
 | F11 | 运行超时 | ✅ | **R8**：`requireWithinLimits` 抛 `AgentLimitExceededException(RUN_DEADLINE)`，当前值取"已过去多久"且保证 ≥ 上限（不会出现"还没到上限就说超了"），文案把整分钟渲染成"30 分钟"。同样走终态不回帖以外的一切。**仍未覆盖**：`AgentWorkflowResumeJob` 里"等待 workflow 期间超时"那条路径（`:46-53`）**只标失败不回帖**，用户看不到说明 |
 | F12 | 同一 PR 并发多个 Agent 请求 | ⚠️ | 每个评论独立 `pr_command_task` + `agent_run`；`AgentConversationContextBuilder` 只注入 **已 SUCCESS** 的历史任务 → **两个同时在跑的 run 互相看不见** |
 | F13 | issue_comment 非 PR | ✅ | `GitHubWebhookPayloadParser:82-84` 无 `/issue/pull_request` → `ignored("not pull request comment")` |
-| F14 | **PR review comment 里的 @mention** | ❌ | `GitHubWebhookPayloadParser` 只认 `pull_request`(:18) 与 `issue_comment`(:20) 两个事件；`pull_request_review_comment` 落到 `ignored("unsupported event")`(:40)。**用户在 diff 上直接 @bot 无任何反应** |
+| F14 | **PR review comment 里的 @mention** | ✅ | **R14**：`parseReviewCommentEvent` 解析 `pull_request.number` / `comment.path` / `comment.line` / `comment.in_reply_to_id`，与 `issue_comment` 共用命令解析与作者判定。回答**回复进那条 thread**（`replyToReviewComment`），并把 `reviewCommentAnchor: path/line` 注入 Agent 上下文。开关 `review-comment-mention-enabled` 默认 **true**。**新增事件类型时同步扩了所有"是否评论事件"判定**：`GithubCommandRouter` 的作者白名单、`GitHubWebhookService` 的机器人自过滤与去重键——其中作者白名单原先只认 `issue_comment`，不改就会让 diff 行评论**完全绕过授权**（已加回归测试并验证过会失败）。**未做**：把该行附近的 diff 片段注入上下文 |
 | F15 | PR 描述里的 @mention | ❌ | 解析器只读 `pull_request.title`(:55)，不读 body；`pull_request` 事件走审查链路而非 Agent 链路 |
 | F16 | diff 里的 prompt injection | ✅ | 离线评估 `PromptRegressionEvalTest` + `AiReviewPipelineEvalTest` 有该场景；`PromptInputSanitizer.escapeUntrustedBlockDelimiters` |
 | F17 | 网页内容的 prompt injection | ✅ | `AiReviewContextFormatter` 标记外部内容为不可信；`WebDocumentFetchService` 有防护 |
@@ -291,7 +291,7 @@
 
 | ID | 场景 | 状态 | 证据与说明 |
 |---|---|---|---|
-| **C19** | **是否阻塞合并（门禁语义）** | ❌ | 本项目**完全没有门禁语义**：不提交 review verdict（见 C10），也不写 commit status / check run。全仓库无 `createCommitStatus` / `check_run` / `CheckRun` 相关调用。对标结论：reviewdog 默认 `-fail-level=none`（**有 finding 也返回 0**）、Danger JS `--failOnErrors` **默认 false**、SonarQube 把质量门注册为**独立** GitHub check、Semgrep `semgrep ci` 默认失败——**四家里三家默认不阻塞**，且都刻意把"产生评论"与"判定失败"解耦。设计见路线图 **R17** |
+| **C19** | **是否阻塞合并（门禁语义）** | ✅ | **R17**：`ReviewGateEvaluator` 三态判定 + `GithubClient.createCommitStatus`（context 默认 `CodePilot Review`），判定结果落库 `review_task.gate_status` / `gate_reason`。**默认 `gate-enabled=false`，即不写任何 status**——对标四家里三家默认不阻塞（reviewdog `-fail-level=none`、Danger JS `--failOnErrors` 默认 false、SonarQube 用独立 check），且都刻意把"产生评论"与"判定失败"解耦。开启后也只在**确定性规则**达到 `gate-min-severity` 时才 `failure`；`gate-include-llm-findings` 默认 **false**（拿不确定输出卡合并不负责任）。**一处 API 事实**：commit status **没有** `neutral`（那是 Checks API 的 conclusion），NEUTRAL 映射为 `success`。**刻意未做** `on-pass=silent`——它会回退 R2 的"覆盖不足必须明说" |
 
 因此本矩阵的准确表述是 **143 个场景**（142 + 1 补漏），而非最初的 142。
 
@@ -305,7 +305,7 @@
 
 | 说法 | 核实结果 |
 |---|---|
-| "735 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R16 之后）。初版写 540 是当时的真实值，现已过时 |
+| "765 个自动化测试" | ✅ 正确（`mvn clean test`，R1–R17 之后）。初版写 540 是当时的真实值，现已过时 |
 | "Precision 85.71% / Recall 100%" | ✅ 数字正确，但**样本仅 6 个 PR-like 场景**，且在 issueType 级别按 case 拼 key 计算（`AiReviewPipelineEvalTest`）。D2 计划扩充，**未做** |
 | "文件级并发 / 单文件失败隔离" | ✅ 正确 |
 | "patch verification + location guard" | ✅ 正确 |
