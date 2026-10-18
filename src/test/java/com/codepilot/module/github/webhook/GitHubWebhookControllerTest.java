@@ -1,6 +1,7 @@
 package com.codepilot.module.github.webhook;
 
 import com.codepilot.common.exception.BusinessException;
+import com.codepilot.common.exception.GlobalExceptionHandler;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -10,6 +11,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -27,6 +29,9 @@ class GitHubWebhookControllerTest {
 
     private final MockMvc mockMvc = MockMvcBuilders
             .standaloneSetup(new GitHubWebhookController(service))
+            // 方法不匹配的处理器在全局 advice 里（控制器内的捕获不到），
+            // 所以这里必须把真实 advice 挂上，否则测的是另一套行为。
+            .setControllerAdvice(new GlobalExceptionHandler())
             .build();
 
     @Test
@@ -81,5 +86,18 @@ class GitHubWebhookControllerTest {
                         .content("{}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0));
+    }
+
+    /**
+     * 浏览器直接打开这个地址（GET）必须回 405，而不是 "HTTP 200 + server error"。
+     *
+     * <p>这条来自真实反馈：用浏览器访问 webhook 地址看到
+     * {@code {"code":500,"message":"server error"}}——状态码、文案、日志三处都不对。</p>
+     */
+    @Test
+    void shouldReturn405ForGetOnWebhookEndpoint() throws Exception {
+        mockMvc.perform(get("/api/github/webhook"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.code").value(405));
     }
 }

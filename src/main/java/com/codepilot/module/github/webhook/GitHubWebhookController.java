@@ -46,6 +46,9 @@ public class GitHubWebhookController {
      *
      * <p>只在**本控制器内**覆盖：其余 JSON 接口的约定是"HTTP 200 + 业务 code"，
      * 全局改动会破坏调用方。</p>
+     *
+     * <p>注意：方法不匹配（例如用浏览器 GET 打开）<b>不经过这里</b>——
+     * 那种情况在匹配到处理器之前就抛异常了，由全局 advice 处理。</p>
      */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Result<Void>> handleWebhookBusinessException(BusinessException exception) {
