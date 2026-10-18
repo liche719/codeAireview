@@ -43,7 +43,7 @@ copy .env.example .env
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `CODEPILOT_GITHUB_AUTH_MODE` | `auto` | `auto`、`pat` 或 `app`。 |
-| `CODEPILOT_GITHUB_TOKEN` | 空 | PAT 模式 token。 |
+| `CODEPILOT_GITHUB_TOKEN` | 空 | PAT 模式 token。**这个 token 的身份就是评论作者**，同时也决定"谁不能触发 @bot"：`GitHubWebhookService.isBotAuthoredIssueComment` 会把**与该 token 同一账号**发的评论当成 bot 自己的而忽略。所以如果希望"人 @bot 能触发"，token 必须是**独立 bot 账号**的；用你自己的 token 时，你自己 @ 会被静默忽略。 |
 | `CODEPILOT_GITHUB_APP_ID` | 空 | GitHub App ID。 |
 | `CODEPILOT_GITHUB_APP_PRIVATE_KEY` | 空 | GitHub App PEM 私钥原文或转义换行。 |
 | `CODEPILOT_GITHUB_APP_PRIVATE_KEY_BASE64` | 空 | GitHub App 私钥 base64，推荐用于 Docker/CI。 |

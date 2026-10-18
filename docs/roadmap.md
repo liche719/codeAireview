@@ -572,6 +572,17 @@ ALTER TABLE review_issue ADD COLUMN IF NOT EXISTS suggested_code TEXT;
 > **指纹的保守取向**：识别信息不足（路径/类型缺失，或标题与描述都太短）时指纹返回 `null`，
 > 该 finding **永不抑制**。理由：两个不同问题算出同一指纹会导致**漏报**，比重复评论严重得多。
 >
+> **真机验证结果（R7，已开启）**：
+> 1. 在沙箱 PR 上用 GraphQL resolve 一条**由本 bot 发出**的 thread → 下一次审查日志
+>    `Review dismissal sync applied, dismissed=1`，`review_finding_memory.state` 变为 `DISMISSED`；
+> 2. 该 finding 在下一次审查中被抑制，且 `suppression_reason` 正确写为 **`dismissed by a maintainer`**，
+>    同文件的其他 finding 照常发布（说明抑制是逐条生效，不是整文件丢弃）。
+>
+> **一个必须知道的顺序问题**：如果该 finding **同时**低于发布分数阈值，`ReviewFindingRanker`
+> 会先把它标成 `below publish score threshold`，而 `markSuppressed` 刻意不覆盖已有原因，
+> 于是**误报原因不会显示**。行为仍然正确（它本来就不会被发布），但审计里看不到"人判过这条"。
+> 低危问题恰好最常被 resolve，所以这个组合并不罕见。
+
 > **仍未覆盖**：没有真实 PR 上的端到端验证（本项默认关闭，需要显式开启后在一个多 commit 的 PR 上验证
 > "第二次 push 不再重复评论"）。也未与 R2 的覆盖度上报做过联合验证。
 
