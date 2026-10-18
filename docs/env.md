@@ -15,8 +15,8 @@ copy .env.example .env
 | `CODEPILOT_API_AUTH_ENABLED` | `true` | 是否启用 API Key 鉴权。 |
 | `CODEPILOT_API_AUTH_API_KEY` | 空 | 内部 REST API 密钥；为空时受保护接口返回 `401`。 |
 | `CODEPILOT_API_AUTH_HEADER_NAME` | `X-CodePilot-Api-Key` | API Key header 名称。 |
-| `CODEPILOT_API_AUTH_PROTECTED_PATH_PATTERNS` | `/api/**` | 需要鉴权的路径。 |
-| `CODEPILOT_API_AUTH_EXCLUDE_PATH_PATTERNS` | `/api/github/webhook,/api/github/webhook/**` | 鉴权排除路径；Webhook 使用 GitHub HMAC 验签。 |
+| `CODEPILOT_API_AUTH_PROTECTED_PATH_PATTERNS` | `/api/**,/actuator/**` | 需要鉴权的路径。**`/actuator/**` 必须在内**：`/actuator/metrics` 会暴露全部内部指标名与数值，而这个服务对公网。 |
+| `CODEPILOT_API_AUTH_EXCLUDE_PATH_PATTERNS` | `/api/github/webhook,/api/github/webhook/**,/actuator/health` | 鉴权排除路径；Webhook 使用 GitHub HMAC 验签。`/actuator/health` 保留公开——探活要用，且它只返回 `{"status":"UP"}`。 |
 
 ## API 限流
 

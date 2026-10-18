@@ -85,4 +85,39 @@ class ApiKeyAuthFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(200);
     }
+
+    /**
+     * /actuator/metrics 必须鉴权：它会列出全部内部指标名与数值，而服务在公网。
+     *
+     * <p>这条来自真机发现——部署后直接 `curl https://<host>:8990/actuator/metrics`
+     * 拿到了完整指标列表，不需要任何凭据。</p>
+     */
+    @Test
+    void shouldRequireApiKeyForActuatorMetrics() throws ServletException, IOException {
+        ApiAuthProperties properties = new ApiAuthProperties();
+        properties.setApiKey("secret");
+        ApiKeyAuthFilter filter = new ApiKeyAuthFilter(properties, objectMapper);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/actuator/metrics");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(401);
+    }
+
+    /** 但 /actuator/health 要公开：探活和监控依赖它，且它只返回 {"status":"UP"}。 */
+    @Test
+    void shouldKeepActuatorHealthPublic() throws ServletException, IOException {
+        ApiAuthProperties properties = new ApiAuthProperties();
+        properties.setApiKey("secret");
+        ApiKeyAuthFilter filter = new ApiKeyAuthFilter(properties, objectMapper);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/actuator/health");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
 }
