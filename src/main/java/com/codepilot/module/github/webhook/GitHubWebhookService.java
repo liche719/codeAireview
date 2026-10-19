@@ -85,16 +85,15 @@ public class GitHubWebhookService {
                     delivery);
             return GitHubWebhookResponse.ignored("repository is not allowed", parsedPayload.getAction());
         }
-        if (isBotAuthoredIssueComment(parsedPayload)) {
-            log.info("GitHub webhook ignored because comment was authored by bot, event={}, action={}, owner={}, repo={}, pullNumber={}, commentUser={}, delivery={}",
+        if (isRequiredCommentBodyMissing(parsedPayload)) {
+            log.info("GitHub webhook ignored because the comment body is missing, event={}, action={}, owner={}, repo={}, pullNumber={}, delivery={}",
                     parsedPayload.getEvent(),
                     parsedPayload.getAction(),
                     parsedPayload.getOwner(),
                     parsedPayload.getRepo(),
                     parsedPayload.getPullNumber(),
-                    parsedPayload.getCommentUserLogin(),
                     delivery);
-            return GitHubWebhookResponse.ignored("bot comment", parsedPayload.getAction());
+            return GitHubWebhookResponse.ignored("missing comment body", parsedPayload.getAction());
         }
         if (isDuplicate(parsedPayload, delivery)) {
             log.info("GitHub webhook ignored because duplicate event was detected, event={}, owner={}, repo={}, pullNumber={}, headSha={}, commentId={}, delivery={}",
@@ -155,16 +154,23 @@ public class GitHubWebhookService {
     }
 
     /**
-     * 机器人自己发的评论必须挡掉，否则「收到评论 → 回一条评论 → 又收到评论」会自循环。
+     * 评论文体缺失时不处理。
      *
-     * <p>R14 起 diff 行评论也走命令链路，因此这里从"只认 issue_comment"放宽为"两种评论事件"。</p>
+     * <h2>为什么不再按"作者是不是 bot 自己"过滤</h2>
+     * 原先这里比较评论作者与 {@code getAuthenticatedUserLogin()}，命中就忽略，
+     * 目的是防止「收到评论 → 回一条评论 → 又收到评论」自循环。
+     *
+     * <p>但这道判断有个致命副作用：<b>当 token 就是使用者本人时，他自己 @bot 的评论会被当成
+     * "bot 自己发的"而静默丢弃</b>——单人项目最常见的配置下，@ 功能等于完全不可用。
+     * 真机验证时确认过：日志里是 {@code ignored because comment was authored by bot}。</p>
+     *
+     * <p>真正可靠的身份判据是**评论标记**，而且 {@code GitHubWebhookPayloadParser}
+     * 已经在入口按 {@link CommentMarkers#containsAnyIdentity} 丢弃我们自己发的评论
+     * （摘要 / Agent 回复 / 命令提示 / 修复结果 / 行内评论）。标记比作者更精确：
+     * 它只匹配我们实际产出的内容，与账号是谁无关。</p>
      */
-    private boolean isBotAuthoredIssueComment(GitHubPullRequestWebhookPayload payload) {
-        if (!isCommentEvent(payload.getEvent()) || !StringUtils.hasText(payload.getCommentUserLogin())) {
-            return false;
-        }
-        String botLogin = githubClient == null ? null : githubClient.getAuthenticatedUserLogin();
-        return StringUtils.hasText(botLogin) && botLogin.equalsIgnoreCase(payload.getCommentUserLogin());
+    private boolean isRequiredCommentBodyMissing(GitHubPullRequestWebhookPayload payload) {
+        return isCommentEvent(payload.getEvent()) && !StringUtils.hasText(payload.getCommentBody());
     }
 
     private boolean isCommentEvent(String event) {

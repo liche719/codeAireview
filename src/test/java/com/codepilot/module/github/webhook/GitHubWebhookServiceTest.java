@@ -1,6 +1,7 @@
 package com.codepilot.module.github.webhook;
 
 import com.codepilot.common.enums.ReviewCommentMode;
+import com.codepilot.module.review.report.CommentMarkers;
 import com.codepilot.common.exception.BusinessException;
 import com.codepilot.infrastructure.llm.LlmProperties;
 import com.codepilot.module.command.config.GithubCommandProperties;
@@ -237,22 +238,50 @@ class GitHubWebhookServiceTest {
         verify(context.valueOperations, never()).setIfAbsent(anyString(), anyString(), any());
     }
 
+    /**
+     * 与 token 同账号的人发的评论，只要不带我们的身份标记，就必须被正常处理。
+     *
+     * <p>原先是"评论作者 == 认证用户就忽略"，导致**单人项目最常见配置下 @bot 完全不可用**：
+     * 你自己的评论会被当成 bot 自己发的静默丢弃（真机日志里是
+     * {@code ignored because comment was authored by bot}）。
+     * 现在身份判据只认评论标记，见 {@link CommentMarkers#containsAnyIdentity}。</p>
+     */
     @Test
-    void shouldIgnoreIssueCommentAuthoredByBot() {
+    void shouldProcessSameAccountCommentThatCarriesNoBotMarker() {
         TestContext context = new TestContext(true, true);
+        when(context.githubCommandRouter.route(any()))
+                .thenReturn(GithubCommandHandleResult.processed(789L, "created"));
 
         GitHubWebhookResponse response = context.service.handle(
                 "issue_comment",
                 "delivery-6",
                 "sha256=valid",
+                // 作者与认证登录相同（X-PilotX），但正文里没有我们的任何标记
                 issueCommentPayload("created", "@x-pilotx 帮我解决上述问题", true, "X-PilotX")
         );
 
+        assertThat(response.isIgnored()).isFalse();
+        assertThat(response.getTaskId()).isEqualTo(789L);
+        verify(context.githubCommandRouter).route(any());
+    }
+
+    /** 带我们自己标记的评论必须忽略——这才是真正的自循环防护。 */
+    @Test
+    void shouldIgnoreCommentThatCarriesOurAgentReplyMarker() {
+        TestContext context = new TestContext(true, true);
+
+        GitHubWebhookResponse response = context.service.handle(
+                "issue_comment",
+                "delivery-6b",
+                "sha256=valid",
+                issueCommentPayload("created",
+                        // 这里要产出 JSON 里的转义换行（\n 两个字符），否则模板里的字符串字面量会被换行截断
+                        CommentMarkers.AGENT_REPLY + "\\n\\n这是上一轮的回答", true, "someone-else")
+        );
+
         assertThat(response.isIgnored()).isTrue();
-        assertThat(response.getReason()).isEqualTo("bot comment");
+        assertThat(response.getReason()).isEqualTo("bot response");
         verify(context.githubCommandRouter, never()).route(any());
-        verify(context.reviewTaskService, never()).createTask(anyString(), any());
-        verify(context.valueOperations, never()).setIfAbsent(anyString(), anyString(), any());
     }
 
     private String pullRequestPayload(String action) {

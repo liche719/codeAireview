@@ -33,6 +33,15 @@ public final class CommentMarkers {
     public static final String FIX_RESULT = "<!-- codepilot-fix-result -->";
 
     /**
+     * 行内审查评论（只追加）。实际正文形如 {@code <!-- codepilot-inline-review:<指纹> -->}。
+     *
+     * <p>这里只存前缀，用于"这条评论是不是我们自己发的"判定；指纹提取另有专门的类。
+     * 必须登记，因为行内评论同样是 {@code pull_request_review_comment} 事件——
+     * 不登记的话，我们自己发的行内评论会被当成待处理的新命令再走一遍。</p>
+     */
+    public static final String INLINE_REVIEW = "<!-- codepilot-inline-review";
+
+    /**
      * 身份标记只在评论正文的前 N 行内匹配。
      *
      * <p>避免正文里**引用**到某个标记（例如用户把标记贴进评论、或我们的摘要里提到它）时被误判
@@ -40,7 +49,7 @@ public final class CommentMarkers {
      */
     public static final int DEFAULT_HEADER_LINES = 5;
 
-    private static final List<String> APPEND_ONLY = List.of(AGENT_REPLY, COMMAND_NOTICE, FIX_RESULT);
+    private static final List<String> APPEND_ONLY = List.of(AGENT_REPLY, COMMAND_NOTICE, FIX_RESULT, INLINE_REVIEW);
 
     private CommentMarkers() {
     }
