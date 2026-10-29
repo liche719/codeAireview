@@ -125,7 +125,12 @@ public class ReviewOpsStatsService {
             return "unknown";
         }
         String text = message.toLowerCase();
-        if (text.contains("bad credentials") || text.contains("401")) {
+        // 2026-10-29 修：原来只判 contains("401")，会把"第 401 行"这种普通文本误判成鉴权失败。
+        // 这条是**真实提交评测里模型自己指出来的**（人工判定成立），照它改了。
+        if (text.contains("bad credentials")
+                || text.contains("401 unauthorized")
+                || text.contains("status=401")
+                || text.contains("\"status\": \"401\"")) {
             return "github-auth";
         }
         if (text.contains("403") || text.contains("rate limit")) {

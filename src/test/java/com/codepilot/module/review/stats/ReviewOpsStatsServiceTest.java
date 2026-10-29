@@ -42,4 +42,16 @@ class ReviewOpsStatsServiceTest {
         assertThat(ReviewOpsStatsService.classifyFailure("")).isEqualTo("unknown");
         assertThat(ReviewOpsStatsService.classifyFailure(null)).isEqualTo("unknown");
     }
+
+    @Test
+    @DisplayName("普通文本里的 401 不能被当成鉴权失败（真实评测里模型指出过这条）")
+    void doesNotMistakeRandomNumbersForAuthFailures() {
+        assertThat(ReviewOpsStatsService.classifyFailure("line 401: missing null check in service"))
+                .isEqualTo("other");
+        assertThat(ReviewOpsStatsService.classifyFailure("second attempt scanned 401 records"))
+                .isEqualTo("other");
+        // 真正的鉴权失败仍然要认出来
+        assertThat(ReviewOpsStatsService.classifyFailure("401 Unauthorized: Bad credentials"))
+                .isEqualTo("github-auth");
+    }
 }
