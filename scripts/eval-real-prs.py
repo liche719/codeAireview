@@ -113,9 +113,12 @@ def parse_issues(text):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--commits", type=int, default=8)
+    parser.add_argument("--revs", default="", help="逗号分隔的 commit sha；给了就用它，保证 A/B 跑同一批")
     parser.add_argument("--limit-files", type=int, default=3, help="每个提交最多取几个文件")
     parser.add_argument("--min-lines", type=int, default=4, help="diff 少于这么多行就跳过")
     parser.add_argument("--out", default="real-prs.json")
+    parser.add_argument("--no-test-marker", action="store_true",
+                        help="不标注测试文件（对照组：模拟加这个标记之前的行为）")
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -130,7 +133,14 @@ def main():
     system_template = open(SYSTEM_PROMPT, encoding="utf-8").read()
     user_template = open(USER_PROMPT, encoding="utf-8").read()
 
-    commits = [line.split("\t") for line in git("log", "--format=%H\t%h\t%s", "-%d" % args.commits).splitlines() if line]
+    if args.revs:
+        commits = []
+        for sha in [item.strip() for item in args.revs.split(",") if item.strip()]:
+            line = git("log", "--format=%H\t%h\t%s", "-1", sha).strip()
+            if line:
+                commits.append(line.split("\t"))
+    else:
+        commits = [line.split("\t") for line in git("log", "--format=%H\t%h\t%s", "-%d" % args.commits).splitlines() if line]
     report = []
     total_issues = 0
     total_files = 0
@@ -141,7 +151,10 @@ def main():
                  if len(item[1].splitlines()) >= args.min_lines][: args.limit_files]
         if not files:
             continue
-        changed_text = "\n".join("- " + path for path, _ in files)
+        changed_text = "\n".join(
+            "- " + path + ("  【测试文件：本 PR 已包含测试变更】"
+                           if (path.startswith("src/test/") and not args.no_test_marker) else "")
+            for path, _ in files)
         entry = {"commit": short_sha, "subject": subject, "files": []}
         for path, patch in files:
             user = fill(user_template, {"rules": DEFAULT_RULES, "allChangedFilesText": changed_text,

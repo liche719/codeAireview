@@ -3,6 +3,7 @@ package com.codepilot.module.agent.prompt;
 import com.codepilot.common.util.PromptInputSanitizer;
 import com.codepilot.module.agent.dto.AiReviewContext;
 import com.codepilot.module.agent.dto.DismissedFinding;
+import com.codepilot.module.review.classifier.ReviewFileClassifier;
 import com.codepilot.module.review.instruction.PathGlobMatcher;
 import com.codepilot.module.review.instruction.PathInstruction;
 import org.springframework.stereotype.Component;
@@ -267,7 +268,15 @@ public class AiReviewContextFormatter {
     private void appendChangedFiles(StringBuilder builder, List<String> allChangedFiles) {
         int limit = Math.min(allChangedFiles.size(), CHANGED_FILE_CONTEXT_LIMIT);
         for (int index = 0; index < limit; index++) {
-            builder.append(singleLine(allChangedFiles.get(index))).append('\n');
+            String path = singleLine(allChangedFiles.get(index));
+            builder.append(path);
+            // 2026-10-29：把"这是测试文件"标出来。
+            // 真实提交评测里最集中的一类误报是"新增方法缺少测试"——而测试就在同一个 PR 的另一个文件里，
+            // 模型只看当前文件的 diff 根本看不到。系统知道这件事，就该说给它听。
+            if (ReviewFileClassifier.isTestPath(path)) {
+                builder.append("  【测试文件：本 PR 已包含测试变更】");
+            }
+            builder.append('\n');
         }
         if (allChangedFiles.size() > CHANGED_FILE_CONTEXT_LIMIT) {
             builder.append("- ")

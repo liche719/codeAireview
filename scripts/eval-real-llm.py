@@ -186,7 +186,10 @@ def main():
             skipped_gate += 1
             continue
         files = case.get("files") or []
-        changed_text = "\n".join("- " + f.get("filePath", "") for f in files)
+        changed_text = "\n".join(
+            "- " + f.get("filePath", "")
+            + ("  【测试文件：本 PR 已包含测试变更】" if (f.get("filePath") or "").startswith("src/test/") else "")
+            for f in files)
         expected = case.get("expectedFindings") or []
         must_not = case.get("mustNotFindings") or []
         tags = case.get("scenarioTags") or []

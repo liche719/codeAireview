@@ -1,0 +1,153 @@
+[
+  {
+    "commit": "cf3e131",
+    "subject": "stats: add a windowed review operations endpoint",
+    "files": [
+      {
+        "file": "src/main/java/com/codepilot/module/review/controller/ReviewOpsStatsController.java",
+        "issues": [
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/controller/ReviewOpsStatsController.java",
+            "lineNumber": 30,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "参数校验缺失",
+            "severity": "MEDIUM",
+            "title": "days 参数未做范围校验，可能传入负数或超大值",
+            "description": "review 方法直接接收 int days 并传给 statsService.snapshot(days)，未对取值范围做任何校验。若调用方传入负数或极大值（如 0、-1、100000），可能导致时间窗口计算异常、查询范围过大或下游统计逻辑出现非预期行为。",
+            "suggestion": "在 Controller 或 Service 层对 days 做边界校验（例如限定 1~365），非法值返回明确的参数错误；可使用 @Min/@Max 配合 @Validated，或在 Service 内校验并抛出业务异常。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/controller/ReviewOpsStatsController.java",
+            "lineNumber": 30,
+            "issueType": "TEST_MISSING",
+            "issueTypeZh": "测试缺失",
+            "severity": "LOW",
+            "title": "新增 Controller 公开接口缺少对应测试",
+            "description": "本次 PR 新增了 ReviewOpsStatsController 的公开接口 /api/stats/review，但未同时新增对应的单元测试或接口测试，无法验证参数默认值、参数校验及返回结构。",
+            "suggestion": "补充针对该接口的测试，覆盖默认 days=7、显式传入 days、非法 days 等场景，并校验返回的 Result 结构。",
+            "source": "LLM",
+            "ruleReference": "团队规范：新增 Service / Controller 的公开方法应当有对应测试"
+          }
+        ]
+      },
+      {
+        "file": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+        "issues": [
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 60,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "潜在 Bug",
+            "severity": "MEDIUM",
+            "title": "taskStatusCounts 中 counts 值类型强转存在风险",
+            "description": "counts 是 Map<String, Object>，通过 rs.getLong(\"c\") 放入的是 Long 值，后续 ((Number) value).longValue() 与 ((Number) counts.getOrDefault(\"SUCCESS\", 0L)).longValue() 依赖值一定是 Number。当前实现虽然放入的是 Long，但 getOrDefault 的默认值 0L 与 Map 泛型 Object 混用，若后续有人改为放入字符串或其他类型会抛 ClassCastException。建议将 counts 声明为 Map<String, Long>，避免 Object 强转。",
+            "suggestion": "将 counts 改为 Map<String, Long>，直接使用 counts.getOrDefault(\"SUCCESS\", 0L)，去掉 Number 强转。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 78,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "潜在 Bug",
+            "severity": "MEDIUM",
+            "title": "queryForMap 在无数据时可能返回空 Map 导致 NPE",
+            "description": "taskDuration 中 queryForMap 在聚合查询 COUNT(*) 场景下通常返回一行，但若底层驱动或查询异常返回空 Map，row.get(\"n\") 等会返回 null，随后 ((Number) null).longValue() 会抛 NullPointerException。虽然被 catch(RuntimeException) 捕获，但会把真实错误吞成 \"duration unavailable\"，掩盖问题。建议显式判空或使用 queryForObject 配合默认值。",
+            "suggestion": "对 row 中的字段做 null 判断，或改用 queryForObject 并处理 EmptyResultDataAccessException，避免把 NPE 误报为数据库不支持。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 96,
+            "issueType": "PERFORMANCE",
+            "issueTypeZh": "性能问题",
+            "severity": "MEDIUM",
+            "title": "failureTypes 全量拉取 error_message 到内存归类",
+            "description": "failureTypes 使用 queryForList 把窗口内所有 FAILED 任务的 error_message 全量加载到 JVM 再在内存中归类。当失败任务量大或 error_message 较长时，会造成明显内存与网络开销。建议在 SQL 层用 CASE WHEN 做归类聚合，或至少限制返回行数。",
+            "suggestion": "将归类逻辑下推到 SQL（CASE WHEN 分组 COUNT），只返回 type 与 count，避免全量数据传输。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 130,
+            "issueType": "LOGGING",
+            "issueTypeZh": "日志问题",
+            "severity": "LOW",
+            "title": "异常日志仅打印 message，缺少堆栈与上下文",
+            "description": "taskDuration 与 publishStats 的 catch 块只记录 exception.getMessage()，丢失堆栈信息，排查时难以定位根因；同时未记录 days 等查询上下文。建议使用 log.warn(\"...\", exception) 打印完整异常，并带上窗口参数。",
+            "suggestion": "改为 log.warn(\"计算任务耗时分布失败，windowDays={}\", days, exception)，保留堆栈。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 1,
+            "issueType": "TEST_MISSING",
+            "issueTypeZh": "测试缺失",
+            "severity": "MEDIUM",
+            "title": "新增 Service 公开方法缺少单元测试",
+            "description": "本次新增 ReviewOpsStatsService，包含公开方法 snapshot(int days) 以及包级静态方法 classifyFailure，但 PR 未同时新增对应测试。classifyFailure 的分支逻辑（null/blank、401、403、timeout、network、llm、business、other）尤其需要覆盖，snapshot 的窗口裁剪与各统计块也应有测试。",
+            "suggestion": "新增 ReviewOpsStatsServiceTest，覆盖 classifyFailure 各分支以及 snapshot 的窗口边界（0、1、90、100）和空数据场景。",
+            "source": "LLM",
+            "ruleReference": "团队规范：新增 Service 的公开方法应当有对应测试"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "commit": "06d466c",
+    "subject": "review: drop LLM test-missing findings when the PR already adds tests",
+    "files": [
+      {
+        "file": "src/main/java/com/codepilot/module/review/processor/ReviewFileReviewer.java",
+        "issues": []
+      },
+      {
+        "file": "src/main/java/com/codepilot/module/review/processor/ReviewTestCoverageGuard.java",
+        "issues": [
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/processor/ReviewTestCoverageGuard.java",
+            "lineNumber": 60,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "潜在 bug",
+            "severity": "MEDIUM",
+            "title": "测试类名匹配逻辑可能误删合法的 TEST_MISSING 问题",
+            "description": "testSubjects 通过去掉 test/tests 前后缀得到被测对象名，subjectOf 则直接取问题文件路径的简单类名。两者匹配依赖命名完全一致，例如 BillingServiceTest.java 得到 billingservice，而问题文件路径若是 BillingService.java 得到 billingservice，可以匹配；但若测试文件命名为 BillingServiceTests.java 或 TestBillingService.java，虽然能提取出 billingservice，但若问题文件路径是 com/foo/BillingService.java 也能匹配。问题在于：如果 PR 中新增了任意一个名为 FooTest.java 的测试文件，而 LLM 对另一个同名但不同包/不同模块的 Foo.java 报了 TEST_MISSING，也会被误删。此外，若测试文件是 FooTest.java 但被测类实际是 Bar.java（测试类名与被测类不同名），则不会匹配，导致本应保留的 TEST_MISSING 被保留（这是漏拦，不是误删）。更关键的是：当 simple 同时以 test 开头和结尾时（如 TestFooTest），会同时添加 foo 和 footest 两个 subject，可能产生意外匹配。建议增加包路径或模块维度的匹配，或至少记录被丢弃问题的文件路径以便审计。",
+            "suggestion": "在匹配时同时比较包路径或模块前缀，避免不同包下同名类误匹配；对 TestFooTest 这类命名做互斥处理；并在日志中输出被丢弃问题的 filePath 和匹配到的测试文件，便于排查误删。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/processor/ReviewTestCoverageGuard.java",
+            "lineNumber": 47,
+            "issueType": "STYLE",
+            "issueTypeZh": "代码风格",
+            "severity": "LOW",
+            "title": "空列表返回 List.of() 与入参 null 语义不一致",
+            "description": "当 issues 为 null 时返回不可变的 List.of()，而当 issues 非 null 但为空时直接返回原列表（可能是可变列表）。调用方若对返回值做 add/remove 会因不可变集合抛 UnsupportedOperationException，行为不一致。建议统一返回空的可变列表或明确文档说明返回值不可修改。",
+            "suggestion": "统一返回 new ArrayList<>() 或 Collections.emptyList()，并在 Javadoc 中说明返回值是否可变。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/processor/ReviewTestCoverageGuard.java",
+            "lineNumber": 1,
+            "issueType": "TEST_MISSING",
+            "issueTypeZh": "测试缺失",
+            "severity": "MEDIUM",
+            "title": "新增的公开工具方法缺少单元测试",
+            "description": "ReviewTestCoverageGuard 是新增的公开类，suppressUnfoundedTestMissing 是公开静态方法，承担过滤 LLM TEST_MISSING 的关键逻辑，但本次 PR 未新增对应测试。该逻辑涉及 null 入参、空列表、测试文件命名多种前后缀、大小写、路径分隔符等分支，缺少测试容易回归。",
+            "suggestion": "新增 ReviewTestCoverageGuardTest，覆盖：issues 为 null/空、reviewFiles 为 null/空、无测试文件、BillingServiceTest/BillingServiceTests/TestBillingService 等命名、Windows 反斜杠路径、非 LLM 来源或非 TEST_MISSING 类型不被过滤、以及被过滤后顺序保持等场景。",
+            "source": "LLM",
+            "ruleReference": "团队规范：新增 Service/Controller 的公开方法应当有对应测试"
+          }
+        ]
+      }
+    ]
+  }
+]
