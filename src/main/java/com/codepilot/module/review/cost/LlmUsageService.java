@@ -30,6 +30,7 @@ public class LlmUsageService {
     public void record(String model, Long promptTokens, Long completionTokens, Double estimatedCost) {
         try {
             LlmUsage usage = new LlmUsage();
+            usage.setTaskId(ReviewCostContext.currentTaskId());
             usage.setModelName(model);
             usage.setPromptTokens(promptTokens == null ? 0L : promptTokens);
             usage.setCompletionTokens(completionTokens == null ? 0L : completionTokens);

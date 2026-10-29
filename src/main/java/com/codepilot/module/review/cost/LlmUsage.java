@@ -15,6 +15,9 @@ public class LlmUsage {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    /** 关联的审查任务；为 null 表示非审查场景（例如 agent 对话） */
+    private Long taskId;
+
     private String modelName;
 
     private Long promptTokens;

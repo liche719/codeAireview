@@ -83,6 +83,9 @@ public class ReviewFileReviewExecutor {
     }
 
     private ReviewFileOutcome reviewFileSafely(Long taskId, ReviewFile reviewFile, ReviewContext reviewContext) {
+        // 2026-10-29：让底层 LLM 调用能知道"现在在给哪个任务干活"，用于按仓库统计花费。
+        // 放在这里而不是更深处，是因为这是"一个文件一次审查"的边界，作用域最小。
+        com.codepilot.module.review.cost.ReviewCostContext.setTaskId(taskId);
         try {
             ReviewFileOutcome outcome = new ReviewFileOutcome(
                     singleFileReviewer.review(taskId, reviewFile, reviewContext), null
@@ -97,6 +100,8 @@ public class ReviewFileReviewExecutor {
                     exception.getClass().getSimpleName(),
                     SensitiveDataSanitizer.redact(exception.getMessage()));
             return new ReviewFileOutcome(List.of(failureIssueFactory.create(taskId, reviewFile, exception)), exception);
+        } finally {
+            com.codepilot.module.review.cost.ReviewCostContext.clear();
         }
     }
 

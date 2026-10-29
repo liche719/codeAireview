@@ -44,13 +44,20 @@ public class CostStatsService {
                         + "SUM(estimated_cost) AS cost "
                         + "FROM llm_usage WHERE created_at >= now() - (? || ' days')::interval "
                         + "GROUP BY 1 ORDER BY cost DESC", String.valueOf(window)));
+        result.put("byRepo", query(
+                "SELECT COALESCE(t.repo_owner || '/' || t.repo_name, 'non-review') AS bucket, "
+                        + "COUNT(*) AS calls, SUM(u.prompt_tokens) AS prompt, "
+                        + "SUM(u.completion_tokens) AS completion, SUM(u.estimated_cost) AS cost "
+                        + "FROM llm_usage u LEFT JOIN review_task t ON t.id = u.task_id "
+                        + "WHERE u.created_at >= now() - (? || ' days')::interval "
+                        + "GROUP BY 1 ORDER BY calls DESC", String.valueOf(window)));
         double today = llmUsageService.todayCost();
         Map<String, Object> budget = new LinkedHashMap<>();
         budget.put("dailyBudget", dailyBudget);
         budget.put("todayCost", Math.round(today * 10000) / 10000.0);
         budget.put("exceeded", dailyBudget > 0 && today >= dailyBudget);
         result.put("budget", budget);
-        result.put("note", "按仓库统计暂未支持：LLM 客户端拿不到 task 上下文");
+        result.put("note", "task_id 为空的调用（如 agent 对话）归入 non-review");
         return result;
     }
 
