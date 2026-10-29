@@ -86,6 +86,31 @@ def call_model(base_url, api_key, model, system, user, timeout=180):
 HUNK = re.compile(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
+
+def test_subjects(case_files):
+    """本次 PR 里被测试的对象：BillingServiceTest.java → billingservice（与生产 ReviewTestCoverageGuard 同规则）"""
+    subjects = set()
+    for file in case_files:
+        path = (file.get("filePath") or "").replace("\\", "/")
+        simple = path.rsplit("/", 1)[-1]
+        if simple.endswith(".java"):
+            simple = simple[:-5]
+        if not path.startswith("src/test/"):
+            continue
+        lowered = simple.lower()
+        for suffix in ("tests", "test"):
+            if lowered.endswith(suffix):
+                subjects.add(lowered[: -len(suffix)])
+        if lowered.startswith("test"):
+            subjects.add(lowered[4:])
+    return subjects
+
+
+def simple_name(path):
+    name = (path or "").replace("\\", "/").rsplit("/", 1)[-1]
+    return name[:-5].lower() if name.endswith(".java") else name.lower()
+
+
 def commentable_lines(patch):
     """把 patch 里「可以被评论」的行号算出来（2026-10-29 接回生产闸门）。
 
@@ -191,12 +216,18 @@ def main():
             if issues is None:
                 parse_failures += 1
                 continue
+            subjects = test_subjects(files)
             allowed = commentable_lines(file.get("patch", ""))
             for issue in issues:
                 line = issue.get("lineNumber")
                 # 闸门：行号必须落在 diff 覆盖范围内，否则生产上会被 location guard 丢掉
                 if isinstance(line, int) and allowed and line not in allowed:
                     gate_filtered.append({**issue, "_gate": "line-not-in-patch"})
+                    continue
+                # 生产规则（ReviewTestCoverageGuard）：PR 里已有同名测试时，丢掉 LLM 的 TEST_MISSING
+                if (issue.get("issueType") == "TEST_MISSING" and issue.get("source", "LLM") == "LLM"
+                        and simple_name(issue.get("filePath")) in subjects):
+                    gate_filtered.append({**issue, "_gate": "test-added-in-pr"})
                     continue
                 collected.append(issue)
             time.sleep(args.sleep)

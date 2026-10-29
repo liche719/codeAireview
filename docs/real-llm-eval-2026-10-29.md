@@ -67,3 +67,24 @@ python scripts/eval-real-llm.py --out report.json
 剩下的 1 条违规是 `no-test-missing-when-test-file-changed`：PR 同时改了生产类和测试类，
 模型仍报「charge() 缺少测试」。prompt 已经写了两遍仍不稳定——
 **这说明它应该交给确定性规则**（PR 里已有同名测试文件时丢弃 LLM 的 TEST_MISSING），而不是继续堆 prompt。
+## 第三轮：把"模型判断不稳定"的那条交给确定性规则
+
+第二轮剩下的唯一违规是「PR 里已经补了测试，模型还报 TEST_MISSING」。**prompt 写了两遍仍不稳定**，
+于是改成规则：新增 `ReviewTestCoverageGuard`——本次 PR 的变更文件里存在与目标类同名的测试
+（`Xxx` → `XxxTest`）时，丢弃 **LLM 报的** `TEST_MISSING`；确定性工具报的一律不碰。
+
+另外补了两条 prompt 澄清（都在真实评测里对应到具体误报）：
+- diff 是**片段**，方法签名/字段可能不在 diff 里 —— 不要因为片段不完整就报"无法通过编译"；
+- 只读查询把 `DataAccessException` 交给框架，**不要只因为没写 try-catch 就报异常处理问题**。
+
+| 指标 | mock | 第一轮 | 第二轮 | 第三轮 |
+|---|---|---|---|---|
+| recall（跳过闸门用例） | — | 63.0% | 79.2% | **79.2%** |
+| must-not 违规 | 0 | 4 | 1 | **0** |
+| clean 场景误报 | 0 | 13 | 6 | **4** |
+| 单文件审查耗时 | — | — | p50 3.5s | **p50 3.2s / p90 4.4s** |
+
+**回归**：`AiReviewPipelineEvalTest`（mock 基线）与 `ReviewTestCoverageGuardTest`（5 条新用例）
+全部通过——规则没有破坏原有闸门行为。
+
+**口径**：79.2% 是"跳过 3 个闸门用例"后的真实召回；不要写成 100%，也不要把闸门用例的 miss 算到模型头上。

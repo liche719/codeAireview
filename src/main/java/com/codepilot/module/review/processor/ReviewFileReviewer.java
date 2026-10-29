@@ -95,6 +95,10 @@ public class ReviewFileReviewer {
             }
             reviewIssues.addAll(outcome.issues());
         }
+        // 2026-10-29：PR 里已经补了测试时，丢弃模型报的 TEST_MISSING。
+        // 真实模型评测里这条误报在提示词写了两遍之后仍然出现——系统明明知道变更文件里有测试，
+        // 就不该继续指望模型自己推断。
+        reviewIssues = ReviewTestCoverageGuard.suppressUnfoundedTestMissing(reviewIssues, reviewableFiles);
         reviewIssues = reviewFindingRanker.rank(reviewIssues);
         if (!reviewableFiles.isEmpty() && failedFileCount == reviewableFiles.size()) {
             throw new IllegalStateException("AI review failed for all reviewable files, failedCount=" + failedFileCount
