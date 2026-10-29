@@ -32,6 +32,16 @@ public class ReviewOpsStatsService {
 
     private final JdbcTemplate jdbcTemplate;
 
+    /** SLO 目标（2026-10-29）：这三个数就是我们对团队的承诺，超了要能从接口和日志里看出来。 */
+    @org.springframework.beans.factory.annotation.Value("${codepilot.slo.success-rate-target:0.95}")
+    private double sloSuccessRateTarget = 0.95;
+
+    @org.springframework.beans.factory.annotation.Value("${codepilot.slo.p95-seconds-target:60}")
+    private double sloP95SecondsTarget = 60;
+
+    @org.springframework.beans.factory.annotation.Value("${codepilot.slo.backlog-seconds-target:300}")
+    private double sloBacklogSecondsTarget = 300;
+
     public ReviewOpsStatsService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
@@ -44,8 +54,70 @@ public class ReviewOpsStatsService {
         result.put("duration", taskDuration(window));
         result.put("failures", failureTypes(window));
         result.put("publish", publishStats(window));
-        result.put("backlog", backlog());
+        Map<String, Object> backlog = backlog();
+        result.put("backlog", backlog);
+        result.put("slo", evaluateSlo(result, backlog));
         return result;
+    }
+
+
+    /**
+     * SLO 评估（2026-10-29）。
+     *
+     * <p>没有 Prometheus 的部署里，"有没有达标"必须能从一次查询看出来，而不是靠人盯曲线。
+     * 三个目标：成功率、p95 耗时、积压时长；任一不达标就在日志里 WARN（这就是我们的"告警通道"），
+     * 同时把 {@code breached} 返给调用方。
+     *
+     * <p><b>为什么不在应用里发邮件/IM</b>：私有化部署的网络出口通常受限，
+     * 把告警做成"日志 + 接口标志位"，由企业自己的监控来接，比硬编码一个通道更合适。
+     */
+    Map<String, Object> evaluateSlo(Map<String, Object> stats, Map<String, Object> backlog) {
+        Map<String, Object> slo = new LinkedHashMap<>();
+        List<Map<String, Object>> checks = new ArrayList<>();
+        boolean breached = false;
+
+        double successRate = readDouble(stats, "tasks", "successRate");
+        boolean successOk = successRate >= sloSuccessRateTarget;
+        checks.add(check("successRate", successRate, sloSuccessRateTarget, successOk));
+        breached |= !successOk;
+
+        double p95 = readDouble(stats, "duration", "p90Seconds");
+        long samples = (long) readDouble(stats, "duration", "samples");
+        // 样本不足不判定：拿 1 个样本算 p95 没有意义
+        boolean durationOk = samples < 5 || p95 <= sloP95SecondsTarget;
+        checks.add(check("p95Seconds", p95, sloP95SecondsTarget, durationOk));
+        breached |= !durationOk;
+
+        double oldestWait = readDouble(backlog, null, "oldestWaitSeconds");
+        boolean backlogOk = oldestWait <= sloBacklogSecondsTarget;
+        checks.add(check("oldestWaitSeconds", oldestWait, sloBacklogSecondsTarget, backlogOk));
+        breached |= !backlogOk;
+
+        slo.put("breached", breached);
+        slo.put("checks", checks);
+        slo.put("note", samples < 5 ? "耗时样本少于 5 条，不做 p95 判定" : "");
+        if (breached) {
+            log.warn("Review SLO breached, window={}d, checks={}", stats.get("windowDays"), checks);
+        }
+        return slo;
+    }
+
+    private Map<String, Object> check(String name, double actual, double target, boolean ok) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("name", name);
+        item.put("actual", Math.round(actual * 1000) / 1000.0);
+        item.put("target", target);
+        item.put("ok", ok);
+        return item;
+    }
+
+    private double readDouble(Map<String, Object> root, String section, String key) {
+        Object container = section == null ? root : root.get(section);
+        if (!(container instanceof Map<?, ?> map)) {
+            return 0;
+        }
+        Object value = map.get(key);
+        return value instanceof Number number ? number.doubleValue() : 0;
     }
 
     private Map<String, Object> taskStatusCounts(int days) {

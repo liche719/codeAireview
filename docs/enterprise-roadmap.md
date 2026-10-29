@@ -241,3 +241,32 @@ agent 的回复（原文摘录）：
 启动直接失败：`Found more than one migration with version 10`。
 **重命名/删除迁移文件后必须 `mvn clean package`**。
 这次也因此让服务中断了约 10 分钟（502），属于我操作不当，记录在此。
+### 2026-10-29（六）：SLO 与告警
+
+**做了什么**：`/api/stats/review` 增加 `slo` 段，三个目标可配：
+
+| 指标 | 目标 | 说明 |
+|---|---|---|
+| `successRate` | ≥ 95% | 窗口内任务成功率 |
+| `p95Seconds` | ≤ 60s | 用 p90 近似（样本 <5 条时不下结论） |
+| `oldestWaitSeconds` | ≤ 300s | 最老的 PENDING 等待时长（积压） |
+
+**实测（生产，30 天窗口）**：
+
+```json
+{"breached": true,
+ "checks": [
+   {"name":"successRate","actual":0.833,"target":0.95,"ok":false},
+   {"name":"p95Seconds","actual":19.7,"target":60.0,"ok":true},
+   {"name":"oldestWaitSeconds","actual":0.0,"target":300.0,"ok":true}]}
+```
+
+**这个红灯是真的**：83.3% 的成功率正是今天我自己造成的——
+限额实验里故意撞上限的 FAILED 任务、以及迁移文件重复导致的那次启动失败。
+
+**设计取舍**：
+
+1. **告警通道不硬编码**：私有化部署的网络出口通常受限，所以做成"日志 WARN + 接口 `breached` 标志"，
+   由企业自己的监控来接。硬编码一个 IM webhook 反而会变成运维负担。
+2. **样本不足不判定**：1 条样本的 p95 没有意义，宁可不判也不算错（`ReviewOpsSloTest` 锁住）。
+3. **红灯必须能解释**：每个 check 都给出 `actual` 与 `target`，运维一眼能看出是"真的慢了"还是"阈值定高了"。
