@@ -168,3 +168,42 @@ python scripts/eval-real-prs.py --commits 6 --limit-files 2 --out real-prs.json
 
 **方法论收获**：A/B 一定要固定输入（`--revs`），否则"最近 N 个提交"每次窗口都在动，
 两次跑的根本不是同一批代码——这和自己前面批评的"用有随机性的分数当证据"是同一个错误。
+## 端到端验证的现状：匿名可以跑审查，但不能发评论（2026-10-29 实测）
+
+**背景**：部署里的 `CODEPILOT_GITHUB_TOKEN` 已过期（GitHub 返回 `401 Bad credentials`），
+导致所有真实 PR 都失败。我把这个空 token 清掉，改成匿名访问，验证了这条链路能走多远。
+
+### 实测结果
+
+| 能力 | 匿名可用？ | 证据 |
+|---|---|---|
+| 拉公开 PR 详情 / diff | ✅ | `octocat/Hello-World` 与 `spring-projects/spring-petclinic#2670` 都能拉到 |
+| 建任务 → 落库 → 审查 → 出结论 | ✅ | 任务 **13**：`SUCCESS`，`totalFiles=2`，`totalIssues=0` |
+| 回写 PR 评论 | ❌ | 日志：`Skip GitHub PR comment because GitHub auth is missing` |
+| 读取已有 review 线程（去重同步） | ❌ | `403 API rate limit exceeded`（匿名每小时 60 次） |
+
+结论：**审查主链路可以在无凭据下跑通**，但"回写评论"这一半必须有 token；
+而且匿名配额只有 60 次/小时，连"读一遍已有评论线程"都不够——这条也解释了为什么必须用账号。
+
+### 复现步骤（无 token 时）
+
+```bash
+# 1) 把 .env 里的 token 清空（不要留一个过期值，否则全是 401）
+CODEPILOT_GITHUB_TOKEN=
+
+# 2) 临时把要试的公开仓库加进 allowlist（试完记得改回去）
+CODEPILOT_GITHUB_ALLOWED_REPOSITORIES=liche719/codepilot-verify,spring-projects/spring-petclinic
+
+# 3) 触发
+curl -sk -X POST https://127.0.0.1:8990/api/reviews \
+  -H "X-CodePilot-Api-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"prUrl":"https://github.com/spring-projects/spring-petclinic/pull/2670"}'
+```
+
+**安全提醒**：allowlist 是安全边界，试完必须改回去——为了一次演示长期放开等于自己拆门。
+
+### 要补齐"摘要 + 行内评论"证据，只差一件事
+
+需要一个有 `repo` 权限的 GitHub PAT（或 GitHub App 的 private key + installation id），
+填进 `/opt/codeAireview/.env` 的 `CODEPILOT_GITHUB_TOKEN` 后重启容器即可。
+那时可以完整跑一遍：触发 → 任务 SUCCESS → 摘要评论 → 行内评论 → `/api/stats/review` 里 `publish` 段落有数据。
