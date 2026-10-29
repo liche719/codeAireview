@@ -351,3 +351,44 @@ curl -X PATCH https://api.github.com/repos/{owner}/{repo}/branches/main/protecti
 
 **口径**：简历/面试里应该说"门禁状态已写入并验证，required check 需要公开仓库或 Pro 账号，
 在满足条件的仓库上配置即可生效"——**不要说"已经被强制引用"**。
+### 2026-10-29（十）：required status check 打通——合并真的被挡住了
+
+上一节记的是"私有免费仓库设不了保护"。这轮把演示仓库改为**公开**（只有 README + 一个 demo 分支，
+内容是我自己生成的示例代码），然后成功配置：
+
+```bash
+# 1) 仓库转公开（分支保护/规则集属于付费能力，公开仓库免费可用）
+PATCH /repos/liche719/codepilot-verify  {"private": false}
+
+# 2) 要求 CodePilot Review 通过才能合并
+PUT /repos/liche719/codepilot-verify/branches/main/protection
+{"required_status_checks":{"strict":false,"contexts":["CodePilot Review"]},
+ "enforce_admins":false,"required_pull_request_reviews":null,"restrictions":null}
+→ http=200
+
+# 3) 复核
+GET /repos/.../branches/main/protection/required_status_checks
+→ contexts=['CodePilot Review']
+```
+
+**结果（真实 PR #2）**：
+
+```
+mergeable: True
+mergeable_state: blocked          ← 被必需检查挡住
+CodePilot Review | failure | 2 deterministic finding(s) at or above HIGH; highest: HIGH SECURITY
+```
+
+**这条证据链现在是完整的**：
+
+```
+确定性规则查出硬编码口令
+  → 门禁判定 FAILURE
+  → 写 commit status（context = CodePilot Review, state = failure）
+  → 分支保护要求该 check 通过
+  → PR 的 mergeable_state = blocked（GitHub 不允许合并）
+```
+
+**代价与说明**：为了让 required check 生效，把演示仓库 `liche719/codepilot-verify` 改成了**公开**。
+它只有 README 和一个演示分支（内容是我生成的示例代码，含一个假口令字符串），不含任何真实凭据。
+如果要恢复私有，`PATCH {"private": true}` 即可，但那样分支保护会随之失效（GitHub 的套餐限制）。
