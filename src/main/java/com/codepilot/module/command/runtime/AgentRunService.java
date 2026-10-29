@@ -70,6 +70,35 @@ public class AgentRunService {
         recordStep(run.getId(), "MODEL", "model-turn-" + turns, "STARTED", null, null, null);
     }
 
+    /**
+     * 记录**一次真实模型调用**（2026-10-29）。
+     *
+     * <p><b>为什么需要</b>：原来 `beginModelTurn` 只在任务开始时调一次，之后 LangChain4j 的
+     * AiServices 会在内部跑完整条工具循环——**那些调用没有被计数**。结果是
+     * `agent_run.model_turn_count` 恒为 1，配 `max-model-turns` 的限额**永远不会触发**：
+     * 看起来有治理，实际是死的。
+     *
+     * <p>本方法由 {@code ChatModelListener} 在每次请求模型前调用；限额在这里判，
+     * 抛出的异常会被运行时当作"撞上限"处理（用户可见的收尾话术）。
+     */
+    public void recordModelTurn(Long runId) {
+        if (runId == null) {
+            return;
+        }
+        AgentRun run = runMapper.selectById(runId);
+        if (run == null) {
+            return;
+        }
+        int turns = safe(run.getModelTurnCount()) + 1;
+        int maxTurns = Math.max(1, properties.getMaxModelTurns());
+        if (turns > maxTurns) {
+            throw new AgentLimitExceededException(LimitType.MODEL_TURNS, turns, maxTurns);
+        }
+        run.setModelTurnCount(turns);
+        run.setUpdatedAt(LocalDateTime.now());
+        runMapper.updateById(run);
+    }
+
     public void recordToolCall(AgentRun run, String name, String inputSummary) {
         int calls = safe(run.getToolCallCount()) + 1;
         int maxCalls = Math.max(1, properties.getMaxToolCalls());

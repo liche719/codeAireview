@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Locale;
 
 @Slf4j
@@ -24,6 +25,13 @@ public class LangChain4jConfig {
     private final LlmProperties llmProperties;
 
     private final AiReviewJsonSchemaFactory aiReviewJsonSchemaFactory;
+
+    /**
+     * 把每次真实模型调用计入 agent_run（2026-10-29）。
+     * 用字段注入 + {@code required=false}：配置层不该因为命令模块的 bean 而启动失败。
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.codepilot.module.command.trace.AgentModelTurnListener agentModelTurnListener;
 
     @Bean
     @Primary
@@ -52,8 +60,13 @@ public class LangChain4jConfig {
                 baseUrl,
                 timeout.toSeconds());
 
-        return baseOpenAiChatModelBuilder(baseUrl, timeout)
-                .build();
+        OpenAiChatModel.OpenAiChatModelBuilder chatModelBuilder = baseOpenAiChatModelBuilder(baseUrl, timeout);
+        // 2026-10-29：把每次真实模型调用计入 agent_run，让 max-model-turns 真正生效。
+        // 没有它，轮次恒为 1，限额是死的（详见 AgentRunService#recordModelTurn）。
+        if (agentModelTurnListener != null) {
+            chatModelBuilder.listeners(List.of(agentModelTurnListener));
+        }
+        return chatModelBuilder.build();
     }
 
     @Bean

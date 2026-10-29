@@ -120,3 +120,27 @@ step3 TOOL_RESULT searchTeamRules FAILED — BusinessException: embedding is dis
 
 **这两条的价值**：不是"又加了功能"，而是把"Agent 的轨迹数据可不可信"这件事做实——
 轨迹是后面算成本、做限额、排查问题的基础，它一开始就是错的，后面全是错的。
+### 2026-10-29（续）：限额治理 —— 一个修好了，一个**没做成**
+
+**修好并验证的：`tool_call_count` 与 `searchTeamRules`**（见上一节），
+修复后真实 agent run 里 `tool_call_count = 1`、`searchTeamRules` 返回 `SUCCESS`。
+
+**没做成的：`max-model-turns` 限额仍然不生效。**
+
+- 现象：把 `CODEPILOT_AGENT_MAX_MODEL_TURNS` 设为 1 后触发一次需要工具的问答，
+  运行仍然 `COMPLETED`，`model_turn_count` 恒为 **1**——限额没有触发；
+- 根因：`beginModelTurn` 只在任务开始时调用一次，之后 LangChain4j 的 AiServices
+  在内部跑完整条工具循环，**中间的模型调用没有被计数**；
+- 我尝试的修法：加 `ChatModelListener`，在每次真实模型请求前调用 `recordModelTurn(runId)`，
+  并把 listener 挂到 `codeReviewChatModel` 上；
+- **结果：仍然 `model_turn_count = 1`，说明 listener 没有真正生效**（或 AiServices 的调用
+  没走这个监听器）。已回滚 `max-model-turns` 配置到 8，服务恢复健康（0 ERROR）。
+
+**为什么如实记下来**：这条限额现在的状态是"配置看起来有、实际不生效"，
+比"没有这个功能"更危险——它会让运维以为有护栏。要么把计数做成真的，
+要么把这条限额从文档和配置里删掉，**不能留着装样子**。
+
+下一步（未完成）：
+1. 确认 `ChatModelListener` 是否被 AiServices 的 tool loop 触发（打日志验证）；
+2. 如果 listener 路线不通，改成在**工具调用边界**校验：`recordToolCall` 时检查
+   `model_turn_count` 与工具调用次数是否超阈值——那里是我们自己的代码，一定能拦住。
