@@ -49,3 +49,21 @@ python scripts/eval-real-llm.py --out report.json
 - [ ] 用真实 PR（而非合成 diff）扩充样本到 15~20 个，人工标注缺陷，重算 precision/recall 与置信区间；
 - [ ] 把闸门分支（parse failure / deleted line）在脚本里完整模拟，让 24 → 27 个用例都能被真实模型评测；
 - [ ] 针对上面 2 条误报继续调 prompt 或交给确定性规则处理。
+## 第二轮改进（同日）
+
+1. **prompt**：补「同一 PR 里已经加了测试就不要再报 TEST_MISSING」；
+2. **用例**：`llm-hallucinated-line-outside-patch` 的 `mustNotFindings` 原来写成"任何 BUG_RISK 都不许报"，
+   范围过宽（diff 里那行确实引用了未定义变量，报编译风险是合理的），收窄为"不许引用 patch 之外的行"；
+3. **脚本**：闸门类用例（坏 JSON / 删除行语义）显式跳过并单独报数，另记录单文件审查耗时。
+
+| 指标 | mock | 真实·第一轮 | 真实·第二轮 |
+|---|---|---|---|
+| recall（含闸门用例） | 100% | 63.0% | — |
+| recall（**跳过闸门用例**） | — | — | **79.2% (19/24)** |
+| must-not 违规 | 0 | 4 | **1** |
+| clean 场景误报 | 0 | 13 | **6** |
+| 单文件审查耗时 | — | — | **p50 3.5s / p90 4.6s** |
+
+剩下的 1 条违规是 `no-test-missing-when-test-file-changed`：PR 同时改了生产类和测试类，
+模型仍报「charge() 缺少测试」。prompt 已经写了两遍仍不稳定——
+**这说明它应该交给确定性规则**（PR 里已有同名测试文件时丢弃 LLM 的 TEST_MISSING），而不是继续堆 prompt。

@@ -30,6 +30,14 @@ CASES = os.path.join(ROOT, "src", "test", "resources", "eval", "ai-review-pipeli
 SYSTEM_PROMPT = os.path.join(ROOT, "src", "main", "resources", "prompts", "ai-review-system-message.txt")
 USER_PROMPT = os.path.join(ROOT, "src", "main", "resources", "prompts", "ai-review-user-message.txt")
 
+GATE_ONLY_CASES = {
+    # 这三个用例验证的是**闸门分支**（坏 JSON 记为 AI_REVIEW_FAILED、删除行可评论性），
+    # 真实模型不会返回坏 JSON，所以它们不适用真模型评测——跳过比伪造输入更诚实。
+    "invalid-llm-response-parse-failure",
+    "malformed-llm-json-keeps-other-file-findings",
+    "llm-finding-on-deleted-line-is-commentable",
+}
+
 DEFAULT_RULES = """- Mapper / DAO 层禁止字符串拼接 SQL，必须用参数化查询。
 - 代码里不能出现明文口令、私钥、Token。
 - 新增 Service / Controller 的公开方法应当有对应测试。
@@ -145,8 +153,13 @@ def main():
     clean_cases = 0
     unlabeled = 0
 
+    skipped_gate = 0
+    latencies = []
     for case in cases:
         name = case.get("name")
+        if name in GATE_ONLY_CASES:
+            skipped_gate += 1
+            continue
         files = case.get("files") or []
         changed_text = "\n".join("- " + f.get("filePath", "") for f in files)
         expected = case.get("expectedFindings") or []
@@ -166,8 +179,10 @@ def main():
                 "filePath": file.get("filePath", ""),
                 "patch": file.get("patch", ""),
             })
+            started = time.time()
             try:
                 answer = call_model(base_url, api_key, model, system_template, user)
+                latencies.append((time.time() - started) * 1000)
             except Exception as error:  # noqa: BLE001
                 print("  调用失败 %s/%s: %s" % (name, file.get("filePath"), error))
                 parse_failures += 1
@@ -230,6 +245,12 @@ def main():
     print("must-not 违规 = %d（要求 0）" % must_not_violations)
     print("clean 场景误报 = %d 条（%d 个 clean 用例）" % (clean_violations, clean_cases))
     print("未标注的新发现 = %d 条（需人工复核，不能直接算误报）" % unlabeled)
+    print("跳过闸门类用例 = %d 个（真模型不产生坏 JSON / 删除行语义）" % skipped_gate)
+    if latencies:
+        ordered = sorted(latencies)
+        p50 = ordered[len(ordered) // 2]
+        p90 = ordered[min(len(ordered) - 1, int(len(ordered) * 0.9))]
+        print("单文件审查耗时 p50=%.0fms p90=%.0fms（%d 次真实调用）" % (p50, p90, len(latencies)))
 
     if args.out:
         json.dump(report, open(args.out, "w", encoding="utf-8"), ensure_ascii=False, indent=2)

@@ -815,7 +815,8 @@
     "expectedFindings": [],
     "mustNotFindings": [
       {
-        "issueType": "BUG_RISK"
+        "issueType": "BUG_RISK",
+        "titleContains": "不在 diff"
       }
     ]
   },
