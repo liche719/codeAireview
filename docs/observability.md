@@ -128,3 +128,29 @@ codepilot:
 > 这些缺口不是"忘了做"，是有意识留下的——每一条都写明了是哪一层拿不到数据，
 > 或为什么现在不做（例如队列深度指标需要一条管理连接，失败时**必须降级为不暴露
 > 而不是让应用启动失败**，这个降级设计本身需要单独验证）。
+
+---
+
+## 4. 运营指标接口（2026-10-29 新增）
+
+上面的 Micrometer 计数器只有**累计值**，问"最近 7 天成功率怎么样"要自己隔时间取差值。
+新增一个直接给**时间窗口快照**的接口：
+
+```bash
+curl -s -H "X-CodePilot-Api-Key: $KEY" "https://liche.cloud:8990/api/stats/review?days=7" | jq
+```
+
+返回结构（一次查询答完五个问题）：
+
+| 字段 | 答什么问题 | 口径 |
+|---|---|---|
+| `tasks` | 这段时间建了多少任务、成功率多少 | 按 `created_at` 落窗口；成功率 = SUCCESS / 全部 |
+| `duration` | 慢不慢、慢在哪里 | `finished_at - started_at` 的 p50/p90/max，**不含排队** |
+| `failures` | 失败都是什么类型 | 按异常前缀归类：`github-auth` / `github-rate-limit` / `timeout` / `network` / `llm` / `business` / `other` / `unknown` |
+| `publish` | 评论有没有发出去 | 任务级看 `publish_status`；问题级看 `publish_decision`（`PUBLISH` / `SUPPRESS`）并算发布率 |
+| `backlog` | 队列有没有积压 | `PENDING` 任务数 + 最老一条等了多久（**不依赖 RabbitMQ 管理接口**） |
+
+**为什么积压不用 RabbitMQ 队列深度**：那要给应用配管理接口凭据、并且多一个网络依赖；
+而"有多少任务还没被消费者领走、最老的等了多久"用主库就能算，且语义更贴近用户感受（用户关心的是任务什么时候开始跑）。
+
+**归类刻意保守**：认不出的错误落 `other`，不硬塞进已知桶——指标一旦开始骗人，比没有指标更糟。
