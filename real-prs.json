@@ -1,0 +1,228 @@
+[
+  {
+    "commit": "cf3e131",
+    "subject": "stats: add a windowed review operations endpoint",
+    "files": [
+      {
+        "file": "src/main/java/com/codepilot/module/review/controller/ReviewOpsStatsController.java",
+        "issues": [
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/controller/ReviewOpsStatsController.java",
+            "lineNumber": 29,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "参数校验缺失",
+            "severity": "MEDIUM",
+            "title": "days 参数未做范围校验，可能传入负数或超大值",
+            "description": "review 接口直接接收 int days 并透传给 statsService.snapshot(days)，未校验取值范围。若调用方传入负数或极大值（如 0、-1、100000），可能导致时间窗口计算异常、查询范围过大或下游逻辑出现意外行为。",
+            "suggestion": "在 Controller 或 Service 层对 days 做边界校验（例如 1~365），非法值返回参数错误；可使用 @Min/@Max 配合 @Validated，或在 Service 中显式校验并抛出业务异常。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/controller/ReviewOpsStatsController.java",
+            "lineNumber": 29,
+            "issueType": "TEST_MISSING",
+            "issueTypeZh": "测试缺失",
+            "severity": "LOW",
+            "title": "新增 Controller 公开接口缺少对应测试",
+            "description": "本次 PR 新增了 ReviewOpsStatsController 的公开接口 review，但未同时新增对应测试，无法验证参数透传、默认值 7 以及返回结构是否符合预期。",
+            "suggestion": "补充 Controller 层测试（如 MockMvc），覆盖默认 days=7、显式传参以及非法参数场景。",
+            "source": "LLM",
+            "ruleReference": "团队规范：新增 Service / Controller 的公开方法应当有对应测试"
+          }
+        ]
+      },
+      {
+        "file": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+        "issues": [
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 60,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "潜在 Bug",
+            "severity": "MEDIUM",
+            "title": "taskStatusCounts 中 counts.getOrDefault 返回 Long 与 Number 强转存在类型隐患",
+            "description": "counts 是 Map<String, Object>，getOrDefault(\"SUCCESS\", 0L) 返回 Object，随后直接强转为 Number。虽然当前 put 的是 Long，但 getOrDefault 的默认值 0L 与 Map 值类型混用，若后续有人改为 put 其他类型或使用不同 Map 实现，容易在运行时抛 ClassCastException。此外 successRate 计算依赖 status 字符串精确等于 \"SUCCESS\"，若数据库状态值大小写或枚举变化会静默变成 0。",
+            "suggestion": "建议将 counts 声明为 Map<String, Long>，或显式使用 Number 安全转换并处理 null；对 SUCCESS 状态常量做统一引用，避免魔法字符串。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 78,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "潜在 Bug",
+            "severity": "MEDIUM",
+            "title": "taskDuration 中 queryForMap 结果字段可能为 null 导致 NPE",
+            "description": "queryForMap 返回的 row 中 n、p50、p90、max 虽然 SQL 用了 COALESCE，但 COUNT(*) 在无数据时仍返回 0，COALESCE 对聚合结果通常有效；不过若查询返回空 Map 或驱动返回 null，((Number) row.get(\"n\")).longValue() 会抛 NPE。当前 try-catch 只捕获 RuntimeException 并降级，但会把真实数据问题掩盖成 'duration unavailable'，不利于排查。",
+            "suggestion": "对 row.get 结果做 null 判断或使用 Optional/默认值；catch 中建议记录完整异常堆栈（log.warn(msg, exception)）而非仅 message。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 100,
+            "issueType": "PERFORMANCE",
+            "issueTypeZh": "性能问题",
+            "severity": "MEDIUM",
+            "title": "failureTypes 全量拉取 error_message 到内存再归类",
+            "description": "failureTypes 使用 queryForList 把窗口内所有 FAILED 任务的 error_message 全量加载到 JVM 内存，再在应用层做字符串归类。失败任务量大时会造成内存压力和网络传输开销，且归类逻辑无法利用数据库聚合。",
+            "suggestion": "考虑在 SQL 中用 CASE WHEN 做归类聚合，或至少限制返回行数/分页；若必须应用层归类，可只 select 必要字段并评估数据量上限。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 130,
+            "issueType": "LOGGING",
+            "issueTypeZh": "日志问题",
+            "severity": "LOW",
+            "title": "异常日志仅打印 message，丢失堆栈且可能包含敏感信息",
+            "description": "taskDuration 和 publishStats 的 catch 中仅记录 exception.getMessage()，丢失堆栈不利于定位问题；同时 error_message 或数据库异常信息可能包含 SQL 片段、连接串等敏感内容，直接打印存在泄露风险。",
+            "suggestion": "使用 log.warn(\"...\", exception) 记录完整异常；若担心敏感信息，可只记录异常类型和脱敏后的摘要。",
+            "source": "LLM",
+            "ruleReference": "日志规范：日志中不得打印敏感字段，异常应保留堆栈"
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 150,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "潜在 Bug",
+            "severity": "MEDIUM",
+            "title": "classifyFailure 使用 contains(\"401\") 等宽泛匹配易误分类",
+            "description": "classifyFailure 通过 text.contains(\"401\")、contains(\"403\")、contains(\"parse\") 等宽泛子串匹配归类，error_message 中任意包含这些数字或单词的文本都会被误判，例如堆栈行号、时间戳、URL 参数等，导致失败类型统计失真。",
+            "suggestion": "建议基于异常类名或更精确的关键短语（如 'HTTP 401'、'BadCredentialsException'）匹配，或使用正则边界匹配，减少误分类。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 170,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "潜在 Bug",
+            "severity": "MEDIUM",
+            "title": "publishStats 中 issueLevel 统计失败被静默吞掉，返回结果缺少字段",
+            "description": "publishStats 在 review_issue 查询失败时仅 log.warn 并继续，block 中不会放入 issueLevel 和 issuePublishRate，调用方拿到的是不完整结构，且无法区分“无数据”和“查询失败”，可能误导运营判断。",
+            "suggestion": "在 catch 中显式放入 error 标记或空结构，保证返回字段稳定；同时记录完整异常堆栈。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 185,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "潜在 Bug",
+            "severity": "LOW",
+            "title": "backlog 中 queryForObject 可能返回 null 已处理，但 COUNT 查询无窗口限制",
+            "description": "backlog 统计 PENDING 任务未加时间窗口，若历史遗留大量 PENDING 脏数据会长期计入积压，导致指标失真；另外 queryForObject 返回 null 已做兜底，但 COUNT(*) 理论上不会为 null，兜底逻辑可保留。",
+            "suggestion": "确认 PENDING 状态是否会被清理；如需反映真实积压，可考虑排除超时或异常状态的记录，或在文档中说明口径。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/stats/ReviewOpsStatsService.java",
+            "lineNumber": 40,
+            "issueType": "TEST_MISSING",
+            "issueTypeZh": "测试缺失",
+            "severity": "MEDIUM",
+            "title": "新增 ReviewOpsStatsService 公开方法 snapshot 及归类逻辑缺少单元测试",
+            "description": "本次 PR 新增了 ReviewOpsStatsService，包含公开方法 snapshot 以及包级静态方法 classifyFailure，但未看到对应测试。classifyFailure 的分支逻辑和 snapshot 的窗口裁剪、空数据兜底都值得覆盖。",
+            "suggestion": "为 classifyFailure 增加参数化单元测试覆盖各分类分支；为 snapshot 增加 Mock JdbcTemplate 的测试，验证窗口裁剪、空结果和异常降级行为。",
+            "source": "LLM",
+            "ruleReference": "团队规范：新增 Service 的公开方法应当有对应测试"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "commit": "06d466c",
+    "subject": "review: drop LLM test-missing findings when the PR already adds tests",
+    "files": [
+      {
+        "file": "src/main/java/com/codepilot/module/review/processor/ReviewFileReviewer.java",
+        "issues": []
+      },
+      {
+        "file": "src/main/java/com/codepilot/module/review/processor/ReviewTestCoverageGuard.java",
+        "issues": [
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/processor/ReviewTestCoverageGuard.java",
+            "lineNumber": 60,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "潜在 bug",
+            "severity": "MEDIUM",
+            "title": "测试类名匹配逻辑可能误删合法的 TEST_MISSING 问题",
+            "description": "testSubjects 通过去掉 test/tests 前后缀得到被测对象名，subjectOf 则直接取问题文件路径的简单类名。两者匹配依赖命名完全一致，但实际测试类命名多样（如 FooServiceImplTest 对应 FooServiceImpl、FooServiceTest 对应 FooService、AbstractFooTest 等），且 subjectOf 未做任何后缀归一化。当测试类名与被测类名不完全一致时，会漏匹配导致误报未被拦截；反之，若测试类名去掉 test 后恰好等于某个无关类的名字，也可能误删真实缺失测试的问题。此外，simple.endsWith(\"test\") 与 startsWith(\"test\") 同时命中时（如 TestFooTest）会加入多个 subject，逻辑不够严谨。",
+            "suggestion": "建议明确匹配规则：对被测类名也做同样的归一化（去除 Impl/Service 等常见后缀或统一比较），或改为基于包路径+类名的精确映射；对 TestFooTest 这类同时命中前后缀的情况做互斥处理，避免产生歧义 subject。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/processor/ReviewTestCoverageGuard.java",
+            "lineNumber": 47,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "潜在 bug",
+            "severity": "LOW",
+            "title": "入参为 null 时返回不可变空列表，与正常路径返回可变列表不一致",
+            "description": "当 issues 为 null 时返回 List.of()（不可变），而正常路径返回 new ArrayList<>()（可变）。调用方若对返回值做 add/remove 等修改操作，在 null 入参场景下会抛 UnsupportedOperationException，行为不一致且难以排查。",
+            "suggestion": "统一返回可变列表，例如 issues == null 时返回 new ArrayList<>()，或在方法契约中明确返回值不可变并让所有分支保持一致。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/review/processor/ReviewTestCoverageGuard.java",
+            "lineNumber": 44,
+            "issueType": "TEST_MISSING",
+            "issueTypeZh": "测试缺失",
+            "severity": "MEDIUM",
+            "title": "新增公开静态方法 suppressUnfoundedTestMissing 缺少单元测试",
+            "description": "本次 PR 新增了公开方法 suppressUnfoundedTestMissing，包含 null 入参、空列表、无测试文件、命中/未命中过滤、大小写归一化等多个分支，但 PR 中未新增对应测试。该方法直接决定是否丢弃 LLM 报出的 TEST_MISSING，逻辑错误会直接影响审查结果准确性。",
+            "suggestion": "补充单元测试覆盖：issues 为 null、reviewFiles 为 null/空、无测试文件、测试类名命中（FooTest/FooTests/TestFoo）、未命中、非 LLM 来源或非 TEST_MISSING 类型不被过滤、顺序保持等场景。",
+            "source": "LLM",
+            "ruleReference": "团队规范：新增 Service/Controller 的公开方法应当有对应测试"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "commit": "52683e9",
+    "subject": "fix(webhook): stop identifying the bot by account, use comment markers",
+    "files": [
+      {
+        "file": "src/main/java/com/codepilot/module/github/webhook/GitHubWebhookService.java",
+        "issues": [
+          {
+            "filePath": "src/main/java/com/codepilot/module/github/webhook/GitHubWebhookService.java",
+            "lineNumber": 157,
+            "issueType": "BUG_RISK",
+            "issueTypeZh": "潜在 bug",
+            "severity": "MEDIUM",
+            "title": "移除 bot 作者过滤后自循环防护完全依赖 CommentMarkers 标记",
+            "description": "本次删除了 isBotAuthoredIssueComment 的 bot 作者判断，改为只检查评论文体是否缺失。注释声称 GitHubWebhookPayloadParser 已在入口按 CommentMarkers.containsAnyIdentity 丢弃自己发的评论，但该保证不在本 diff 中，无法从当前变更证实。若标记匹配存在遗漏（例如评论被编辑、格式变化、行内评论标记未覆盖、或解析器入口未真正调用该判断），则「收到评论 → 回一条评论 → 又收到评论」的自循环风险会重新出现，且没有任何兜底。",
+            "suggestion": "确认 GitHubWebhookPayloadParser 入口确实对所有评论事件（issue_comment 与 pull_request_review_comment）都执行 CommentMarkers.containsAnyIdentity 过滤，并补充针对该过滤的单元测试；或在服务层保留一个基于评论标记的兜底判断，避免仅依赖单一入口。",
+            "source": "LLM",
+            "ruleReference": null
+          },
+          {
+            "filePath": "src/main/java/com/codepilot/module/github/webhook/GitHubWebhookService.java",
+            "lineNumber": 157,
+            "issueType": "TEST_MISSING",
+            "issueTypeZh": "测试缺失",
+            "severity": "MEDIUM",
+            "title": "新增 isRequiredCommentBodyMissing 分支缺少测试覆盖",
+            "description": "本次将 isBotAuthoredIssueComment 替换为 isRequiredCommentBodyMissing，新增了「评论事件且评论文体为空则忽略」的分支，同时移除了原有的 bot 作者过滤逻辑。该 PR 未同时新增或修改对应测试，无法验证空 body 被忽略、非评论事件不受影响、以及自循环防护仍然有效。",
+            "suggestion": "为 isRequiredCommentBodyMissing 增加单元测试：覆盖评论事件 body 为空、body 非空、非评论事件三种情况；并补充一个验证 bot 自身评论仍被入口标记过滤的集成/单元测试。",
+            "source": "LLM",
+            "ruleReference": "团队规范：新增 Service 公开方法/分支应有对应测试"
+          }
+        ]
+      },
+      {
+        "file": "src/main/java/com/codepilot/module/review/report/CommentMarkers.java",
+        "issues": []
+      }
+    ]
+  }
+]
