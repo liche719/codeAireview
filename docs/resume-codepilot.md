@@ -153,7 +153,7 @@ curl -s -H "X-CodePilot-Api-Key: $KEY" "https://liche.cloud:8990/api/stats/revie
 
 | 能力 | 证据 | 可复现 |
 |---|---|---|
-| **门禁（阻断合并）** | 真实 PR 上 commit status = `failure`，原因「2 deterministic findings at or above HIGH」 | 沙箱 PR #2 |
+| **门禁** | 真实 PR 上 commit status = `failure`（原因「2 deterministic findings at or above HIGH」）；**required check 需公开仓库或 GitHub Pro，私有免费仓库设不了**，这一点要在面试里说清 | 沙箱 PR #2 |
 | **审计** | `GET /api/audit` 返回 `{action:TRIGGER_REVIEW, actor, sourceIp, target, result, detail}` | 触发任意审查即可 |
 | **SLO** | `/api/stats/review` 的 `slo` 段，实测抓到红灯：成功率 83.3%（目标 95%） | 同上 |
 | **成本（按仓库）** | `/api/stats/cost` 的 `byRepo`：`liche719/codepilot-verify` 3 次调用 / 11654 输入 token | 跑一次新文件审查 |

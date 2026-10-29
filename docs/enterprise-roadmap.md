@@ -319,3 +319,35 @@ agent 的回复（原文摘录）：
 
 **仍未完成**：按仓库统计。`LangChain4jReviewLlmClient` 只有 model 与 token，
 拿不到 task/repo；需要把 taskId 透传到 LLM 客户端。接口的 `note` 里写明了这条。
+### 2026-10-29（九）：required status check 的账户限制（如实记录）
+
+目标里写的是"门禁可被 required status check 引用"。我尝试直接在这个演示仓库上把它设成必需项，
+结果被 GitHub 挡下来了：
+
+```
+GET  /repos/{repo}/branches/main/protection   → 403
+GET  /repos/{repo}/rulesets                  → 403 Upgrade to GitHub Pro or make this repository public
+POST /repos/{repo}/rulesets                  → 403
+```
+
+**原因**：GitHub 的**分支保护 / rulesets 属于付费能力**（个人账号需 Pro，或仓库设为公开）。
+演示仓库 `liche719/codepilot-verify` 是私有的免费仓库，所以：
+
+- **已验证**：commit status 能正确写入，状态与原因都对（真实 PR 上 `state=failure`，原因
+  「2 deterministic findings at or above HIGH」）；
+- **未验证**：GitHub 是否据此阻止合并——这一步受账户套餐限制，**不是代码没实现**。
+
+**别人的仓库/企业账号上怎么配（一行命令即可）**：
+
+```bash
+# 公开仓库或 Pro 账号才有权限
+curl -X PATCH https://api.github.com/repos/{owner}/{repo}/branches/main/protection \
+  -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+  -d '{"required_status_checks":{"strict":false,"contexts":["CodePilot Review"]},
+       "enforce_admins":false,"required_pull_request_reviews":null,"restrictions":null}'
+```
+
+或者在新版 Ruleset 里把 `CodePilot Review` 加进 `required_status_checks`。
+
+**口径**：简历/面试里应该说"门禁状态已写入并验证，required check 需要公开仓库或 Pro 账号，
+在满足条件的仓库上配置即可生效"——**不要说"已经被强制引用"**。
