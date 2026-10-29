@@ -216,3 +216,28 @@ agent 的回复（原文摘录）：
 `getPullRequestDetail`、`listPullRequestFiles`、`getStoredReviewFindings`、`searchTeamRules`、`searchWeb`、
 `fetchWebDocument`、`startReviewWorkflow`、`startFixPreview`、`approveFixPreview`、`approveFixMerge`——
 动作类工具只能**启动受控 Workflow 或提交审批**，真正的写操作在流程末端由服务端执行。
+### 2026-10-29（五）：审计日志落地（⑤ 的第一件）
+
+**做了什么**：`audit_log` 表 + `AuditLogService` + `GET /api/audit`；触发审查时落一条记录。
+
+**实测**（生产）：
+
+```json
+{"action":"TRIGGER_REVIEW","actor":"api-key","sourceIp":"192.168.80.1",
+ "target":"https://github.com/liche719/codepilot-verify/pull/2",
+ "result":"SUCCESS","detail":"taskId=18, commentMode=BOTH"}
+```
+
+**三个设计决定**：
+
+1. **审计是旁路**：写库失败只打一行 warn，**绝不让已经成功的审查变成失败**。
+   为了一条审计记录把主流程搞挂，是把"可追溯"变成"新的失败点"（`AuditLogServiceTest` 锁住这条）。
+2. **不记正文、不记 token**：只记动作、操作者、来源、目标、结果与必要的 detail，超长字段截断。
+3. **操作者先记 `api-key`**：现在是私有化单企业部署，API Key 只有一把；
+   将来分权（读/触发/审批各一把）时，把这里换成 key 指纹即可，表结构不用动。
+
+**踩到的坑（值得记）**：重命名 Flyway 迁移文件后，`target/classes` 里的旧文件**不会被删**，
+于是 jar 里同时存在 `V10__create_audit_log.sql` 与 `V27__create_audit_log.sql`，
+启动直接失败：`Found more than one migration with version 10`。
+**重命名/删除迁移文件后必须 `mvn clean package`**。
+这次也因此让服务中断了约 10 分钟（502），属于我操作不当，记录在此。

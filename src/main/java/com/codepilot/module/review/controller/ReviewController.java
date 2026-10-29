@@ -31,13 +31,30 @@ public class ReviewController {
 
     private final ReviewQueryService reviewQueryService;
 
+    /** 审计（2026-10-29）：谁能触发审查要能查得到 */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.codepilot.module.audit.service.AuditLogService auditLogService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private jakarta.servlet.http.HttpServletRequest httpRequest;
+
     @PostMapping
     public Result<ReviewCreateResponse> createReview(@Valid @RequestBody ReviewCreateRequest request) {
         // 2026-10-29：允许调用方指定评论形态。原来 API 触发的一律 SUMMARY_ONLY，
         // 于是"手动触发一次审查"永远拿不到行内评论——端到端验证时才发现（任务 14：20 条问题只出了摘要）。
         com.codepilot.common.enums.ReviewCommentMode commentMode =
                 com.codepilot.common.enums.ReviewCommentMode.fromValue(request.getCommentMode());
-        return Result.success(reviewTaskService.createTask(request.getPrUrl(), null, commentMode));
+        ReviewCreateResponse response = reviewTaskService.createTask(request.getPrUrl(), null, commentMode);
+        if (auditLogService != null) {
+            auditLogService.record(
+                    com.codepilot.module.audit.service.AuditLogService.ACTION_TRIGGER_REVIEW,
+                    "api-key",
+                    httpRequest == null ? null : httpRequest.getRemoteAddr(),
+                    request.getPrUrl(),
+                    "SUCCESS",
+                    "taskId=" + response.getTaskId() + ", commentMode=" + commentMode.name());
+        }
+        return Result.success(response);
     }
 
     @GetMapping("/{taskId}")
