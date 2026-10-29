@@ -412,7 +412,11 @@ class ReviewTaskServiceImplTest {
                     reviewTaskCreator,
                     reviewTaskMessageDispatcher,
                     reviewTaskRunner,
-                    reviewMetrics
+                    reviewMetrics,
+                    // 2026-10-29：创建前会解析 head sha（否则同 PR 重复触发会撞唯一索引）。
+                    // 这两个依赖在单测里用内联 mock，保持既有断言不变。
+                    org.mockito.Mockito.mock(com.codepilot.module.git.client.GithubClient.class),
+                    org.mockito.Mockito.mock(com.codepilot.module.git.parser.GithubPrUrlParser.class)
             );
             ReflectionTestUtils.setField(service, "baseMapper", reviewTaskMapper);
         }

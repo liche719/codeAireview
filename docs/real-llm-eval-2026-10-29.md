@@ -207,3 +207,43 @@ curl -sk -X POST https://127.0.0.1:8990/api/reviews \
 需要一个有 `repo` 权限的 GitHub PAT（或 GitHub App 的 private key + installation id），
 填进 `/opt/codeAireview/.env` 的 `CODEPILOT_GITHUB_TOKEN` 后重启容器即可。
 那时可以完整跑一遍：触发 → 任务 SUCCESS → 摘要评论 → 行内评论 → `/api/stats/review` 里 `publish` 段落有数据。
+## ① 端到端证据：拿到 token 后跑通了（2026-10-29）
+
+有了有效 GitHub 凭据之后，完整链路第一次走通，并且**当场暴露了两个 bug**（都已修）。
+
+### 证据链（真实 PR，非模拟）
+
+沙箱 PR：`https://github.com/liche719/codepilot-verify/pull/2`（我建的分支 + 故意留了缺陷的文件：
+硬编码口令、SQL 字符串拼接、未关闭资源、潜在空指针、日志打印手机号）
+
+| 环节 | 证据 |
+|---|---|
+| 触发 | `POST /api/reviews` → `{"taskId":16,"status":"RUNNING"}` |
+| 任务 | 任务 **16**：`SUCCESS`，`totalFiles=1`，`totalIssues=10`，`publish_status=PUBLISHED` |
+| 摘要评论 | PR 上出现 `<!-- codepilot-ai-review -->` 标记的摘要，逐条列出「[高] 安全风险 / SQL 风险 …」并带 Evidence |
+| 行内评论 | GitHub API 查到 **7 条**行内评论，带 `<!-- codepilot-inline-review -->` 与 finding 指纹，定位到 `OrderService.java` 第 14/17/21/31/33 行 |
+| 指标接口 | `/api/stats/review` 的 `publish` 段落随即可查 |
+
+### 过程中修掉的两个 bug（都是端到端才暴露的）
+
+**bug 1：API 触发只能 SUMMARY_ONLY**
+`ReviewCreateRequest` 只有 `prUrl`，所以走 API 创建的任务**永远是只发摘要**——
+任务 14 明明找出 20 条问题、7 个文件，PR 上却只有一段摘要。
+修法：请求体加 `commentMode`（`BOTH` / `SUMMARY_ONLY` / `INLINE_ONLY`），不填保持原行为。
+
+**bug 2：API 触发不解析 head sha → 撞唯一索引**
+创建任务时不带 `headSha`，于是"同一 PR 重复触发"永远匹配不到可复用任务，
+每次插一条 `head_sha` 为空的行；消费者回填 `head_sha` 时撞上
+`uq_review_task_active_head_mode`（已存在同 head、同 mode 的 SUCCESS 行）→ 任务必然失败（任务 15 就是这么挂的）。
+修法：创建前先解析 head sha（一次 GitHub 调用），让去重/复用真正生效；解析失败不阻塞创建。
+
+修完之后再触发同一 PR，返回的是 `{"taskId":10,"status":"SUCCESS"}`——**复用了已有任务**，这正是幂等该有的样子。
+
+### 复现命令
+
+```bash
+KEY=$(docker inspect codepilot-app --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^CODEPILOT_API_AUTH_API_KEY=' | cut -d= -f2-)
+curl -sk -X POST https://127.0.0.1:8990/api/reviews \
+  -H "X-CodePilot-Api-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"prUrl":"https://github.com/liche719/codepilot-verify/pull/2","commentMode":"BOTH"}'
+```

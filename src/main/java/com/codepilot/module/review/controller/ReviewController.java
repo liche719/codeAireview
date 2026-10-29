@@ -33,7 +33,11 @@ public class ReviewController {
 
     @PostMapping
     public Result<ReviewCreateResponse> createReview(@Valid @RequestBody ReviewCreateRequest request) {
-        return Result.success(reviewTaskService.createTask(request.getPrUrl()));
+        // 2026-10-29：允许调用方指定评论形态。原来 API 触发的一律 SUMMARY_ONLY，
+        // 于是"手动触发一次审查"永远拿不到行内评论——端到端验证时才发现（任务 14：20 条问题只出了摘要）。
+        com.codepilot.common.enums.ReviewCommentMode commentMode =
+                com.codepilot.common.enums.ReviewCommentMode.fromValue(request.getCommentMode());
+        return Result.success(reviewTaskService.createTask(request.getPrUrl(), null, commentMode));
     }
 
     @GetMapping("/{taskId}")
