@@ -213,3 +213,32 @@ codepilot-app 容器 :8080
 > 注意：`codepilot.liche.cloud` 目前**在权威 DNS 里不存在**（直接问 `dns31.hichina.com`
 > 得到 NXDOMAIN，不是缓存问题），所以证书里暂时只有 `liche.cloud`。
 
+## 只改代码时的快速发版（2026-10-29）
+
+服务器上没有 maven/JDK（只有 docker），`docker compose up --build` 会在容器里重新下载依赖，
+慢且容易因网络失败。所以加了一条**预构建 jar** 的快路径：
+
+```powershell
+# 本机：打包（离线，依赖已在本地仓库）
+mvn -o -q -DskipTests package
+
+# 上传 jar 与预构建用 Dockerfile
+scp target/codepilot-ai-review-0.0.1-SNAPSHOT.jar root@120.25.170.92:/opt/codeAireview/app-prebuilt.jar
+scp Dockerfile.prebuilt root@120.25.170.92:/opt/codeAireview/Dockerfile.prebuilt
+
+# 服务器：构建镜像并重建容器（约 30 秒）
+ssh root@120.25.170.92 'cd /opt/codeAireview \
+  && docker build -f Dockerfile.prebuilt -t codeaireview-app:$(date +%Y%m%d) . \
+  && docker tag codeaireview-app:$(date +%Y%m%d) codeaireview-app:latest \
+  && docker compose -f docker-compose.server.yml up -d --no-build --force-recreate app'
+```
+
+验证：
+
+```bash
+KEY=$(docker inspect codepilot-app --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^CODEPILOT_API_AUTH_API_KEY=' | cut -d= -f2-)
+curl -sk -H "X-CodePilot-Api-Key: $KEY" "https://127.0.0.1:8990/api/stats/review?days=30" | python3 -m json.tool
+```
+
+**注意**：`docker-compose.server.yml` 的 `app` 服务仍是 `build:` 定义的。用 `--no-build` 时
+compose 直接用本地已有的 `codeaireview-app:latest`，所以**必须先 tag 成 latest**，否则会用到旧镜像。

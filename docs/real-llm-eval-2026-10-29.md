@@ -88,3 +88,20 @@ python scripts/eval-real-llm.py --out report.json
 全部通过——规则没有破坏原有闸门行为。
 
 **口径**：79.2% 是"跳过 3 个闸门用例"后的真实召回；不要写成 100%，也不要把闸门用例的 miss 算到模型头上。
+
+## ④ 上线：运营指标接口已在生产可查（2026-10-29）
+
+`GET /api/stats/review?days=30` 实测返回（生产库真实数据）：
+
+```json
+{"tasks": {"total": 11, "byStatus": {"SUCCESS": 10, "FAILED": 1}, "successRate": 0.909},
+ "duration": {"samples": 11, "p50Seconds": 15.1, "p90Seconds": 19.0, "maxSeconds": 21.4},
+ "failures": {"total": 1, "byType": [{"type": "github-auth", "count": 1}]},
+ "publish": {"taskLevel": {"PUBLISHED": 10, "NOT_REQUESTED": 1},
+             "issueLevel": {"PUBLISH": 100, "SUPPRESS": 112}, "issuePublishRate": 0.472},
+ "backlog": {"pendingTasks": 0, "oldestWaitSeconds": 0}}
+```
+
+**这组数字本身就是这条接口的价值**：一眼看出"唯一的失败是 GitHub 鉴权过期"、
+"约一半的问题被闸门抑制（112/212）"、"积压为 0"、"任务耗时 p50 15 秒"。
+在没有 Prometheus 的部署里，这些以前要靠翻日志。
