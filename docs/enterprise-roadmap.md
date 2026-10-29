@@ -301,3 +301,21 @@ agent 的回复（原文摘录）：
   应用启动即失败（`No qualifying bean of type LlmUsageMapper`）——移到 `module.review.mapper` 后正常；
 - 又一次因为没 `clean` 而打到旧资源，重复了上一轮的教训（**改迁移/移动类之后一律 `mvn clean package`**）。
   两次都造成了短时 502。
+### 2026-10-29（八）：成本链路打通（上一节的两个"没完成"解决了一个）
+
+**为什么之前 `llm_usage` 是 0 行**：那次审查**命中了 `ai_review_cache`**（同 head sha、同文件内容），
+根本没有调用模型，自然没有用量。换一个**全新文件**（必然缓存未命中）再跑一次，立刻有了数据：
+
+```json
+{"byDay":[{"bucket":"2026-10-29","calls":3,"promptTokens":9319,"completionTokens":4066,"cost":null}],
+ "byModel":[{"bucket":"deepseek-chat","calls":3,"promptTokens":9319,"completionTokens":4066,"cost":null}],
+ "budget":{"dailyBudget":0.0,"todayCost":0.0,"exceeded":false}}
+```
+
+**顺手修掉一个自己犯的原则性错误**：聚合时我一开始写的是 `SUM(COALESCE(estimated_cost, 0))`，
+把"没配单价"折叠成了 0——而这个项目自己的约定是"**不知道 ≠ 没花钱**"（见 `ReviewLlmMetrics` 的类注释）。
+已改成 `SUM(estimated_cost)`：没有单价时返回 `null`，接口里能一眼看出"我们不知道花了多少"。
+**要真实金额，需要在配置里显式写模型单价**（项目刻意不内置价目表，因为价格会变，错的钱数比没有更危险）。
+
+**仍未完成**：按仓库统计。`LangChain4jReviewLlmClient` 只有 model 与 token，
+拿不到 task/repo；需要把 taskId 透传到 LLM 客户端。接口的 `note` 里写明了这条。

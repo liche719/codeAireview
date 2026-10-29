@@ -35,13 +35,13 @@ public class CostStatsService {
         result.put("byDay", query(
                 "SELECT to_char(created_at, 'YYYY-MM-DD') AS bucket, "
                         + "COUNT(*) AS calls, SUM(prompt_tokens) AS prompt, SUM(completion_tokens) AS completion, "
-                        + "SUM(COALESCE(estimated_cost, 0)) AS cost "
+                        + "SUM(estimated_cost) AS cost "
                         + "FROM llm_usage WHERE created_at >= now() - (? || ' days')::interval "
                         + "GROUP BY 1 ORDER BY 1 DESC", String.valueOf(window)));
         result.put("byModel", query(
                 "SELECT COALESCE(model_name, 'unknown') AS bucket, COUNT(*) AS calls, "
                         + "SUM(prompt_tokens) AS prompt, SUM(completion_tokens) AS completion, "
-                        + "SUM(COALESCE(estimated_cost, 0)) AS cost "
+                        + "SUM(estimated_cost) AS cost "
                         + "FROM llm_usage WHERE created_at >= now() - (? || ' days')::interval "
                         + "GROUP BY 1 ORDER BY cost DESC", String.valueOf(window)));
         double today = llmUsageService.todayCost();
@@ -62,7 +62,9 @@ public class CostStatsService {
             row.put("calls", rs.getLong("calls"));
             row.put("promptTokens", rs.getLong("prompt"));
             row.put("completionTokens", rs.getLong("completion"));
-            row.put("cost", Math.round(rs.getDouble("cost") * 10000) / 10000.0);
+            double raw = rs.getDouble("cost");
+            // SUM 在"所有行都没有单价"时返回 NULL；这里保持 NULL 语义，不要变成 0
+            row.put("cost", rs.wasNull() ? null : Math.round(raw * 10000) / 10000.0);
             rows.add(row);
         }, days);
         return rows;
