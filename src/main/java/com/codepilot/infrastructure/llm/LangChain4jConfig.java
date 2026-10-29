@@ -27,6 +27,14 @@ public class LangChain4jConfig {
     private final AiReviewJsonSchemaFactory aiReviewJsonSchemaFactory;
 
     /**
+     * 用于给模型调用计数（2026-10-29）。用 ObjectProvider 延迟获取，
+     * 避免配置层直接依赖命令模块的 bean。
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<
+            com.codepilot.module.command.runtime.AgentRunService> agentRunServiceProvider;
+
+    /**
      * 把每次真实模型调用计入 agent_run（2026-10-29）。
      * 用字段注入 + {@code required=false}：配置层不该因为命令模块的 bean 而启动失败。
      */
@@ -61,12 +69,13 @@ public class LangChain4jConfig {
                 timeout.toSeconds());
 
         OpenAiChatModel.OpenAiChatModelBuilder chatModelBuilder = baseOpenAiChatModelBuilder(baseUrl, timeout);
-        // 2026-10-29：把每次真实模型调用计入 agent_run，让 max-model-turns 真正生效。
-        // 没有它，轮次恒为 1，限额是死的（详见 AgentRunService#recordModelTurn）。
         if (agentModelTurnListener != null) {
             chatModelBuilder.listeners(List.of(agentModelTurnListener));
         }
-        return chatModelBuilder.build();
+        ChatModel built = chatModelBuilder.build();
+        // 2026-10-29：用装饰器统计真实模型调用。listener 路线实测不管用（计数恒为 1），
+        // 这里是我们自己的类，每次 chat 必然经过，max-model-turns 才真正生效。
+        return agentRunServiceProvider == null ? built : new CountingChatModel(built, agentRunServiceProvider);
     }
 
     @Bean

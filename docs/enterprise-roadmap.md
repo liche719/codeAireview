@@ -144,3 +144,27 @@ step3 TOOL_RESULT searchTeamRules FAILED — BusinessException: embedding is dis
 1. 确认 `ChatModelListener` 是否被 AiServices 的 tool loop 触发（打日志验证）；
 2. 如果 listener 路线不通，改成在**工具调用边界**校验：`recordToolCall` 时检查
    `model_turn_count` 与工具调用次数是否超阈值——那里是我们自己的代码，一定能拦住。
+### 2026-10-29（三）：限额终于真的生效了（换成装饰器）
+
+上一节的结论是"listener 路线不管用"。这轮换了做法并验证成功。
+
+**为什么 listener 不行**：`ChatModelListener` 挂在 model 上，AiServices 内部工具循环的后续调用
+没有走到我们的计数逻辑，`model_turn_count` 恒为 1。
+
+**换成装饰器**：新增 `CountingChatModel implements ChatModel`，包住真实的 chat model，
+在 `doChat()` 里计数——这是我们自己的类，**每次模型调用必然经过**。
+
+**真实证据（沙箱 PR）**：
+
+| 场景 | 结果 |
+|---|---|
+| 正常额度（8 轮） | run 10：`model_turn_count = 5`、`tool_call_count = 1`、COMPLETED —— 终于能看见真实的轮次 |
+| 额度调到 2 轮 | run 11：**FAILED**，`error_message = Agent limit exceeded: type=MODEL_TURNS, currentValue=3, limitValue=2` |
+| 日志 | `Agent chat task hit a hard limit, limitType=MODEL_TURNS, currentValue=3, limitValue=2` |
+| 用户看到的话 | 「本次请求已达到「模型轮次」上限（2 轮），已停止执行。建议：把问题拆成更小的几步再问。本次<b>不会自动重试</b>（重试仍会撞同一上限）。」 |
+
+**这条为什么值得讲**：限额是"Agent 治理"里最容易做假的一项——配上一个数、看起来有护栏，
+但真正触发不了。这轮的价值在于**把"配置存在"变成"行为可验证"**：
+限额触发有日志、有 `agent_run` 状态、还有用户看得懂的收尾话术。
+
+验证后已把 `max-model-turns` 恢复为 8，服务健康（`site=200`，5 分钟 0 ERROR）。
