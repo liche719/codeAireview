@@ -116,7 +116,32 @@ public class AgentRunService {
         metrics.transition("resumed");
     }
 
+
+    /**
+     * 收尾前先把计数从库里刷新回来（2026-10-29 修）。
+     *
+     * <p><b>真实故障</b>：沙箱 PR 上 agent 明明调了 2 次工具（`agent_step` 里有 2 条 TOOL 记录），
+     * 可 `agent_run.tool_call_count` 却是 **0**——因为运行时手里那份 `AgentRun` 是**调工具之前**加载的，
+     * 收尾时 `updateById(run)` 把整行写回去，顺手把计数覆盖成了 0。
+     *
+     * <p>指标一旦开始骗人，比没有指标更糟：限额（max-tool-calls）就是靠这个计数判断的，
+     * 覆盖成 0 意味着限额永远不触发。
+     */
+    private void refreshCounters(AgentRun run) {
+        if (run == null || run.getId() == null) {
+            return;
+        }
+        AgentRun persisted = runMapper.selectById(run.getId());
+        if (persisted == null) {
+            return;
+        }
+        run.setModelTurnCount(persisted.getModelTurnCount());
+        run.setToolCallCount(persisted.getToolCallCount());
+        run.setContinuationCount(persisted.getContinuationCount());
+    }
+
     public void complete(AgentRun run, String response) {
+        refreshCounters(run);
         run.setStatus("COMPLETED");
         run.setLastResponse(truncate(SensitiveDataSanitizer.redact(response), 4000));
         run.setErrorMessage(null);
@@ -127,6 +152,7 @@ public class AgentRunService {
     }
 
     public void fail(AgentRun run, String message) {
+        refreshCounters(run);
         run.setStatus("FAILED");
         run.setErrorMessage(truncate(SensitiveDataSanitizer.redact(message), 2000));
         run.setCompletedAt(LocalDateTime.now());

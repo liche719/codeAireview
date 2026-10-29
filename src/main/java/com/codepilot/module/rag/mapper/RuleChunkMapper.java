@@ -63,6 +63,39 @@ public interface RuleChunkMapper extends BaseMapper<RuleChunk> {
             @Param("topK") int topK
     );
 
+    /**
+     * 关键词兜底检索（2026-10-29）。
+     *
+     * <p><b>为什么需要</b>：真实部署里 agent 调 `searchTeamRules` 返回
+     * `BusinessException: embedding is disabled`——因为没配 embedding key，
+     * 于是"查团队规范"这个能力**在线上直接不可用**，而模型只能回一句"查不到"。
+     * 企业部署里 embedding 服务常常是最后才接的，这期间不该整条 RAG 作废。
+     *
+     * <p>做法：对 content 做 ILIKE 匹配，并按命中次数粗略排序；命中 0 条就返回空，
+     * 让调用方明确知道"是没匹配到"，而不是"服务挂了"。
+     */
+    @Select("""
+            <script>
+            SELECT id AS chunk_id,
+                   document_id,
+                   content,
+                   type,
+                   CAST(0 AS double precision) AS distance
+            FROM rule_chunk
+            WHERE content ILIKE CONCAT('%', #{query}, '%')
+            <if test="type != null and type != ''">
+              AND type = #{type}
+            </if>
+            ORDER BY length(content) ASC
+            LIMIT #{topK}
+            </script>
+            """)
+    List<RuleSearchRecord> searchByKeyword(
+            @Param("query") String query,
+            @Param("type") String type,
+            @Param("topK") int topK
+    );
+
     @Select("""
             SELECT format_type(a.atttypid, a.atttypmod)
             FROM pg_attribute a

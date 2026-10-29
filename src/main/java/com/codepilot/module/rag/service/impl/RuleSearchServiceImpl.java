@@ -39,11 +39,18 @@ public class RuleSearchServiceImpl implements RuleSearchService {
         }
 
         int topK = normalizeTopK(request.getTopK());
-        List<Float> embedding = embeddingService.embed(request.getQuery().trim());
-        String vectorString = PgVectorUtils.toVectorString(embedding);
         String type = StringUtils.hasText(request.getType()) ? request.getType().trim() : null;
 
-        List<RuleSearchRecord> records = ruleChunkMapper.search(vectorString, type, topK);
+        List<RuleSearchRecord> records;
+        try {
+            List<Float> embedding = embeddingService.embed(request.getQuery().trim());
+            records = ruleChunkMapper.search(PgVectorUtils.toVectorString(embedding), type, topK);
+        } catch (RuntimeException exception) {
+            // 2026-10-29：embedding 未配置/不可用时降级为关键词检索，而不是让"查团队规范"直接失败。
+            log.warn("语义检索不可用，降级为关键词检索, queryLength={}, reason={}",
+                    request.getQuery().length(), exception.getMessage());
+            records = ruleChunkMapper.searchByKeyword(request.getQuery().trim(), type, topK);
+        }
         log.info("Rule search completed, queryLength={}, topK={}, type={}, resultCount={}",
                 request.getQuery().length(), topK, type, records.size());
         return new RuleSearchResponse(records);
