@@ -46,6 +46,10 @@ public class ReviewLlmMetrics {
 
     private final LlmProperties llmProperties;
 
+    /** 用量落库（2026-10-29）：Micrometer 计数只有累计值，回答不了"按天花了多少" */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.codepilot.module.review.cost.LlmUsageService llmUsageService;
+
     /** 应用级 LLM 响应缓存的命中情况。 */
     public void recordLlmCache(boolean hit) {
         meterRegistry.counter("codepilot.review.llm.cache", "result", hit ? "hit" : "miss").increment();
@@ -64,6 +68,14 @@ public class ReviewLlmMetrics {
      * @param outputTokens  输出 token；provider 未返回时传 {@code null}
      */
     public void recordUsage(String model, Integer inputTokens, Integer outputTokens) {
+        if (llmUsageService != null) {
+            // 落库用于"按天/按模型"统计；没有单价时 cost 记 null（不知道 ≠ 0）
+            llmUsageService.record(model,
+                    inputTokens == null ? 0L : inputTokens.longValue(),
+                    outputTokens == null ? 0L : outputTokens.longValue(),
+                    estimatedCostFor(model, inputTokens, outputTokens));
+        }
+
         if (inputTokens != null && inputTokens > 0) {
             meterRegistry.counter("codepilot.review.llm.tokens", "kind", "input").increment(inputTokens);
         }
@@ -71,6 +83,20 @@ public class ReviewLlmMetrics {
             meterRegistry.counter("codepilot.review.llm.tokens", "kind", "output").increment(outputTokens);
         }
         recordCost(model, inputTokens, outputTokens);
+    }
+
+
+    /** 按配置单价估算金额；没有单价返回 null（表示"不知道"，不是 0） */
+    private Double estimatedCostFor(String model, Integer inputTokens, Integer outputTokens) {
+        if (inputTokens == null && outputTokens == null) {
+            return null;
+        }
+        LlmProperties.ModelPrice price = priceFor(model);
+        if (price == null) {
+            return null;
+        }
+        return safe(inputTokens) / TOKENS_PER_MILLION * price.getInputPerMillion()
+                + safe(outputTokens) / TOKENS_PER_MILLION * price.getOutputPerMillion();
     }
 
     private void recordCost(String model, Integer inputTokens, Integer outputTokens) {

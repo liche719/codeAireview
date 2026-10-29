@@ -270,3 +270,34 @@ agent 的回复（原文摘录）：
    由企业自己的监控来接。硬编码一个 IM webhook 反而会变成运维负担。
 2. **样本不足不判定**：1 条样本的 p95 没有意义，宁可不判也不算错（`ReviewOpsSloTest` 锁住）。
 3. **红灯必须能解释**：每个 check 都给出 `actual` 与 `target`，运维一眼能看出是"真的慢了"还是"阈值定高了"。
+### 2026-10-29（七）：成本与配额（⑤ 的最后一件，**部分完成**）
+
+**已落地**：
+
+- `llm_usage` 表（`V28`）：记录每次模型调用的 prompt/completion token 与估算金额；
+- `GET /api/stats/cost?days=7`：按天、按模型聚合，外加今日预算状态
+  （`codepilot.cost.daily-budget-yuan`，0 = 不启用）；
+- 金额口径沿用项目原有约定：**没有配置单价时 `estimatedCost = null`（不知道），不是 0（没花钱）**。
+
+**实测**（接口可用）：
+
+```json
+{"windowDays":7,"byDay":[],"byModel":[],
+ "budget":{"dailyBudget":0.0,"todayCost":0.0,"exceeded":false},
+ "note":"按仓库统计暂未支持：LLM 客户端拿不到 task 上下文"}
+```
+
+**还没完成的两点（如实记录）**：
+
+1. **`llm_usage` 目前没有数据**：跑了一次改动过文件的真实 PR 审查，表里仍是 0 行。
+   需要确认是"走缓存没调模型"还是"`Result.tokenUsage()` 为空时提前返回、没走到落库"；
+2. **按仓库统计没做**：`LangChain4jReviewLlmClient` 里只有 model 与 token，
+   拿不到 task/repo；要做需要把 taskId 透传到 LLM 客户端（独立一轮的改动）。
+   接口里用 `note` 明确写了这条，而不是编一个假维度。
+
+**部署过程中踩的两个坑**：
+
+- `LlmUsageMapper` 放在 `module.review.cost` 包下，**不在 `@MapperScan` 的包里**，
+  应用启动即失败（`No qualifying bean of type LlmUsageMapper`）——移到 `module.review.mapper` 后正常；
+- 又一次因为没 `clean` 而打到旧资源，重复了上一轮的教训（**改迁移/移动类之后一律 `mvn clean package`**）。
+  两次都造成了短时 502。
