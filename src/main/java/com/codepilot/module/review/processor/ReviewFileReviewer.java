@@ -27,6 +27,10 @@ public class ReviewFileReviewer {
 
     private final ReviewFileFailureIssueFactory failureIssueFactory;
 
+    /** 增量审查（2026-10-30）：与上次相比没变化的文件直接跳过，不再调模型 */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.codepilot.module.review.incremental.IncrementalReviewService incrementalReviewService;
+
     @Autowired
     public ReviewFileReviewer(
             ReviewContextBuilder reviewContextBuilder,
@@ -79,6 +83,9 @@ public class ReviewFileReviewer {
         }
         Long taskId = task == null ? null : task.getId();
         ReviewContext reviewContext = reviewContextBuilder.build(task, reviewFiles);
+        if (incrementalReviewService != null) {
+            incrementalReviewService.markUnchangedAsSkipped(task, reviewFiles);
+        }
         List<ReviewFile> reviewableFiles = reviewFiles.stream()
                 .filter(reviewFile -> !Boolean.TRUE.equals(reviewFile.getSkipped()))
                 .toList();

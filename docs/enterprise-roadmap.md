@@ -392,3 +392,26 @@ CodePilot Review | failure | 2 deterministic finding(s) at or above HIGH; highes
 **代价与说明**：为了让 required check 生效，把演示仓库 `liche719/codepilot-verify` 改成了**公开**。
 它只有 README 和一个演示分支（内容是我生成的示例代码，含一个假口令字符串），不含任何真实凭据。
 如果要恢复私有，`PATCH {"private": true}` 即可，但那样分支保护会随之失效（GitHub 的套餐限制）。
+### 2026-10-30：增量审查（之前"明确不做"的那条，现在做了）
+
+上一轮把增量审查列为"明确不做"，理由是"收益低于其他五项"。真实用起来之后改主意了：
+演示 PR 反复推几次，每次全量重审同样的文件——**又慢又吵**，这是用户能直接感知的。
+
+**做法**：不调 GitHub compare API，直接比 patch。
+
+- 找同一 PR **上一次成功审查**（headSha 不同、id 更小）；
+- 把上次每个文件存下来的 `patch` 与本次比对；
+- **patch 完全一致**的文件标 `skipped=true / skip_category=UNCHANGED`，不再调模型。
+
+为什么比 patch 而不是比 commit：语义更准——rebase 导致提交变了但文件没变，不该触发重审；
+而且少一次外部调用就少一个失败点。
+
+**实测（任务 22）**：
+
+```
+Incremental review skipped unchanged files, taskId=22, skipped=2, total=3
+review_file: 1 条正常审 + 2 条 UNCHANGED
+```
+
+**边界**：没有历史审查时照常全量；被跳过的文件会落 `skip_reason`，
+摘要里的覆盖度声明会照实体现（不会被读成"全部通过"）。开关 `codepilot.review.incremental-enabled`。
