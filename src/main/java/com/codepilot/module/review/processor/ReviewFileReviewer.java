@@ -31,6 +31,10 @@ public class ReviewFileReviewer {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.codepilot.module.review.incremental.IncrementalReviewService incrementalReviewService;
 
+    /** 入站决策（2026-11-02，参考 dsh-superagent 的 Eval 层）：先判断这次值不值得跑，再决定 */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.codepilot.module.review.intake.ReviewIntakeDecisionService intakeDecisionService;
+
     @Autowired
     public ReviewFileReviewer(
             ReviewContextBuilder reviewContextBuilder,
@@ -82,6 +86,13 @@ public class ReviewFileReviewer {
             return List.of();
         }
         Long taskId = task == null ? null : task.getId();
+        if (intakeDecisionService != null) {
+            var decision = intakeDecisionService.decide(taskId, reviewFiles);
+            if (!decision.allowed()) {
+                // 不值得审：整次模型调用都省掉，只留一条带理由的决策（不是"审完再丢"）
+                return List.of();
+            }
+        }
         ReviewContext reviewContext = reviewContextBuilder.build(task, reviewFiles);
         if (incrementalReviewService != null) {
             incrementalReviewService.markUnchangedAsSkipped(task, reviewFiles);
