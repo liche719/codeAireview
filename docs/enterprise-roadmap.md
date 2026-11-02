@@ -415,3 +415,54 @@ review_file: 1 条正常审 + 2 条 UNCHANGED
 
 **边界**：没有历史审查时照常全量；被跳过的文件会落 `skip_reason`，
 摘要里的覆盖度声明会照实体现（不会被读成"全部通过"）。开关 `codepilot.review.incremental-enabled`。
+
+### 2026-11-02：团队规范检索加"精确词通道"（并发现它原来只对单词生效）
+
+**动机**：向量召回对 `@Transactional`、`ERR_502`、`OrderService` 这类**精确 token** 天然弱——
+语义上"差不多"，但用户要的恰恰是"就是这一条"。
+
+**改了什么**：
+
+| 改动 | 内容 |
+|---|---|
+| 迁移 `V30` | `CREATE EXTENSION pg_trgm` + `gin (content gin_trgm_ops)`，让 `ILIKE '%..%'` 走索引（原来全表扫） |
+| `RuleChunkMapper` | 新增 `searchByTerms`（多词 OR 召回）；原关键词查询的排序从 `length()` 改成 `similarity()` |
+| `RuleSearchServiceImpl` | `search()` / `searchByTypes()` 都改成**向量 + 精确词 → RRF 融合**（k=60） |
+
+**中途发现的真问题**：第一版上线后只有**单个 token** 能命中：
+
+```
+@Transactional   → 1 条 ✅
+ERR_502          → 1 条 ✅
+幂等 重复请求      → 0 条 ❌
+ThreadLocal 泄漏  → 0 条 ❌
+```
+
+原因：关键词那一路是 `content ILIKE '%整个查询%'`——要求整串连续出现，本质是"精确整句"而非"精确词"。
+修法：按空白/标点拆词 → OR 召回 → **Java 侧按命中词数重排**。
+
+**修复后实测**（10 条真实感规范，`embedding=NULL`，即"没配 embedding"的部署形态）：
+
+| 查询 | 结果 |
+|---|---|
+| `@Transactional` | 命中「写操作必须在 @Transactional 方法内完成」 |
+| `ERR_502` | 命中「下游不可用 ERR_502」 |
+| `幂等 重复请求` | 命中「创建类接口必须支持幂等…重复请求返回首次结果」 |
+| `ThreadLocal 泄漏` | 命中「ThreadLocal 必须在 finally 里 remove」 |
+| `OrderService 命名` | 命中「类名用大驼峰 OrderService…禁止拼音缩写」 |
+
+执行计划确认走索引：
+
+```
+Bitmap Index Scan on idx_rule_chunk_content_trgm
+  Index Cond: (content ~~* '%ERR_502%')
+```
+
+**顺带修掉的缺陷**：`searchByTypes()`（K 类工具 `searchTeamRules` 走它）原来**只有向量一条路**，
+embedding 不可用时整条"查团队规范"能力直接挂。现在两路都在，任一路可用即可。
+
+**还没验证的**：这台机器 `CODEPILOT_EMBEDDING_ENABLED=false`，所以**融合逻辑的"向量侧"只跑了代码路径，
+没有真实对比数据**——等配了 embedding key，才能拿"纯向量 vs 融合"的排序差异说事。
+
+**面试口径**：不要只说"我加了混合检索"，要说"我先加了精确词通道，实测发现它只对单词有效，
+改成拆词+命中数重排才真的能用；向量侧因为没配 embedding 还没验证，我不把它算作已证明的收益"。
