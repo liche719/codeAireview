@@ -9,6 +9,9 @@ public class RuleSearchRecord {
 
     private Long documentId;
 
+    /** 命中块在文档里的序号（邻块扩展要靠它） */
+    private Integer chunkIndex;
+
     private String content;
 
     private String type;

@@ -140,7 +140,7 @@ public class RuleSearchServiceImpl implements RuleSearchService {
         return scores.entrySet().stream()
                 .sorted(java.util.Map.Entry.<String, Double>comparingByValue().reversed())
                 .limit(topK)
-                .map(entry -> byKey.get(entry.getKey()))
+                .map(entry -> expandNeighbors(byKey.get(entry.getKey())))
                 .toList();
     }
 
@@ -178,6 +178,48 @@ public class RuleSearchServiceImpl implements RuleSearchService {
     }
 
     /** 这条规范命中了几个查询词（大小写不敏感） */
+    /**
+     * 命中块的**邻块扩展**（2026-11-02）。
+     *
+     * <p>没有 Rerank 模型时的取舍：用小片去检索（精准、噪音小），命中后再把前后相邻块拼回来
+     * （上下文完整）。上限 1200 字，避免把整篇规范塞进上下文。
+     *
+     * <p>这不是标准的父子文档（那需要入库时维护父子关系），而是**低成本的等价做法**：
+     * 只多一次按 (document_id, chunk_index) 的查询，不改表结构、不改切块。
+     */
+    private RuleSearchRecord expandNeighbors(RuleSearchRecord record) {
+        if (record == null || record.getDocumentId() == null || !StringUtils.hasText(record.getContent())) {
+            return record;
+        }
+        try {
+            int index = record.getChunkIndex() == null ? 0 : record.getChunkIndex();
+            // 只扩前后各 1 块；并且**命中的那块放最前面**——否则模型先读到的可能是邻块，
+            // 会把"相关规范"误当成"命中规范"（实测把 SQL 规范排在了幂等规范前面）。
+            List<String> neighbors = ruleChunkMapper.selectNeighborContents(
+                    record.getDocumentId(), Math.max(0, index - 1), index + 1);
+            if (neighbors == null || neighbors.isEmpty()) {
+                return record;
+            }
+            StringBuilder merged = new StringBuilder();
+            merged.append(record.getContent().trim());
+            for (String piece : neighbors) {
+                if (!StringUtils.hasText(piece) || piece.trim().equals(record.getContent().trim())) {
+                    continue;
+                }
+                if (merged.length() + piece.length() > 1200) {
+                    break;
+                }
+                merged.append('\n').append(piece.trim());
+            }
+            String expanded = merged.toString();
+            record.setContent(expanded);
+            return record;
+        } catch (RuntimeException exception) {
+            log.debug("邻块扩展失败（用原块返回）：{}", exception.getMessage());
+            return record;
+        }
+    }
+
     private int matchedTerms(String content, List<String> terms) {
         if (content == null || content.isEmpty()) {
             return 0;

@@ -37,6 +37,7 @@ public interface RuleChunkMapper extends BaseMapper<RuleChunk> {
     @Results(id = "RuleSearchRecordMap", value = {
             @Result(column = "chunk_id", property = "chunkId"),
             @Result(column = "document_id", property = "documentId"),
+            @Result(column = "chunk_index", property = "chunkIndex"),
             @Result(column = "content", property = "content"),
             @Result(column = "type", property = "type"),
             @Result(column = "distance", property = "distance")
@@ -45,6 +46,7 @@ public interface RuleChunkMapper extends BaseMapper<RuleChunk> {
             <script>
             SELECT id AS chunk_id,
                    document_id,
+                   chunk_index,
                    content,
                    type,
                    embedding &lt;=&gt; CAST(#{embedding} AS vector) AS distance
@@ -90,6 +92,7 @@ public interface RuleChunkMapper extends BaseMapper<RuleChunk> {
             <script>
             SELECT id AS chunk_id,
                    document_id,
+                   chunk_index,
                    content,
                    type,
                    CAST(0 AS double precision) AS distance
@@ -122,6 +125,7 @@ public interface RuleChunkMapper extends BaseMapper<RuleChunk> {
             <script>
             SELECT id AS chunk_id,
                    document_id,
+                   chunk_index,
                    content,
                    type,
                    CAST(0 AS double precision) AS distance
@@ -143,6 +147,28 @@ public interface RuleChunkMapper extends BaseMapper<RuleChunk> {
             @Param("query") String query,
             @Param("type") String type,
             @Param("limit") int limit
+    );
+
+    /**
+     * 取同一文档里某几块的内容（2026-11-02，"小片检索、大片返回"的低成本版）。
+     *
+     * <p>没有 Rerank 模型时，命中精度靠小片，但小片上下文不全。
+     * 这里在命中之后把**相邻块**一起拿回来补上下文，等价于"父子文档"的工程平替，
+     * 不需要额外的模型，也不需要重新切库。
+     */
+    @Select("""
+            <script>
+            SELECT content
+            FROM rule_chunk
+            WHERE document_id = #{documentId}
+              AND chunk_index BETWEEN #{fromIndex} AND #{toIndex}
+            ORDER BY chunk_index
+            </script>
+            """)
+    List<String> selectNeighborContents(
+            @Param("documentId") Long documentId,
+            @Param("fromIndex") int fromIndex,
+            @Param("toIndex") int toIndex
     );
 
     @Select("""
