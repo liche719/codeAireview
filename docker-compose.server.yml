@@ -60,10 +60,15 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: codepilot-app
+    # 2026-11-04：内存上限。JVM 默认 MaxRAMPercentage=75，看到 1.83 GB 就允许自己长到 1.4 GB，
+    # 而机器只有 1.87 GB —— 内核只能把 Java 页换到 swap（实测这个 JVM 占 307 MB swap）。
+    # 它实际只用 ~30 MB，512 MB 上限给足余量。
+    mem_limit: 512m
     restart: unless-stopped
     env_file:
       - .env
     environment:
+      JAVA_OPTS: ${JAVA_OPTS:--XX:MaxRAMPercentage=50 -Djava.security.egd=file:/dev/./urandom}
       CODEPILOT_DB_URL: jdbc:postgresql://postgres:5432/${CODEPILOT_DB_NAME:-codepilot}
       CODEPILOT_DB_USERNAME: ${CODEPILOT_DB_USERNAME:-codepilot}
       CODEPILOT_DB_PASSWORD: ${CODEPILOT_DB_PASSWORD:-codepilot123}
